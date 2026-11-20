@@ -14,8 +14,8 @@ const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search.json';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 
-const CONCURRENCY = 6; // Process 6 MPs in parallel
-const SAVE_BATCH_SIZE = 25; // Save to Supabase every 25 MPs
+const CONCURRENCY = 6;
+const SAVE_BATCH_SIZE = 25;
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -56,20 +56,32 @@ function formatReadableDate(dateStr) {
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
+async function fetchWithTimeout(url, timeoutMs = 15000) {
+    return fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs)
+    });
+}
+
+/**
+ * Fetches all Hansard spoken contributions for a given date (YYYY-MM-DD)
+ * using Parliament's `queryParameters.*` convention and a strict pagination guard.
+ */
 async function fetchHansardContributionsByDate(dateStr) {
     const contributionsByMp = new Map();
     let skip = 0;
     const take = 100;
+    const MAX_PAGES = 40; // Safety cap (4,000 speeches max per sitting day)
 
-    while (true) {
+    for (let page = 0; page < MAX_PAGES; page++) {
         const url = new URL(HANSARD_SEARCH_API);
-        url.searchParams.set('startDate', dateStr);
-        url.searchParams.set('endDate', dateStr);
-        url.searchParams.set('house', 'Commons');
-        url.searchParams.set('skip', String(skip));
-        url.searchParams.set('take', String(take));
+        url.searchParams.set('queryParameters.startDate', dateStr);
+        url.searchParams.set('queryParameters.endDate', dateStr);
+        url.searchParams.set('queryParameters.house', 'Commons');
+        url.searchParams.set('queryParameters.skip', String(skip));
+        url.searchParams.set('queryParameters.take', String(take));
 
-        const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+        const res = await fetchWithTimeout(url.toString());
         if (!res.ok) {
             console.warn(`Hansard API returned ${res.status} for ${dateStr}`);
             break;
@@ -77,9 +89,19 @@ async function fetchHansardContributionsByDate(dateStr) {
 
         const data = await res.json();
         const items = data?.Contributions || data?.Results || [];
+        const totalResults = data?.TotalContributions ?? data?.TotalResults ?? null;
+
+        if (page === 0) {
+            console.log(`Hansard search for ${dateStr}: totalResults=${totalResults ?? 'unknown'}, firstPage=${items.length}`);
+        }
+
         if (!Array.isArray(items) || items.length === 0) break;
 
         for (const item of items) {
+            // Double-check sitting date matches target date
+            const itemDate = (item.SittingDate || '').slice(0, 10);
+            if (itemDate && itemDate !== dateStr) continue;
+
             const memberId = item.MemberId || item.AttributedToId;
             if (!memberId) continue;
 
@@ -93,13 +115,17 @@ async function fetchHansardContributionsByDate(dateStr) {
             });
         }
 
+        skip += items.length;
         if (items.length < take) break;
-        skip += take;
+        if (totalResults !== null && skip >= totalResults) break;
     }
 
     return contributionsByMp;
 }
 
+/**
+ * Fetches all House of Commons division votes for a given date (YYYY-MM-DD).
+ */
 async function fetchDivisionVotesByDate(dateStr) {
     const votesByMp = new Map();
 
@@ -107,7 +133,7 @@ async function fetchDivisionVotesByDate(dateStr) {
     searchUrl.searchParams.set('queryParameters.startDate', dateStr);
     searchUrl.searchParams.set('queryParameters.endDate', dateStr);
 
-    const listRes = await fetch(searchUrl.toString(), { headers: { 'Accept': 'application/json' } });
+    const listRes = await fetchWithTimeout(searchUrl.toString());
     if (!listRes.ok) {
         console.warn(`Commons Votes API returned ${listRes.status} for ${dateStr}`);
         return { divisionsCount: 0, votesByMp };
@@ -122,9 +148,7 @@ async function fetchDivisionVotesByDate(dateStr) {
         const divId = div.DivisionId;
         if (!divId) continue;
 
-        const detailRes = await fetch(`${COMMONS_DIVISION_DETAIL_API}/${divId}.json`, {
-            headers: { 'Accept': 'application/json' }
-        });
+        const detailRes = await fetchWithTimeout(`${COMMONS_DIVISION_DETAIL_API}/${divId}.json`);
         if (!detailRes.ok) continue;
 
         const detail = await detailRes.json();
@@ -299,7 +323,7 @@ export async function generateBriefings() {
             return;
         }
 
-        // 2. Load all active MPs and any already-completed briefings for today (for instant resume)
+        // 2. Load all active MPs and any already-completed briefings for today
         const [{ data: mps, error: mpFetchError }, { data: existingRows }] = await Promise.all([
             supabase
                 .from('mps')
@@ -331,6 +355,7 @@ export async function generateBriefings() {
         }
 
         // 3. Fetch yesterday's Hansard speeches and Commons division votes
+        console.log('Fetching Hansard speeches and Commons division votes...');
         const [contributionsByMp, { divisionsCount, votesByMp }] = await Promise.all([
             fetchHansardContributionsByDate(dateStr),
             fetchDivisionVotesByDate(dateStr)

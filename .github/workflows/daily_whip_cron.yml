@@ -1,0 +1,39 @@
+name: Whip Daily Parliamentary Sync
+
+on:
+  schedule:
+    # Runs every morning at 06:05 UTC (6:05 AM UK winter time)
+    # Finishes syncing all 650 MPs + generating AI summaries well before 7:00 AM
+    - cron: '5 6 * * *'
+  workflow_dispatch:
+    # Allows you to click "Run workflow" manually in GitHub anytime to test!
+
+jobs:
+  update-parliament-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Step 1 — Sync all 650 MPs from Parliament API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run sync:roster
+
+      - name: Step 2 — Generate yesterday's Hansard & Gemini briefings
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npm run generate:briefings

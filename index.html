@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="description" content="Whip — Plain-English daily summaries of what your MP did yesterday in the UK Parliament.">
     <title>Whip — Your MP, yesterday in Parliament</title>
-    <!-- Inline PWA Manifest for Google Play Store (PWABuilder / TWA) -->
+    <!-- Inline PWA Manifest -->
     <link rel="manifest" href='data:application/manifest+json,{"name":"Whip — Yesterday in Parliament","short_name":"Whip","start_url":".","display":"standalone","background_color":"#FFFFFF","theme_color":"#111111","description":"Your MP, yesterday in Parliament in plain English."}'>
     <!-- Google Fonts: Playfair Display & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,7 +15,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Supabase JS Client (for live database connection) -->
+    <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         tailwind.config = {
@@ -74,7 +74,7 @@
 </head>
 <body class="min-h-screen flex flex-col selection:bg-ink selection:text-white">
 
-    <!-- Minimalist Masthead (No sticky clutter, pure editorial hierarchy) -->
+    <!-- Minimalist Masthead -->
     <header class="max-w-3xl w-full mx-auto px-6 sm:px-8 pt-10 sm:pt-14 pb-8">
         <div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-4 border-b border-ink pb-6">
             <div class="flex items-baseline gap-3">
@@ -85,7 +85,7 @@
                     Your MP, yesterday in Parliament
                 </span>
             </div>
-            <div class="text-xs text-inkTertiary font-medium tracking-tight">
+            <div id="lastSyncBadge" class="text-xs text-inkTertiary font-medium tracking-tight">
                 Updated 7:00 AM daily
             </div>
         </div>
@@ -94,7 +94,7 @@
     <!-- Main Single-Column Editorial Canvas -->
     <main class="flex-grow max-w-3xl w-full mx-auto px-6 sm:px-8 pb-24">
 
-        <!-- Uber-Style Tactile Utility Search (Quiet by default, rich on focus) -->
+        <!-- Tactile Utility Search -->
         <section aria-label="Find your representative" class="mb-14 sm:mb-16">
             <div class="relative" id="mpSearchContainer">
                 <div class="relative flex items-center">
@@ -108,7 +108,7 @@
                         id="mpSearchInput"
                         autocomplete="off"
                         aria-label="Search by UK postcode, MP name, or constituency"
-                        placeholder="Enter UK postcode (e.g. NW1 2DB) or MP name..."
+                        placeholder="Enter UK postcode (e.g. CV21 2RR), constituency, or MP name..."
                         class="w-full pl-11 pr-28 py-3.5 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-transparent focus:border-ink rounded-xl text-sm sm:text-[15px] text-ink placeholder-inkTertiary focus:outline-none transition-all"
                     />
                     <div class="absolute inset-y-0 right-1.5 flex items-center gap-1">
@@ -132,7 +132,7 @@
                     </div>
                 </div>
 
-                <!-- Postcode Resolution Status Line (Minimalist, no heavy banner) -->
+                <!-- Postcode Resolution Status Line -->
                 <div id="postcodeStatusBanner" class="hidden mt-3 text-xs flex items-center justify-between gap-3 py-1.5 px-1">
                     <span id="postcodeStatusText" class="leading-relaxed"></span>
                     <button type="button" id="dismissPostcodeBanner" class="text-inkTertiary hover:text-ink font-medium cursor-pointer shrink-0">Dismiss</button>
@@ -144,15 +144,14 @@
                     role="listbox"
                     class="hidden absolute left-0 right-0 mt-2 bg-white border border-hairline rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.08)] overflow-hidden z-40"
                 >
-                    <!-- Quick Postcode & Featured MP Suggestions inside popover -->
                     <div class="px-4 py-3 bg-surface/70 border-b border-hairline flex flex-wrap items-center justify-between gap-2 text-xs">
                         <div class="flex items-center gap-1.5 text-inkSecondary">
                             <span>Try postcode:</span>
-                            <button type="button" data-postcode="NW1 2DB" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">NW1 2DB</button>
-                            <button type="button" data-postcode="CB11 3AA" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">CB11 3AA</button>
-                            <button type="button" data-postcode="BN1 1EE" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">BN1 1EE</button>
+                            <button type="button" data-postcode="CV21 2RR" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">CV21 2RR</button>
+                            <button type="button" data-postcode="TD15 1AA" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">TD15 1AA</button>
+                            <button type="button" data-postcode="M26 2SP" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">M26 2SP</button>
                         </div>
-                        <span class="text-inkTertiary">5 featured seats</span>
+                        <span id="mpCountLabel" class="text-inkTertiary">650 active seats</span>
                     </div>
                     <div id="mpDropdownList" class="max-h-72 overflow-y-auto custom-scroll divide-y divide-hairline/60">
                         <!-- Populated dynamically via JS -->
@@ -161,38 +160,18 @@
             </div>
         </section>
 
-        <!-- Sitting Day Navigation (Apple-style Segmented Control + Clean Date) -->
+        <!-- Sitting Day Navigation -->
         <section aria-label="Parliamentary sitting date" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight">
-                Thursday, 19 November 2026
+                Loading parliamentary record...
             </p>
 
             <div id="dayToggleGroup" class="inline-flex bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary sitting day">
-                <button
-                    type="button"
-                    data-day="thursday"
-                    class="day-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer bg-white text-ink shadow-2xs"
-                >
-                    Thu 19 Nov
-                </button>
-                <button
-                    type="button"
-                    data-day="wednesday"
-                    class="day-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer text-inkSecondary hover:text-ink"
-                >
-                    Wed (PMQs)
-                </button>
-                <button
-                    type="button"
-                    data-day="friday"
-                    class="day-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer text-inkSecondary hover:text-ink"
-                >
-                    Constituency
-                </button>
+                <!-- Populated dynamically with available sitting dates -->
             </div>
         </section>
 
-        <!-- General Election Dissolution Notice (Hidden unless system_status.is_parliament_dissolved = true) -->
+        <!-- General Election Dissolution Notice -->
         <section id="dissolutionBanner" class="hidden py-12 border-t border-b border-hairline mb-12">
             <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-3">
                 General Election Period
@@ -205,37 +184,35 @@
             </p>
         </section>
 
-        <!-- Borderless Editorial Briefing (Content lives directly on the page) -->
+        <!-- Borderless Editorial Briefing -->
         <article id="briefingArticle" class="fade-transition fade-in">
             
             <!-- 1. MP Editorial Header -->
             <header class="pb-8 mb-8 border-b border-hairline flex flex-col sm:flex-row sm:items-end justify-between gap-6">
                 <div>
-                    <!-- Subtle Party & Role Line -->
                     <div class="flex items-center gap-2 text-xs sm:text-sm font-medium text-inkSecondary mb-2.5">
-                        <span id="mpPartyDot" class="w-2 h-2 rounded-full inline-block"></span>
-                        <span id="mpPartyName" class="text-ink">Labour</span>
+                        <span id="mpPartyDot" class="w-2 h-2 rounded-full inline-block bg-commonsGreen"></span>
+                        <span id="mpPartyName" class="text-ink">—</span>
                         <span class="text-inkTertiary">/</span>
-                        <span id="mpConstituency">Holborn and St Pancras</span>
+                        <span id="mpConstituency">—</span>
                     </div>
 
                     <h1 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
-                        Rt Hon Sir Keir Starmer MP
+                        Loading MP...
                     </h1>
 
                     <p class="text-sm text-inkSecondary mt-2.5">
-                        <span id="mpRole">Prime Minister</span>
+                        <span id="mpRole">—</span>
                         <span class="mx-2 text-hairline">•</span>
-                        <span id="activityBadge" class="text-inkTertiary">Oral Statement &amp; Debate</span>
+                        <span id="activityBadge" class="text-inkTertiary">—</span>
                     </p>
                 </div>
 
-                <!-- Minimalist Save Action -->
                 <div class="shrink-0">
                     <button
                         id="saveMpBtn"
                         type="button"
-                        class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border transition cursor-pointer"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer"
                     >
                         <svg id="saveMpIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
@@ -245,24 +222,21 @@
                 </div>
             </header>
 
-            <!-- 2. Two-Paragraph Accessible Summary (Generous typography, zero box clutter) -->
+            <!-- 2. Two-Paragraph Accessible Summary -->
             <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
-                <!-- Paragraph 1: Lead Editorial Paragraph -->
                 <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
-                    <!-- Populated via JS -->
+                    Fetching yesterday's Hansard record...
                 </p>
 
-                <!-- Paragraph 2: Neutral Context & Policy Explainer (Left hairline accent, open whitespace) -->
                 <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
                     <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
                         Context
                     </p>
                     <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                        <!-- Populated via JS -->
+                        Loading background context...
                     </p>
                 </div>
 
-                <!-- Quiet Source Verification Link -->
                 <div class="pt-2 flex flex-wrap items-center justify-between gap-3">
                     <button
                         id="openHansardBtn"
@@ -273,23 +247,22 @@
                         <span aria-hidden="true" class="text-inkTertiary">&rarr;</span>
                     </button>
                     <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
-                        HC Deb 19 Nov 2026 vol 758 col 412
+                        —
                     </span>
                 </div>
             </section>
 
-            <!-- 3. Yesterday's Voting Record (Clean Editorial Ledger Table) -->
+            <!-- 3. Yesterday's Voting Record -->
             <section aria-label="Yesterday's Voting Record" class="mt-16 pt-10 border-t border-hairline">
                 <div class="flex items-baseline justify-between gap-4 mb-6">
                     <h2 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
                         Voting record
                     </h2>
                     <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
-                        2 divisions
+                        0 divisions
                     </span>
                 </div>
 
-                <!-- Ledger Rows Container -->
                 <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
                     <!-- Populated dynamically via JS -->
                 </div>
@@ -297,7 +270,7 @@
 
         </article>
 
-        <!-- Quiet Editorial Colophon (Includes Google Play Store non-government disclosure) -->
+        <!-- Quiet Editorial Colophon -->
         <footer class="mt-20 pt-8 border-t border-hairline text-xs text-inkTertiary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 leading-relaxed">
             <p class="max-w-lg">
                 Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts and Commons Votes data. Party whips and pairing arrangements may affect division attendance.
@@ -329,10 +302,9 @@
         class="fixed inset-0 z-50 hidden items-center justify-center p-4 sm:p-6 bg-ink/40 backdrop-blur-xs"
     >
         <div class="bg-white border border-hairline rounded-2xl max-w-xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            <!-- Modal Header -->
             <div class="px-6 sm:px-8 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-hairline">
                 <div>
-                    <span id="modalHansardCitation" class="text-xs font-mono text-inkTertiary block mb-1">HC Deb 19 Nov 2026</span>
+                    <span id="modalHansardCitation" class="text-xs font-mono text-inkTertiary block mb-1">—</span>
                     <h3 id="hansardModalTitle" class="font-editorial text-2xl font-bold text-ink tracking-tight">
                         Hansard Transcript
                     </h3>
@@ -349,17 +321,14 @@
                 </button>
             </div>
 
-            <!-- Modal Body -->
             <div class="px-6 sm:px-8 py-6 overflow-y-auto custom-scroll space-y-8">
-                <!-- Verbatim Quote -->
                 <div>
                     <span class="block text-xs font-medium text-inkTertiary mb-3">Verbatim chamber record</span>
                     <blockquote id="modalVerbatimText" class="font-editorial italic text-lg sm:text-xl text-ink leading-relaxed">
-                        <!-- Populated via JS -->
+                        —
                     </blockquote>
                 </div>
 
-                <!-- Plain English Translation Breakdown -->
                 <div class="pt-6 border-t border-hairline">
                     <span class="block text-xs font-medium text-inkTertiary mb-4">
                         Plain-English notes
@@ -370,7 +339,6 @@
                 </div>
             </div>
 
-            <!-- Modal Footer -->
             <div class="px-6 sm:px-8 py-4 bg-surface/60 border-t border-hairline flex items-center justify-between">
                 <span class="text-xs text-inkTertiary">Source: hansard.parliament.uk</span>
                 <button
@@ -385,14 +353,294 @@
     </div>
 
     <script>
-        /**
-         * ============================================================================
-         * LIVE SUPABASE CONFIGURATION
-         * Connected to your live Supabase database.
-         * ============================================================================
-         */
         const SUPABASE_URL = 'https://njxnofubcrlshnosaglv.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
 
-        const isLiveDatabase =
-// ... existing code ... -->
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        const state = {
+            allMps: [],
+            availableDates: [],
+            selectedMp: null,
+            selectedDate: null,
+            currentBriefing: null,
+            followedMpId: localStorage.getItem('whip_followed_mp_id')
+                ? Number(localStorage.getItem('whip_followed_mp_id'))
+                : null
+        };
+
+        const els = {
+            searchContainer: document.getElementById('mpSearchContainer'),
+            searchInput: document.getElementById('mpSearchInput'),
+            postcodeLookupBtn: document.getElementById('postcodeLookupBtn'),
+            postcodeBtnText: document.getElementById('postcodeBtnText'),
+            clearSearchBtn: document.getElementById('clearSearchBtn'),
+            postcodeStatusBanner: document.getElementById('postcodeStatusBanner'),
+            postcodeStatusText: document.getElementById('postcodeStatusText'),
+            dismissPostcodeBanner: document.getElementById('dismissPostcodeBanner'),
+            dropdown: document.getElementById('mpDropdown'),
+            dropdownList: document.getElementById('mpDropdownList'),
+            mpCountLabel: document.getElementById('mpCountLabel'),
+            sittingDateDisplay: document.getElementById('sittingDateDisplay'),
+            dayToggleGroup: document.getElementById('dayToggleGroup'),
+            dissolutionBanner: document.getElementById('dissolutionBanner'),
+            briefingArticle: document.getElementById('briefingArticle'),
+            mpPartyDot: document.getElementById('mpPartyDot'),
+            mpPartyName: document.getElementById('mpPartyName'),
+            mpConstituency: document.getElementById('mpConstituency'),
+            mpName: document.getElementById('mpName'),
+            mpRole: document.getElementById('mpRole'),
+            activityBadge: document.getElementById('activityBadge'),
+            saveMpBtn: document.getElementById('saveMpBtn'),
+            saveMpIcon: document.getElementById('saveMpIcon'),
+            saveMpText: document.getElementById('saveMpText'),
+            summaryPara1: document.getElementById('summaryPara1'),
+            summaryPara2: document.getElementById('summaryPara2'),
+            openHansardBtn: document.getElementById('openHansardBtn'),
+            hansardRefTag: document.getElementById('hansardRefTag'),
+            voteCountBadge: document.getElementById('voteCountBadge'),
+            votingRecordsList: document.getElementById('votingRecordsList'),
+            toastBanner: document.getElementById('toastBanner'),
+            toastMessage: document.getElementById('toastMessage'),
+            hansardModal: document.getElementById('hansardModal'),
+            modalHansardCitation: document.getElementById('modalHansardCitation'),
+            modalVerbatimText: document.getElementById('modalVerbatimText'),
+            modalJargonGlossary: document.getElementById('modalJargonGlossary'),
+            closeHansardBtn: document.getElementById('closeHansardBtn'),
+            closeHansardFooterBtn: document.getElementById('closeHansardFooterBtn')
+        };
+
+        const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+        function formatLongDate(isoDate) {
+            if (!isoDate) return 'Recent Sitting';
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            return d.toLocaleDateString('en-GB', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                timeZone: 'UTC'
+            });
+        }
+
+        function formatShortPillDate(isoDate) {
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            return d.toLocaleDateString('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                timeZone: 'UTC'
+            });
+        }
+
+        function showToast(msg) {
+            els.toastMessage.textContent = msg;
+            els.toastBanner.classList.remove('translate-y-16', 'opacity-0');
+            els.toastBanner.classList.add('translate-y-0', 'opacity-100');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
+                els.toastBanner.classList.add('translate-y-16', 'opacity-0');
+                els.toastBanner.classList.remove('translate-y-0', 'opacity-100');
+            }, 2600);
+        }
+
+        function showPostcodeStatus(html, isError = false) {
+            els.postcodeStatusText.innerHTML = html;
+            els.postcodeStatusText.className = isError
+                ? 'leading-relaxed text-red-700'
+                : 'leading-relaxed text-inkSecondary';
+            els.postcodeStatusBanner.classList.remove('hidden');
+        }
+
+        function updateFollowButton() {
+            if (!state.selectedMp) return;
+            const isFollowing = state.followedMpId === state.selectedMp.parliament_member_id;
+            if (isFollowing) {
+                els.saveMpBtn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-ink text-white border border-ink transition cursor-pointer';
+                els.saveMpIcon.setAttribute('fill', 'currentColor');
+                els.saveMpText.textContent = 'Following';
+            } else {
+                els.saveMpBtn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer';
+                els.saveMpIcon.setAttribute('fill', 'none');
+                els.saveMpText.textContent = 'Follow MP';
+            }
+        }
+
+        function renderDropdownList(query = '') {
+            const q = query.trim().toLowerCase();
+            let matches = state.allMps;
+
+            if (q && !UK_POSTCODE_REGEX.test(q)) {
+                matches = state.allMps.filter(mp => {
+                    const name = (mp.full_name || '').toLowerCase();
+                    const seat = (mp.constituencies?.name || '').toLowerCase();
+                    const party = (mp.party || '').toLowerCase();
+                    return name.includes(q) || seat.includes(q) || party.includes(q);
+                });
+            }
+
+            els.mpCountLabel.textContent = q
+                ? `${matches.length} matching ${matches.length === 1 ? 'seat' : 'seats'}`
+                : `${state.allMps.length} active seats`;
+
+            const displayList = matches.slice(0, 60);
+
+            if (displayList.length === 0) {
+                els.dropdownList.innerHTML = `
+                    <div class="px-4 py-6 text-center text-xs text-inkTertiary">
+                        No MP or constituency matched "${query}". Try a full UK postcode like <span class="font-mono text-ink">CV21 2RR</span>.
+                    </div>
+                `;
+                return;
+            }
+
+            els.dropdownList.innerHTML = displayList.map(mp => {
+                const seatName = mp.constituencies?.name || 'UK Constituency';
+                const dotColor = mp.party_color || '#006548';
+                return `
+                    <button
+                        type="button"
+                        data-mp-id="${mp.parliament_member_id}"
+                        class="mp-option-btn w-full px-4 py-3 text-left hover:bg-surface transition flex items-center justify-between gap-3 cursor-pointer"
+                    >
+                        <div class="min-w-0">
+                            <div class="text-sm font-medium text-ink truncate">${mp.full_name}</div>
+                            <div class="text-xs text-inkSecondary flex items-center gap-1.5 mt-0.5 truncate">
+                                <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${dotColor}"></span>
+                                <span>${mp.party}</span>
+                                <span class="text-inkTertiary">•</span>
+                                <span class="truncate">${seatName}</span>
+                            </div>
+                        </div>
+                        <span class="text-xs text-inkTertiary shrink-0">Select &rarr;</span>
+                    </button>
+                `;
+            }).join('');
+
+            els.dropdownList.querySelectorAll('.mp-option-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const mpId = Number(btn.getAttribute('data-mp-id'));
+                    const chosen = state.allMps.find(m => m.parliament_member_id === mpId);
+                    if (chosen) {
+                        els.dropdown.classList.add('hidden');
+                        els.searchInput.value = chosen.constituencies?.name || chosen.short_name;
+                        els.postcodeLookupBtn.classList.add('hidden');
+                        selectMp(chosen);
+                    }
+                });
+            });
+        }
+
+        function renderDayToggles() {
+            if (state.availableDates.length === 0) {
+                els.dayToggleGroup.innerHTML = '';
+                return;
+            }
+
+            els.dayToggleGroup.innerHTML = state.availableDates.map(dateStr => {
+                const isActive = dateStr === state.selectedDate;
+                return `
+                    <button
+                        type="button"
+                        data-date="${dateStr}"
+                        class="day-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                            isActive
+                                ? 'bg-white text-ink shadow-2xs'
+                                : 'text-inkSecondary hover:text-ink'
+                        }"
+                    >
+                        ${formatShortPillDate(dateStr)}
+                    </button>
+                `;
+            }).join('');
+
+            els.dayToggleGroup.querySelectorAll('.day-toggle-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const newDate = btn.getAttribute('data-date');
+                    if (newDate && newDate !== state.selectedDate) {
+                        state.selectedDate = newDate;
+                        renderDayToggles();
+                        loadBriefingForCurrentSelection();
+                    }
+                });
+            });
+        }
+
+        function renderVotingRecords(votes) {
+            const list = Array.isArray(votes) ? votes : [];
+            els.voteCountBadge.textContent = `${list.length} ${list.length === 1 ? 'division' : 'divisions'}`;
+
+            if (list.length === 0) {
+                els.votingRecordsList.innerHTML = `
+                    <div class="py-6 text-sm text-inkTertiary">
+                        No House of Commons division votes were recorded for this date.
+                    </div>
+                `;
+                return;
+            }
+
+            els.votingRecordsList.innerHTML = list.map(v => {
+                const vote = v.mpVote || 'Abstained';
+                let badgeClass = 'bg-surface text-inkSecondary border-hairline';
+                if (vote === 'Aye') badgeClass = 'bg-emerald-50 text-emerald-900 border-emerald-200';
+                if (vote === 'No') badgeClass = 'bg-rose-50 text-rose-900 border-rose-200';
+
+                return `
+                    <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="min-w-0 pr-4">
+                            <p class="text-sm font-medium text-ink leading-snug">${v.title || 'Commons Division'}</p>
+                            <p class="text-xs text-inkTertiary mt-1">${v.houseResult || v.subtitle || ''}</p>
+                        </div>
+                        <span class="self-start sm:self-center shrink-0 px-3 py-1 rounded-full text-xs font-medium border ${badgeClass}">
+                            ${vote === 'Abstained' ? 'No vote recorded' : `Voted ${vote}`}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadBriefingForCurrentSelection() {
+            if (!state.selectedMp) return;
+
+            const mp = state.selectedMp;
+            const seatName = mp.constituencies?.name || 'UK Constituency';
+            const displayRole = mp.parliament_member_id === 4514
+                ? 'Prime Minister'
+                : (mp.role_title || `MP for ${seatName}`);
+
+            els.briefingArticle.classList.remove('fade-in');
+            els.briefingArticle.classList.add('fade-out');
+
+            els.mpPartyDot.style.backgroundColor = mp.party_color || '#006548';
+            els.mpPartyName.textContent = mp.party || 'Independent';
+            els.mpConstituency.textContent = seatName;
+            els.mpName.textContent = mp.full_name;
+            els.mpRole.textContent = displayRole;
+            updateFollowButton();
+
+            if (!state.selectedDate) {
+                els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
+                els.activityBadge.textContent = 'Awaiting next sitting';
+                els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Daily briefings appear automatically at 7:00 AM following each sitting day.`;
+                els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
+                els.hansardRefTag.textContent = 'parliament.uk';
+                renderVotingRecords([]);
+                els.briefingArticle.classList.remove('fade-out');
+                els.briefingArticle.classList.add('fade-in');
+                return;
+            }
+
+            els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
+
+            const { data: briefing, error } = await db
+                .from('daily_briefings')
+                .select('*')
+                .eq('parliament_member_id', mp.parliament_member_id)
+                .eq('sitting_date', state.selectedDate)
+                .maybeSingle();
+
+            if (error || !briefing) {
+                state.currentBriefing = null;
+                els.activityBadge.textContent = 'Constituency & Parliamentary Work';
+                els.summaryPara1.textContent =

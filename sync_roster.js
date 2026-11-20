@@ -2,8 +2,7 @@
  * Whip — Step 1: 6:00 AM Daily MP Roster Sync
  *
  * Fetches all currently sitting House of Commons MPs from the official UK Parliament
- * Members API and upserts them into Postgres. Automatically detects if Parliament
- * has been dissolved ahead of a General Election.
+ * Members API and upserts them into Supabase (`constituencies`, `mps`, `system_status`).
  */
 
 import 'dotenv/config';
@@ -13,7 +12,6 @@ const PARLIAMENT_MEMBERS_API = 'https://members-api.parliament.uk/api/Members/Se
 const PARLIAMENT_CONSTITUENCY_API = 'https://members-api.parliament.uk/api/Location/Constituency';
 const PAGE_SIZE = 20;
 
-// Clean any accidental quotes, spaces, or "KEY=" prefixes from GitHub Secrets
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
     return String(val)
@@ -35,9 +33,6 @@ if (!supabaseKey) {
 console.log(`Connecting to Supabase at: ${supabaseUrl}`);
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-/**
- * Fetches all active House of Commons MPs by paginating through Parliament's Members API.
- */
 async function fetchAllSittingMPs() {
     const allMembers = [];
     let skip = 0;
@@ -72,10 +67,6 @@ async function fetchAllSittingMPs() {
     return allMembers;
 }
 
-/**
- * Fetches official ONS GSS code (e.g., E14001234) and region for a constituency ID
- * so Postcodes.io lookups match accurately even after boundary changes.
- */
 async function fetchConstituencyMetadata(constituencyId) {
     try {
         const response = await fetch(`${PARLIAMENT_CONSTITUENCY_API}/${constituencyId}`, {
@@ -94,10 +85,6 @@ async function fetchConstituencyMetadata(constituencyId) {
     }
 }
 
-/**
- * Main sync routine: updates constituencies, upserts MPs, marks departed MPs inactive,
- * and toggles Dissolution Mode if active MP count drops to 0.
- */
 export async function syncRoster() {
     console.log(`[${new Date().toISOString()}] Starting Whip 6:00 AM MP roster sync...`);
 
@@ -115,29 +102,19 @@ export async function syncRoster() {
                 .eq('is_current_member', true);
 
             await supabase
-                .from('app_status')
+                .from('system_status')
                 .upsert({
                     id: 1,
-                    dissolution_mode: true,
-                    status_banner: 'Parliament is currently dissolved ahead of a General Election.',
-                    last_synced_at: new Date().toISOString()
+                    is_parliament_dissolved: true,
+                    active_mp_count: 0,
+                    last_roster_sync: new Date().toISOString()
                 });
 
-            console.log('Dissolution Mode enabled in app_status.');
+            console.log('Dissolution Mode enabled in system_status.');
             return;
         }
 
-        // 2. Ensure Dissolution Mode is off when Parliament is active
-        await supabase
-            .from('app_status')
-            .upsert({
-                id: 1,
-                dissolution_mode: false,
-                status_banner: null,
-                last_synced_at: new Date().toISOString()
-            });
-
-        // 3. Build Constituency & MP records
+        // 2. Build Constituency & MP records matching exact schema columns
         const constituencyMap = new Map();
         const mpRecords = [];
         const activeMpIds = [];
@@ -153,7 +130,7 @@ export async function syncRoster() {
             if (constituencyId && !constituencyMap.has(constituencyId)) {
                 const meta = await fetchConstituencyMetadata(constituencyId);
                 constituencyMap.set(constituencyId, {
-                    id: constituencyId,
+                    parliament_constituency_id: constituencyId,
                     name: constituencyName,
                     gss_code: meta.gssCode,
                     region: meta.region,
@@ -161,27 +138,32 @@ export async function syncRoster() {
                 });
             }
 
+            const fullName = v.nameFullTitle || v.nameDisplayAs || `MP #${v.id}`;
+            const shortName = v.nameDisplayAs || fullName;
+
             activeMpIds.push(v.id);
             mpRecords.push({
-                id: v.id,
-                name_display: v.nameDisplayAs || v.nameListAs || `MP #${v.id}`,
-                party_name: v.latestParty?.name || 'Independent',
-                party_abbreviation: v.latestParty?.abbreviation || 'IND',
-                party_color: v.latestParty?.backgroundColour ? `#${v.latestParty.backgroundColour.replace(/^#/, '')}` : '#64748b',
+                parliament_member_id: v.id,
+                full_name: fullName,
+                short_name: shortName,
+                party: v.latestParty?.name || 'Independent',
+                party_color: v.latestParty?.backgroundColour
+                    ? `#${v.latestParty.backgroundColour.replace(/^#/, '')}`
+                    : '#64748b',
+                role_title: `MP for ${constituencyName}`,
                 constituency_id: constituencyId,
-                constituency_name: constituencyName,
                 thumbnail_url: v.thumbnailUrl || `https://members-api.parliament.uk/api/Members/${v.id}/Thumbnail`,
                 is_current_member: true,
                 updated_at: new Date().toISOString()
             });
         }
 
-        // 4. Upsert Constituencies first (foreign key dependency)
+        // 3. Upsert Constituencies first (foreign key dependency)
         const constituencies = Array.from(constituencyMap.values());
         if (constituencies.length > 0) {
             const { error: constError } = await supabase
                 .from('constituencies')
-                .upsert(constituencies, { onConflict: 'id' });
+                .upsert(constituencies, { onConflict: 'parliament_constituency_id' });
 
             if (constError) {
                 throw new Error(`Failed upserting constituencies: ${constError.message}`);
@@ -189,13 +171,13 @@ export async function syncRoster() {
             console.log(`Upserted ${constituencies.length} constituencies.`);
         }
 
-        // 5. Upsert Active MPs in batches of 100
+        // 4. Upsert Active MPs in batches of 100
         const BATCH_SIZE = 100;
         for (let i = 0; i < mpRecords.length; i += BATCH_SIZE) {
             const batch = mpRecords.slice(i, i + BATCH_SIZE);
             const { error: mpError } = await supabase
                 .from('mps')
-                .upsert(batch, { onConflict: 'id' });
+                .upsert(batch, { onConflict: 'parliament_member_id' });
 
             if (mpError) {
                 throw new Error(`Failed upserting MP batch ${i}: ${mpError.message}`);
@@ -203,18 +185,28 @@ export async function syncRoster() {
         }
         console.log(`Upserted ${mpRecords.length} active MPs.`);
 
-        // 6. Mark any departed MPs (resignations / by-elections) as inactive
+        // 5. Mark any departed MPs (resignations / by-elections) as inactive
         if (activeMpIds.length > 0) {
             const { error: deactivateError } = await supabase
                 .from('mps')
                 .update({ is_current_member: false, updated_at: new Date().toISOString() })
                 .eq('is_current_member', true)
-                .not('id', 'in', `(${activeMpIds.join(',')})`);
+                .not('parliament_member_id', 'in', `(${activeMpIds.join(',')})`);
 
             if (deactivateError) {
                 console.warn(`Warning marking departed MPs inactive: ${deactivateError.message}`);
             }
         }
+
+        // 6. Update system_status
+        await supabase
+            .from('system_status')
+            .upsert({
+                id: 1,
+                is_parliament_dissolved: false,
+                active_mp_count: mpRecords.length,
+                last_roster_sync: new Date().toISOString()
+            });
 
         console.log(`[${new Date().toISOString()}] Roster sync completed successfully!`);
     } catch (err) {

@@ -100,4 +100,816 @@
                 <div class="relative flex items-center">
                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-inkTertiary">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </div>
+                    <input
+                        type="text"
+                        id="mpSearchInput"
+                        autocomplete="off"
+                        aria-label="Search by UK postcode, MP name, or constituency"
+                        placeholder="Enter UK postcode (e.g. CV21 2RR), constituency, or MP name..."
+                        class="w-full pl-11 pr-28 py-3.5 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-transparent focus:border-ink rounded-xl text-sm sm:text-[15px] text-ink placeholder-inkTertiary focus:outline-none transition-all"
+                    />
+                    <div class="absolute inset-y-0 right-1.5 flex items-center gap-1">
+                        <button
+                            id="postcodeLookupBtn"
+                            type="button"
+                            class="hidden px-3.5 py-2 rounded-lg bg-ink text-white text-xs font-medium hover:bg-ink/85 transition cursor-pointer"
+                        >
+                            <span id="postcodeBtnText">Find</span>
+                        </button>
+                        <button
+                            id="clearSearchBtn"
+                            type="button"
+                            aria-label="Browse all MPs"
+                            class="p-2 text-inkTertiary hover:text-ink transition cursor-pointer"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Postcode Resolution Status Line -->
+                <div id="postcodeStatusBanner" class="hidden mt-3 text-xs flex items-center justify-between gap-3 py-1.5 px-1">
+                    <span id="postcodeStatusText" class="leading-relaxed"></span>
+                    <button type="button" id="dismissPostcodeBanner" class="text-inkTertiary hover:text-ink font-medium cursor-pointer shrink-0">Dismiss</button>
+                </div>
+
+                <!-- Floating Search & Quick-Switch Popover -->
+                <div
+                    id="mpDropdown"
+                    role="listbox"
+                    class="hidden absolute left-0 right-0 mt-2 bg-white border border-hairline rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.08)] overflow-hidden z-40"
+                >
+                    <div class="px-4 py-3 bg-surface/70 border-b border-hairline flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div class="flex items-center gap-1.5 text-inkSecondary">
+                            <span>Try postcode:</span>
+                            <button type="button" data-postcode="CV21 2RR" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">CV21 2RR</button>
+                            <button type="button" data-postcode="TD15 1AA" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">TD15 1AA</button>
+                            <button type="button" data-postcode="M26 2SP" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">M26 2SP</button>
+                        </div>
+                        <span id="mpCountLabel" class="text-inkTertiary">Loading seats...</span>
+                    </div>
+                    <div id="mpDropdownList" class="max-h-72 overflow-y-auto custom-scroll divide-y divide-hairline/60">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sitting Day Navigation -->
+        <section aria-label="Parliamentary sitting date" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight">
+                Loading parliamentary record...
+            </p>
+
+            <div id="dayToggleGroup" class="inline-flex bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary sitting day">
+                <!-- Populated dynamically with available sitting dates -->
+            </div>
+        </section>
+
+        <!-- General Election Dissolution Notice -->
+        <section id="dissolutionBanner" class="hidden py-12 border-t border-b border-hairline mb-12">
+            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-3">
+                General Election Period
+            </p>
+            <h1 class="font-editorial text-3xl sm:text-4xl font-bold text-ink tracking-tight mb-4">
+                Parliament is currently dissolved.
+            </h1>
+            <p class="text-base sm:text-lg text-inkSecondary leading-relaxed max-w-2xl">
+                Ahead of the UK General Election, every seat in the House of Commons is vacant and there are no sitting MPs, chamber debates, or parliamentary votes. Daily briefings will resume automatically the morning after the new Parliament meets.
+            </p>
+        </section>
+
+        <!-- Borderless Editorial Briefing -->
+        <article id="briefingArticle" class="fade-transition fade-in">
+            
+            <!-- 1. MP Editorial Header -->
+            <header class="pb-8 mb-8 border-b border-hairline flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+                <div>
+                    <div class="flex items-center gap-2 text-xs sm:text-sm font-medium text-inkSecondary mb-2.5">
+                        <span id="mpPartyDot" class="w-2 h-2 rounded-full inline-block bg-commonsGreen"></span>
+                        <span id="mpPartyName" class="text-ink">—</span>
+                        <span class="text-inkTertiary">/</span>
+                        <span id="mpConstituency">—</span>
+                    </div>
+
+                    <h1 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
+                        Loading MP...
+                    </h1>
+
+                    <p class="text-sm text-inkSecondary mt-2.5">
+                        <span id="mpRole">—</span>
+                        <span class="mx-2 text-hairline">•</span>
+                        <span id="activityBadge" class="text-inkTertiary">—</span>
+                    </p>
+                </div>
+
+                <div class="shrink-0">
+                    <button
+                        id="saveMpBtn"
+                        type="button"
+                        class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer"
+                    >
+                        <svg id="saveMpIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
+                        </svg>
+                        <span id="saveMpText">Follow MP</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 2. Two-Paragraph Accessible Summary -->
+            <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
+                <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
+                    Fetching yesterday's Hansard record...
+                </p>
+
+                <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
+                    <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
+                        Context
+                    </p>
+                    <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
+                        Loading background context...
+                    </p>
+                </div>
+
+                <div class="pt-2 flex flex-wrap items-center justify-between gap-3">
+                    <button
+                        id="openHansardBtn"
+                        type="button"
+                        class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer"
+                    >
+                        <span>Read official Hansard transcript</span>
+                        <span aria-hidden="true" class="text-inkTertiary">&rarr;</span>
+                    </button>
+                    <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
+                        —
+                    </span>
+                </div>
+            </section>
+
+            <!-- 3. Yesterday's Voting Record -->
+            <section aria-label="Yesterday's Voting Record" class="mt-16 pt-10 border-t border-hairline">
+                <div class="flex items-baseline justify-between gap-4 mb-6">
+                    <h2 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                        Voting record
+                    </h2>
+                    <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
+                        0 divisions
+                    </span>
+                </div>
+
+                <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </section>
+
+        </article>
+
+        <!-- Quiet Editorial Colophon -->
+        <footer class="mt-20 pt-8 border-t border-hairline text-xs text-inkTertiary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 leading-relaxed">
+            <p class="max-w-lg">
+                Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts and Commons Votes data. Party whips and pairing arrangements may affect division attendance.
+            </p>
+            <p class="shrink-0 text-inkSecondary font-medium">
+                Source: parliament.uk
+            </p>
+        </footer>
+    </main>
+
+    <!-- Minimalist Floating Pill Toast -->
+    <div
+        id="toastBanner"
+        role="status"
+        aria-live="polite"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transform translate-y-16 opacity-0 transition-all duration-300 pointer-events-none"
+    >
+        <div class="bg-ink text-white text-xs sm:text-sm font-medium px-5 py-2.5 rounded-full shadow-xl">
+            <span id="toastMessage">Following MP</span>
+        </div>
+    </div>
+
+    <!-- Official Hansard Verbatim Sheet / Modal -->
+    <div
+        id="hansardModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="hansardModalTitle"
+        class="fixed inset-0 z-50 hidden items-center justify-center p-4 sm:p-6 bg-ink/40 backdrop-blur-xs"
+    >
+        <div class="bg-white border border-hairline rounded-2xl max-w-xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div class="px-6 sm:px-8 pt-6 pb-4 flex items-start justify-between gap-4 border-b border-hairline">
+                <div>
+                    <span id="modalHansardCitation" class="text-xs font-mono text-inkTertiary block mb-1">—</span>
+                    <h3 id="hansardModalTitle" class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                        Hansard Transcript
+                    </h3>
+                </div>
+                <button
+                    id="closeHansardBtn"
+                    type="button"
+                    aria-label="Close Hansard source"
+                    class="p-1.5 rounded-full text-inkTertiary hover:text-ink hover:bg-surface transition cursor-pointer"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="px-6 sm:px-8 py-6 overflow-y-auto custom-scroll space-y-8">
+                <div>
+                    <span class="block text-xs font-medium text-inkTertiary mb-3">Verbatim chamber record</span>
+                    <blockquote id="modalVerbatimText" class="font-editorial italic text-lg sm:text-xl text-ink leading-relaxed">
+                        —
+                    </blockquote>
+                </div>
+
+                <div class="pt-6 border-t border-hairline">
+                    <span class="block text-xs font-medium text-inkTertiary mb-4">
+                        Plain-English notes
+                    </span>
+                    <div id="modalJargonGlossary" class="space-y-4">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 sm:px-8 py-4 bg-surface/60 border-t border-hairline flex items-center justify-between">
+                <span class="text-xs text-inkTertiary">Source: hansard.parliament.uk</span>
+                <button
+                    id="closeHansardFooterBtn"
+                    type="button"
+                    class="px-4 py-1.5 rounded-full bg-ink text-white text-xs font-medium hover:bg-ink/85 transition cursor-pointer"
+                >
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://njxnofubcrlshnosaglv.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
+
+        /**
+         * Direct PostgREST fetch helper — works cleanly with both `sb_publishable_...`
+         * and legacy `eyJ...` anon keys without external CDN script dependencies.
+         */
+        async function supabaseGet(table, queryString) {
+            const headers = {
+                'apikey': SUPABASE_ANON_KEY,
+                'Accept': 'application/json'
+            };
+            // Only attach Bearer Authorization when using a JWT-formatted key
+            if (SUPABASE_ANON_KEY.startsWith('eyJ')) {
+                headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
+            }
+
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${queryString}`, { headers });
+            if (!res.ok) {
+                let detail = res.statusText;
+                try {
+                    const errJson = await res.json();
+                    detail = errJson.message || errJson.hint || JSON.stringify(errJson);
+                } catch {}
+                throw new Error(`Supabase (${res.status}): ${detail}`);
+            }
+            return res.json();
+        }
+
+        const state = {
+            allMps: [],
+            availableDates: [],
+            selectedMp: null,
+            selectedDate: null,
+            currentBriefing: null,
+            followedMpId: localStorage.getItem('whip_followed_mp_id')
+                ? Number(localStorage.getItem('whip_followed_mp_id'))
+                : null
+        };
+
+        const els = {
+            searchContainer: document.getElementById('mpSearchContainer'),
+            searchInput: document.getElementById('mpSearchInput'),
+            postcodeLookupBtn: document.getElementById('postcodeLookupBtn'),
+            postcodeBtnText: document.getElementById('postcodeBtnText'),
+            clearSearchBtn: document.getElementById('clearSearchBtn'),
+            postcodeStatusBanner: document.getElementById('postcodeStatusBanner'),
+            postcodeStatusText: document.getElementById('postcodeStatusText'),
+            dismissPostcodeBanner: document.getElementById('dismissPostcodeBanner'),
+            dropdown: document.getElementById('mpDropdown'),
+            dropdownList: document.getElementById('mpDropdownList'),
+            mpCountLabel: document.getElementById('mpCountLabel'),
+            sittingDateDisplay: document.getElementById('sittingDateDisplay'),
+            dayToggleGroup: document.getElementById('dayToggleGroup'),
+            dissolutionBanner: document.getElementById('dissolutionBanner'),
+            briefingArticle: document.getElementById('briefingArticle'),
+            mpPartyDot: document.getElementById('mpPartyDot'),
+            mpPartyName: document.getElementById('mpPartyName'),
+            mpConstituency: document.getElementById('mpConstituency'),
+            mpName: document.getElementById('mpName'),
+            mpRole: document.getElementById('mpRole'),
+            activityBadge: document.getElementById('activityBadge'),
+            saveMpBtn: document.getElementById('saveMpBtn'),
+            saveMpIcon: document.getElementById('saveMpIcon'),
+            saveMpText: document.getElementById('saveMpText'),
+            summaryPara1: document.getElementById('summaryPara1'),
+            summaryPara2: document.getElementById('summaryPara2'),
+            openHansardBtn: document.getElementById('openHansardBtn'),
+            hansardRefTag: document.getElementById('hansardRefTag'),
+            voteCountBadge: document.getElementById('voteCountBadge'),
+            votingRecordsList: document.getElementById('votingRecordsList'),
+            toastBanner: document.getElementById('toastBanner'),
+            toastMessage: document.getElementById('toastMessage'),
+            hansardModal: document.getElementById('hansardModal'),
+            modalHansardCitation: document.getElementById('modalHansardCitation'),
+            modalVerbatimText: document.getElementById('modalVerbatimText'),
+            modalJargonGlossary: document.getElementById('modalJargonGlossary'),
+            closeHansardBtn: document.getElementById('closeHansardBtn'),
+            closeHansardFooterBtn: document.getElementById('closeHansardFooterBtn')
+        };
+
+        const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+        function formatLongDate(isoDate) {
+            if (!isoDate) return 'Recent Sitting';
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            return d.toLocaleDateString('en-GB', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                timeZone: 'UTC'
+            });
+        }
+
+        function formatShortPillDate(isoDate) {
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            return d.toLocaleDateString('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                timeZone: 'UTC'
+            });
+        }
+
+        function showToast(msg) {
+            els.toastMessage.textContent = msg;
+            els.toastBanner.classList.remove('translate-y-16', 'opacity-0');
+            els.toastBanner.classList.add('translate-y-0', 'opacity-100');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
+                els.toastBanner.classList.add('translate-y-16', 'opacity-0');
+                els.toastBanner.classList.remove('translate-y-0', 'opacity-100');
+            }, 2600);
+        }
+
+        function showPostcodeStatus(html, isError = false) {
+            els.postcodeStatusText.innerHTML = html;
+            els.postcodeStatusText.className = isError
+                ? 'leading-relaxed text-red-700'
+                : 'leading-relaxed text-inkSecondary';
+            els.postcodeStatusBanner.classList.remove('hidden');
+        }
+
+        function updateFollowButton() {
+            if (!state.selectedMp) return;
+            const isFollowing = state.followedMpId === state.selectedMp.parliament_member_id;
+            if (isFollowing) {
+                els.saveMpBtn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-ink text-white border border-ink transition cursor-pointer';
+                els.saveMpIcon.setAttribute('fill', 'currentColor');
+                els.saveMpText.textContent = 'Following';
+            } else {
+                els.saveMpBtn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer';
+                els.saveMpIcon.setAttribute('fill', 'none');
+                els.saveMpText.textContent = 'Follow MP';
+            }
+        }
+
+        function renderDropdownList(query = '') {
+            const q = query.trim().toLowerCase();
+            let matches = state.allMps;
+
+            if (q && !UK_POSTCODE_REGEX.test(q)) {
+                matches = state.allMps.filter(mp => {
+                    const name = (mp.full_name || '').toLowerCase();
+                    const seat = (mp.constituencies?.name || '').toLowerCase();
+                    const party = (mp.party || '').toLowerCase();
+                    return name.includes(q) || seat.includes(q) || party.includes(q);
+                });
+            }
+
+            els.mpCountLabel.textContent = q
+                ? `${matches.length} matching ${matches.length === 1 ? 'seat' : 'seats'}`
+                : `${state.allMps.length} active seats`;
+
+            const displayList = matches.slice(0, 60);
+
+            if (displayList.length === 0) {
+                els.dropdownList.innerHTML = `
+                    <div class="px-4 py-6 text-center text-xs text-inkTertiary">
+                        No MP or constituency matched "${query}". Try a full UK postcode like <span class="font-mono text-ink">CV21 2RR</span>.
+                    </div>
+                `;
+                return;
+            }
+
+            els.dropdownList.innerHTML = displayList.map(mp => {
+                const seatName = mp.constituencies?.name || 'UK Constituency';
+                const dotColor = mp.party_color || '#006548';
+                return `
+                    <button
+                        type="button"
+                        data-mp-id="${mp.parliament_member_id}"
+                        class="mp-option-btn w-full px-4 py-3 text-left hover:bg-surface transition flex items-center justify-between gap-3 cursor-pointer"
+                    >
+                        <div class="min-w-0">
+                            <div class="text-sm font-medium text-ink truncate">${mp.full_name}</div>
+                            <div class="text-xs text-inkSecondary flex items-center gap-1.5 mt-0.5 truncate">
+                                <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${dotColor}"></span>
+                                <span>${mp.party}</span>
+                                <span class="text-inkTertiary">•</span>
+                                <span class="truncate">${seatName}</span>
+                            </div>
+                        </div>
+                        <span class="text-xs text-inkTertiary shrink-0">Select &rarr;</span>
+                    </button>
+                `;
+            }).join('');
+
+            els.dropdownList.querySelectorAll('.mp-option-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const mpId = Number(btn.getAttribute('data-mp-id'));
+                    const chosen = state.allMps.find(m => m.parliament_member_id === mpId);
+                    if (chosen) {
+                        els.dropdown.classList.add('hidden');
+                        els.searchInput.value = chosen.constituencies?.name || chosen.short_name;
+                        els.postcodeLookupBtn.classList.add('hidden');
+                        selectMp(chosen);
+                    }
+                });
+            });
+        }
+
+        function renderDayToggles() {
+            if (state.availableDates.length === 0) {
+                els.dayToggleGroup.innerHTML = '';
+                return;
+            }
+
+            els.dayToggleGroup.innerHTML = state.availableDates.map(dateStr => {
+                const isActive = dateStr === state.selectedDate;
+                return `
+                    <button
+                        type="button"
+                        data-date="${dateStr}"
+                        class="day-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                            isActive
+                                ? 'bg-white text-ink shadow-2xs'
+                                : 'text-inkSecondary hover:text-ink'
+                        }"
+                    >
+                        ${formatShortPillDate(dateStr)}
+                    </button>
+                `;
+            }).join('');
+
+            els.dayToggleGroup.querySelectorAll('.day-toggle-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const newDate = btn.getAttribute('data-date');
+                    if (newDate && newDate !== state.selectedDate) {
+                        state.selectedDate = newDate;
+                        renderDayToggles();
+                        loadBriefingForCurrentSelection();
+                    }
+                });
+            });
+        }
+
+        function renderVotingRecords(votes) {
+            const list = Array.isArray(votes) ? votes : [];
+            els.voteCountBadge.textContent = `${list.length} ${list.length === 1 ? 'division' : 'divisions'}`;
+
+            if (list.length === 0) {
+                els.votingRecordsList.innerHTML = `
+                    <div class="py-6 text-sm text-inkTertiary">
+                        No House of Commons division votes were recorded for this date.
+                    </div>
+                `;
+                return;
+            }
+
+            els.votingRecordsList.innerHTML = list.map(v => {
+                const vote = v.mpVote || 'Abstained';
+                let badgeClass = 'bg-surface text-inkSecondary border-hairline';
+                if (vote === 'Aye') badgeClass = 'bg-emerald-50 text-emerald-900 border-emerald-200';
+                if (vote === 'No') badgeClass = 'bg-rose-50 text-rose-900 border-rose-200';
+
+                return `
+                    <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="min-w-0 pr-4">
+                            <p class="text-sm font-medium text-ink leading-snug">${v.title || 'Commons Division'}</p>
+                            <p class="text-xs text-inkTertiary mt-1">${v.houseResult || v.subtitle || ''}</p>
+                        </div>
+                        <span class="self-start sm:self-center shrink-0 px-3 py-1 rounded-full text-xs font-medium border ${badgeClass}">
+                            ${vote === 'Abstained' ? 'No vote recorded' : `Voted ${vote}`}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadBriefingForCurrentSelection() {
+            if (!state.selectedMp) return;
+
+            const mp = state.selectedMp;
+            const seatName = mp.constituencies?.name || 'UK Constituency';
+            const displayRole = mp.parliament_member_id === 4514
+                ? 'Prime Minister'
+                : (mp.role_title || `MP for ${seatName}`);
+
+            els.briefingArticle.classList.remove('fade-in');
+            els.briefingArticle.classList.add('fade-out');
+
+            els.mpPartyDot.style.backgroundColor = mp.party_color || '#006548';
+            els.mpPartyName.textContent = mp.party || 'Independent';
+            els.mpConstituency.textContent = seatName;
+            els.mpName.textContent = mp.full_name;
+            els.mpRole.textContent = displayRole;
+            updateFollowButton();
+
+            if (!state.selectedDate) {
+                els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
+                els.activityBadge.textContent = 'Awaiting next sitting';
+                els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Daily briefings appear automatically at 7:00 AM following each sitting day.`;
+                els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
+                els.hansardRefTag.textContent = 'parliament.uk';
+                renderVotingRecords([]);
+                els.briefingArticle.classList.remove('fade-out');
+                els.briefingArticle.classList.add('fade-in');
+                return;
+            }
+
+            els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
+
+            try {
+                const rows = await supabaseGet(
+                    'daily_briefings',
+                    `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
+                );
+                const briefing = Array.isArray(rows) ? rows[0] : null;
+
+                if (!briefing) {
+                    state.currentBriefing = null;
+                    els.activityBadge.textContent = 'Constituency & Parliamentary Work';
+                    els.summaryPara1.textContent = `No Chamber speech or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
+                    els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
+                    els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                    renderVotingRecords([]);
+                } else {
+                    state.currentBriefing = briefing;
+                    els.activityBadge.textContent = briefing.activity_tag || 'Parliamentary Business';
+                    els.summaryPara1.textContent = briefing.summary_para_1;
+                    els.summaryPara2.textContent = briefing.summary_para_2;
+                    els.hansardRefTag.textContent = briefing.hansard_ref || `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                    renderVotingRecords(briefing.votes);
+                }
+            } catch (err) {
+                els.summaryPara1.textContent = `Unable to load briefing: ${err.message}`;
+            }
+
+            els.briefingArticle.classList.remove('fade-out');
+            els.briefingArticle.classList.add('fade-in');
+        }
+
+        async function selectMp(mp) {
+            state.selectedMp = mp;
+            await loadBriefingForCurrentSelection();
+        }
+
+        async function lookupPostcode(rawPostcode) {
+            const cleaned = rawPostcode.trim().replace(/\s+/g, '');
+            if (!cleaned) return;
+
+            els.postcodeBtnText.textContent = '...';
+            try {
+                const res = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(cleaned)}`);
+                const payload = await res.json();
+
+                if (!res.ok || payload.status !== 200 || !payload.result) {
+                    showPostcodeStatus(`Could not find UK postcode <strong>${rawPostcode.toUpperCase()}</strong>. Check the spelling or search by constituency name.`, true);
+                    return;
+                }
+
+                const gssCode = payload.result.codes?.parliamentary_constituency_2024
+                    || payload.result.codes?.parliamentary_constituency;
+                const constituencyName = payload.result.parliamentary_constituency_2024
+                    || payload.result.parliamentary_constituency;
+
+                const matchedMp = state.allMps.find(m =>
+                    (gssCode && m.constituencies?.gss_code === gssCode) ||
+                    (constituencyName && (m.constituencies?.name || '').toLowerCase() === constituencyName.toLowerCase())
+                );
+
+                if (!matchedMp) {
+                    showPostcodeStatus(`Resolved <strong>${payload.result.postcode}</strong> to <strong>${constituencyName}</strong>, but no active MP is currently listed.`, true);
+                    return;
+                }
+
+                els.dropdown.classList.add('hidden');
+                els.searchInput.value = `${payload.result.postcode} — ${matchedMp.constituencies?.name || constituencyName}`;
+                els.postcodeLookupBtn.classList.add('hidden');
+                showPostcodeStatus(`Matched <strong>${payload.result.postcode}</strong> to <strong>${matchedMp.constituencies?.name || constituencyName}</strong>.`);
+                await selectMp(matchedMp);
+            } catch {
+                showPostcodeStatus('Postcode lookup is temporarily unavailable. Search by constituency or MP name instead.', true);
+            } finally {
+                els.postcodeBtnText.textContent = 'Find';
+            }
+        }
+
+        function openHansardModal() {
+            const b = state.currentBriefing;
+            const mp = state.selectedMp;
+            if (!mp) return;
+
+            els.modalHansardCitation.textContent = b?.hansard_ref || formatLongDate(state.selectedDate);
+            els.modalVerbatimText.textContent = b?.verbatim_excerpt
+                ? `“${b.verbatim_excerpt}”`
+                : `No direct Chamber speech excerpt was recorded for ${mp.short_name} on this date. Full daily Commons proceedings are archived on hansard.parliament.uk.`;
+
+            const glossary = Array.isArray(b?.glossary) ? b.glossary : [];
+            if (glossary.length === 0) {
+                els.modalJargonGlossary.innerHTML = `
+                    <p class="text-sm text-inkSecondary leading-relaxed">
+                        Hansard is the official verbatim report of all debates, statements, and division votes in the House of Commons.
+                    </p>
+                `;
+            } else {
+                els.modalJargonGlossary.innerHTML = glossary.map(item => `
+                    <div>
+                        <dt class="text-sm font-semibold text-ink">${item.term}</dt>
+                        <dd class="text-sm text-inkSecondary mt-0.5 leading-relaxed">${item.plain}</dd>
+                    </div>
+                `).join('');
+            }
+
+            els.hansardModal.classList.remove('hidden');
+            els.hansardModal.classList.add('flex');
+        }
+
+        function closeHansardModal() {
+            els.hansardModal.classList.add('hidden');
+            els.hansardModal.classList.remove('flex');
+        }
+
+        async function initApp() {
+            try {
+                // 1. Check dissolution status
+                const statusRows = await supabaseGet('system_status', 'select=*&id=eq.1&limit=1');
+                const statusData = Array.isArray(statusRows) ? statusRows[0] : null;
+
+                if (statusData?.is_parliament_dissolved) {
+                    els.dissolutionBanner.classList.remove('hidden');
+                    els.briefingArticle.classList.add('hidden');
+                    return;
+                }
+
+                // 2. Load all 650 active MPs with constituency names & GSS codes
+                const mps = await supabaseGet(
+                    'mps',
+                    'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                );
+
+                if (!Array.isArray(mps) || mps.length === 0) {
+                    els.mpName.textContent = 'No MPs returned';
+                    els.summaryPara1.textContent = 'Connected to Supabase, but 0 active MPs were returned. Run GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; in your Supabase SQL Editor and refresh.';
+                    return;
+                }
+
+                state.allMps = mps;
+                renderDropdownList('');
+
+                // 3. Find the 3 most recent sitting dates in daily_briefings
+                const recentDates = await supabaseGet(
+                    'daily_briefings',
+                    'select=sitting_date&order=sitting_date.desc&limit=30'
+                );
+
+                if (Array.isArray(recentDates) && recentDates.length > 0) {
+                    state.availableDates = [...new Set(recentDates.map(r => r.sitting_date))].slice(0, 3);
+                    state.selectedDate = state.availableDates[0];
+                    renderDayToggles();
+                }
+
+                // 4. Pick followed MP, or default to Prime Minister Andy Burnham (ID 4514), or first MP
+                const initialMp =
+                    (state.followedMpId && mps.find(m => m.parliament_member_id === state.followedMpId)) ||
+                    mps.find(m => m.parliament_member_id === 4514) ||
+                    mps.find(m => (m.full_name || '').toLowerCase().includes('burnham')) ||
+                    mps[0];
+
+                await selectMp(initialMp);
+            } catch (err) {
+                console.error('Whip initialization error:', err);
+                els.sittingDateDisplay.textContent = 'Database Connection Notice';
+                els.mpName.textContent = 'Permission Setup Needed';
+                els.summaryPara1.textContent = err.message;
+                els.summaryPara2.textContent = 'In your Supabase SQL Editor, click Run on: GRANT USAGE ON SCHEMA public TO anon; GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; and then refresh this page.';
+            }
+        }
+
+        // Event Listeners
+        els.searchInput.addEventListener('focus', () => {
+            renderDropdownList(els.searchInput.value);
+            els.dropdown.classList.remove('hidden');
+        });
+
+        els.searchInput.addEventListener('input', (e) => {
+            const val = e.target.value;
+            if (UK_POSTCODE_REGEX.test(val.trim())) {
+                els.postcodeLookupBtn.classList.remove('hidden');
+            } else {
+                els.postcodeLookupBtn.classList.add('hidden');
+            }
+            renderDropdownList(val);
+            els.dropdown.classList.remove('hidden');
+        });
+
+        els.searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const val = els.searchInput.value.trim();
+                if (UK_POSTCODE_REGEX.test(val)) {
+                    lookupPostcode(val);
+                } else {
+                    const firstBtn = els.dropdownList.querySelector('.mp-option-btn');
+                    if (firstBtn) firstBtn.click();
+                }
+            }
+        });
+
+        els.postcodeLookupBtn.addEventListener('click', () => {
+            lookupPostcode(els.searchInput.value);
+        });
+
+        els.clearSearchBtn.addEventListener('click', () => {
+            const isHidden = els.dropdown.classList.contains('hidden');
+            if (isHidden) {
+                renderDropdownList(els.searchInput.value);
+                els.dropdown.classList.remove('hidden');
+                els.searchInput.focus();
+            } else {
+                els.dropdown.classList.add('hidden');
+            }
+        });
+
+        document.querySelectorAll('.sample-postcode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const pc = btn.getAttribute('data-postcode');
+                els.searchInput.value = pc;
+                lookupPostcode(pc);
+            });
+        });
+
+        els.dismissPostcodeBanner.addEventListener('click', () => {
+            els.postcodeStatusBanner.classList.add('hidden');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!els.searchContainer.contains(e.target)) {
+                els.dropdown.classList.add('hidden');
+            }
+        });
+
+        els.saveMpBtn.addEventListener('click', () => {
+            if (!state.selectedMp) return;
+            const id = state.selectedMp.parliament_member_id;
+            if (state.followedMpId === id) {
+                state.followedMpId = null;
+                localStorage.removeItem('whip_followed_mp_id');
+                showToast(`Unfollowed ${state.selectedMp.short_name}`);
+            } else {
+                state.followedMpId = id;
+                localStorage.setItem('whip_followed_mp_id', String(id));
+                showToast(`Following ${state.selectedMp.short_name}`);
+            }
+            updateFollowButton();
+        });
+
+        els.openHansardBtn.addEventListener('click', openHansardModal);
+        els.closeHansardBtn.addEventListener('click', closeHansardModal);
+        els.closeHansardFooterBtn.addEventListener('click', closeHansardModal);
+        els.hansardModal.addEventListener('click', (e) => {
+            if (e.target === els.hansardModal) closeHansardModal();
+        });
+
+        initApp();
+    </script>
+</body>
+</html>

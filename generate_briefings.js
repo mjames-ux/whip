@@ -2,8 +2,8 @@
  * Whip — Step 2: 6:10 AM Daily Parliamentary Briefing Generator
  *
  * Fetches yesterday's House of Commons Hansard contributions and Division votes
- * for all active MPs, generates plain-English two-paragraph briefings using Gemini,
- * and upserts them into Supabase.
+ * for all active MPs, generates structured JSON briefings using Gemini, and upserts
+ * them into Supabase (`daily_briefings`, `system_status`).
  */
 
 import 'dotenv/config';
@@ -14,7 +14,6 @@ const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search.json';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 
-// Clean any accidental quotes, spaces, or "KEY=" prefixes from GitHub Secrets
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
     return String(val)
@@ -43,19 +42,17 @@ console.log(`Connecting to Supabase at: ${supabaseUrl}`);
 const supabase = createClient(supabaseUrl, supabaseKey);
 const ai = new GoogleGenAI({ apiKey: geminiApiKey });
 
-/**
- * Returns yesterday's date in YYYY-MM-DD format (UTC).
- */
 function getTargetDateString() {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() - 1);
     return d.toISOString().slice(0, 10);
 }
 
-/**
- * Fetches all Hansard spoken/written contributions for a given date (YYYY-MM-DD)
- * grouped by Member ID.
- */
+function formatReadableDate(dateStr) {
+    const d = new Date(`${dateStr}T12:00:00Z`);
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
 async function fetchHansardContributionsByDate(dateStr) {
     const contributionsByMp = new Map();
     let skip = 0;
@@ -89,7 +86,7 @@ async function fetchHansardContributionsByDate(dateStr) {
             contributionsByMp.get(memberId).push({
                 debate: item.DebateSection || item.Title || 'House of Commons Business',
                 text: (item.ContributionText || item.Value || '').replace(/<[^>]*>/g, '').trim(),
-                time: item.Timecode || null
+                column: item.ColumnNumber || null
             });
         }
 
@@ -100,10 +97,6 @@ async function fetchHansardContributionsByDate(dateStr) {
     return contributionsByMp;
 }
 
-/**
- * Fetches all House of Commons division votes for a given date (YYYY-MM-DD)
- * and maps Aye / No / No Vote Recorded per MP ID.
- */
 async function fetchDivisionVotesByDate(dateStr) {
     const votesByMp = new Map();
 
@@ -133,47 +126,69 @@ async function fetchDivisionVotesByDate(dateStr) {
 
         const detail = await detailRes.json();
         const title = detail.Title || div.Title || `Division #${divId}`;
+        const ayeCount = detail.AyeCount ?? (Array.isArray(detail.Ayes) ? detail.Ayes.length : 0);
+        const noCount = detail.NoCount ?? (Array.isArray(detail.Noes) ? detail.Noes.length : 0);
+        const houseResult = ayeCount > noCount
+            ? `Passed (${ayeCount} Ayes to ${noCount} Noes)`
+            : `Rejected (${ayeCount} Ayes to ${noCount} Noes)`;
 
-        const recordVote = (memberList, stance) => {
+        const recordVote = (memberList, mpVote) => {
             if (!Array.isArray(memberList)) return;
             for (const m of memberList) {
                 if (!m.MemberId) continue;
                 if (!votesByMp.has(m.MemberId)) votesByMp.set(m.MemberId, []);
-                votesByMp.get(m.MemberId).push({ divisionId: divId, title, stance });
+                votesByMp.get(m.MemberId).push({
+                    title,
+                    subtitle: `Division #${divId}`,
+                    mpVote,
+                    houseResult
+                });
             }
         };
 
         recordVote(detail.Ayes, 'Aye');
-        recordVote(detail.AyeTellers, 'Aye (Teller)');
+        recordVote(detail.AyeTellers, 'Aye');
         recordVote(detail.Noes, 'No');
-        recordVote(detail.NoTellers, 'No (Teller)');
-        recordVote(detail.NoVoteRecorded, 'Did Not Vote');
+        recordVote(detail.NoTellers, 'No');
+        recordVote(detail.NoVoteRecorded, 'Abstained');
     }
 
     return { divisionsCount: divisions.length, votesByMp };
 }
 
-/**
- * Calls Gemini to summarize an active MP's speeches and votes into 2 crisp,
- * impartial paragraphs suitable for constituents.
- */
 async function summarizeMpDay(mp, dateStr, speeches, votes) {
+    const constituencyLabel = mp.constituencies?.name || mp.role_title || 'their constituency';
     const speechSummary = speeches.length > 0
         ? speeches.slice(0, 8).map((s, idx) => `${idx + 1}. [${s.debate}]: ${s.text.slice(0, 600)}`).join('\n')
         : 'No spoken Hansard contributions recorded.';
 
     const voteSummary = votes.length > 0
-        ? votes.map(v => `- ${v.title}: Voted ${v.stance}`).join('\n')
+        ? votes.map(v => `- ${v.title}: Voted ${v.mpVote} (${v.houseResult})`).join('\n')
         : 'No Commons division votes recorded.';
 
+    const firstCol = speeches.find(s => s.column)?.column;
+    const defaultHansardRef = firstCol
+        ? `HC Deb ${formatReadableDate(dateStr)} col ${firstCol}`
+        : `HC Deb ${formatReadableDate(dateStr)}`;
+
     const prompt = `You are a strictly neutral, non-partisan parliamentary reporter writing a daily mobile briefing for a UK constituent.
-Summarize what ${mp.name_display} (${mp.party_name}, MP for ${mp.constituency_name}) did in the House of Commons on ${dateStr}.
+Summarize what ${mp.full_name} (${mp.party}, ${constituencyLabel}) did in the House of Commons on ${dateStr}.
+
+Return ONLY valid JSON (no markdown fences) matching this exact structure:
+{
+  "activity_tag": "Short 2-4 word badge e.g. 'Chamber Debate & Votes' or 'Division Votes'",
+  "summary_para_1": "2-3 crisp sentences summarizing specifically what the MP said or how they voted yesterday.",
+  "summary_para_2": "2-3 neutral sentences explaining the background policy issue or bill to a general reader.",
+  "verbatim_excerpt": "One short, accurate direct quote from their speeches below, or null if they did not speak.",
+  "glossary": [
+    { "term": "Parliamentary or policy term from the text", "plain": "One-sentence plain English definition" }
+  ]
+}
 
 Rules:
-- Write exactly two short, clear paragraphs in plain British English.
-- Paragraph 1: Summarize their spoken interventions, debates, or questions (or note briefly if they did not speak in the Chamber).
-- Paragraph 2: Summarize how they voted in Commons divisions (or note if no divisions took place / no vote was recorded).
-- Never invent facts, bills, or quotes not present in the source data below. Keep tone completely objective and matter-of-fact.
+- Never invent facts, bills, or quotes not present in the source data below.
+- Keep tone completely impartial and matter-of-fact in British English.
+- Include 1 to 3 helpful glossary terms if technical parliamentary terms appear, otherwise [].
 
 Spoken Contributions:
 ${speechSummary}
@@ -186,10 +201,19 @@ ${voteSummary}`;
         try {
             const response = await ai.models.generateContent({
                 model: modelName,
-                contents: prompt
+                contents: prompt,
+                config: { responseMimeType: 'application/json' }
             });
             if (response?.text) {
-                return response.text.trim();
+                const parsed = JSON.parse(response.text.trim());
+                return {
+                    activity_tag: parsed.activity_tag || (speeches.length > 0 ? 'Chamber Debate' : 'Division Votes'),
+                    hansard_ref: defaultHansardRef,
+                    summary_para_1: parsed.summary_para_1 || `${mp.short_name} took part in House of Commons business on ${formatReadableDate(dateStr)}.`,
+                    summary_para_2: parsed.summary_para_2 || 'Full parliamentary transcripts and division lists are published in the official Hansard record.',
+                    verbatim_excerpt: parsed.verbatim_excerpt || null,
+                    glossary: Array.isArray(parsed.glossary) ? parsed.glossary : []
+                };
             }
         } catch (err) {
             if (modelName === modelsToTry[modelsToTry.length - 1]) {
@@ -198,12 +222,16 @@ ${voteSummary}`;
         }
     }
 
-    return `${mp.name_display} had recorded parliamentary activity on ${dateStr}, but a text summary could not be generated.`;
+    return {
+        activity_tag: 'Commons Business',
+        hansard_ref: defaultHansardRef,
+        summary_para_1: `${mp.short_name} had recorded parliamentary activity on ${formatReadableDate(dateStr)}.`,
+        summary_para_2: 'Full details of speeches and votes are available in the official House of Commons Hansard.',
+        verbatim_excerpt: null,
+        glossary: []
+    };
 }
 
-/**
- * Main daily briefing generation pipeline.
- */
 export async function generateBriefings() {
     const dateStr = getTargetDateString();
     console.log(`[${new Date().toISOString()}] Generating Whip briefings for ${dateStr}...`);
@@ -211,12 +239,12 @@ export async function generateBriefings() {
     try {
         // 1. Check if Parliament is dissolved
         const { data: statusRow } = await supabase
-            .from('app_status')
-            .select('dissolution_mode')
+            .from('system_status')
+            .select('is_parliament_dissolved')
             .eq('id', 1)
             .single();
 
-        if (statusRow?.dissolution_mode) {
+        if (statusRow?.is_parliament_dissolved) {
             console.log('Dissolution Mode is active — skipping daily briefing generation.');
             return;
         }
@@ -224,7 +252,7 @@ export async function generateBriefings() {
         // 2. Load all active MPs from Supabase
         const { data: mps, error: mpFetchError } = await supabase
             .from('mps')
-            .select('id, name_display, party_name, constituency_name')
+            .select('parliament_member_id, full_name, short_name, party, role_title, constituencies(name)')
             .eq('is_current_member', true);
 
         if (mpFetchError) {
@@ -245,34 +273,48 @@ export async function generateBriefings() {
         const isSittingDay = contributionsByMp.size > 0 || divisionsCount > 0;
         console.log(`Date ${dateStr}: Sitting day = ${isSittingDay} (${contributionsByMp.size} MPs spoke, ${divisionsCount} divisions).`);
 
-        // 4. Build briefings for every MP
+        // 4. Build briefings matching exact `daily_briefings` columns
         const briefingRecords = [];
 
         for (const mp of mps) {
-            const speeches = contributionsByMp.get(mp.id) || [];
-            const votes = votesByMp.get(mp.id) || [];
+            const speeches = contributionsByMp.get(mp.parliament_member_id) || [];
+            const votes = votesByMp.get(mp.parliament_member_id) || [];
             const hasActivity = speeches.length > 0 || votes.length > 0;
 
-            let summaryText;
+            let generated;
             if (!isSittingDay) {
-                summaryText = `The House of Commons did not sit on ${dateStr} (weekend, recess, or non-sitting day), so no Chamber speeches or division votes took place.\n\nConstituency casework, committee preparation, and ministerial correspondence continue outside the Chamber.`;
+                generated = {
+                    activity_tag: 'Non-Sitting Day',
+                    hansard_ref: null,
+                    summary_para_1: `The House of Commons did not sit on ${formatReadableDate(dateStr)} (weekend, recess, or non-sitting day), so no Chamber debates or division votes took place.`,
+                    summary_para_2: `Outside of Chamber sitting days, ${mp.short_name} focuses on constituency casework, local visits, select committee preparation, and written ministerial correspondence.`,
+                    verbatim_excerpt: null,
+                    glossary: []
+                };
             } else if (!hasActivity) {
-                summaryText = `${mp.name_display} did not make any spoken contributions in the House of Commons Chamber on ${dateStr}.\n\nNo division votes were recorded for ${mp.name_display} on this date, which commonly reflects constituency duties, select committee work, or paired parliamentary business.`;
+                generated = {
+                    activity_tag: 'Constituency & Committee Work',
+                    hansard_ref: `HC Deb ${formatReadableDate(dateStr)}`,
+                    summary_para_1: `${mp.short_name} did not make any spoken interventions in the House of Commons Chamber and recorded no division votes on ${formatReadableDate(dateStr)}.`,
+                    summary_para_2: `MPs frequently spend sitting days in select committee hearings, bill committees, ministerial meetings, or constituency engagements away from the main Chamber floor.`,
+                    verbatim_excerpt: null,
+                    glossary: []
+                };
             } else {
-                summaryText = await summarizeMpDay(mp, dateStr, speeches, votes);
-                // Small pause to stay comfortably within Gemini free-tier RPM limits
+                generated = await summarizeMpDay(mp, dateStr, speeches, votes);
                 await new Promise(resolve => setTimeout(resolve, 400));
             }
 
             briefingRecords.push({
-                mp_id: mp.id,
-                briefing_date: dateStr,
-                is_sitting_day: isSittingDay,
-                speech_count: speeches.length,
-                vote_count: votes.length,
-                summary_text: summaryText,
-                votes_json: votes,
-                updated_at: new Date().toISOString()
+                sitting_date: dateStr,
+                parliament_member_id: mp.parliament_member_id,
+                activity_tag: generated.activity_tag,
+                hansard_ref: generated.hansard_ref,
+                summary_para_1: generated.summary_para_1,
+                summary_para_2: generated.summary_para_2,
+                verbatim_excerpt: generated.verbatim_excerpt,
+                glossary: generated.glossary,
+                votes: votes
             });
         }
 
@@ -282,12 +324,20 @@ export async function generateBriefings() {
             const batch = briefingRecords.slice(i, i + BATCH_SIZE);
             const { error: upsertError } = await supabase
                 .from('daily_briefings')
-                .upsert(batch, { onConflict: 'mp_id,briefing_date' });
+                .upsert(batch, { onConflict: 'sitting_date,parliament_member_id' });
 
             if (upsertError) {
                 throw new Error(`Failed upserting briefings batch ${i}: ${upsertError.message}`);
             }
         }
+
+        // 6. Update last_briefing_sync in system_status
+        await supabase
+            .from('system_status')
+            .upsert({
+                id: 1,
+                last_briefing_sync: new Date().toISOString()
+            });
 
         console.log(`[${new Date().toISOString()}] Successfully generated and saved ${briefingRecords.length} briefings for ${dateStr}!`);
     } catch (err) {

@@ -217,7 +217,7 @@
                 </div>
 
                 <div id="dayToggleGroup" class="inline-flex flex-wrap bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary period">
-                    <!-- Populated dynamically with Weekly Review + available sitting dates -->
+                    <!-- Populated dynamically with Weekly Reviews + available sitting dates -->
                 </div>
             </section>
 
@@ -599,23 +599,29 @@
             if (ukDayName === 'Sat' || ukDayName === 'Sun') {
                 return {
                     isWeeklyDefault: true,
-                    weeklyPillLabel: 'This Week',
-                    weeklyHeadingPrefix: 'This week in Parliament',
+                    latestWeekLabel: 'This Week',
+                    latestWeekHeading: 'This week in Parliament',
+                    priorWeekLabel: 'Last Week',
+                    priorWeekHeading: 'Last week in Parliament',
                     subtitle: 'Your MP, This Week in Parliament'
                 };
             }
             if (ukDayName === 'Mon') {
                 return {
                     isWeeklyDefault: true,
-                    weeklyPillLabel: 'Last Week',
-                    weeklyHeadingPrefix: 'Last week in Parliament',
+                    latestWeekLabel: 'Last Week',
+                    latestWeekHeading: 'Last week in Parliament',
+                    priorWeekLabel: 'Previous Week',
+                    priorWeekHeading: 'Previous week in Parliament',
                     subtitle: 'Your MP, This Week in Parliament'
                 };
             }
             return {
                 isWeeklyDefault: false,
-                weeklyPillLabel: 'Last Week',
-                weeklyHeadingPrefix: 'Last week in Parliament',
+                latestWeekLabel: 'This Week',
+                latestWeekHeading: 'This week in Parliament',
+                priorWeekLabel: 'Last Week',
+                priorWeekHeading: 'Last week in Parliament',
                 subtitle: 'Your MP, This Week in Parliament'
             };
         }
@@ -666,7 +672,8 @@
         const state = {
             allMps: [],
             availableDates: [],
-            weeklyDates: [],
+            latestWeekDates: [],
+            priorWeekDates: [],
             selectedMp: null,
             activeTab: 'briefing',
             selectedMode: CALENDAR_MODE.isWeeklyDefault ? 'weekly' : 'daily',
@@ -1145,7 +1152,7 @@
                 return;
             }
 
-            const weeklyPillHtml = state.weeklyDates.length > 0
+            const latestWeekPillHtml = state.latestWeekDates.length > 0
                 ? `
                     <button
                         type="button"
@@ -1156,7 +1163,23 @@
                                 : 'text-inkSecondary hover:text-ink'
                         }"
                     >
-                        ${CALENDAR_MODE.weeklyPillLabel}
+                        ${CALENDAR_MODE.latestWeekLabel}
+                    </button>
+                `
+                : '';
+
+            const priorWeekPillHtml = state.priorWeekDates.length > 0
+                ? `
+                    <button
+                        type="button"
+                        data-mode="prior-weekly"
+                        class="period-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                            state.selectedMode === 'prior-weekly'
+                                ? 'bg-white text-ink shadow-2xs'
+                                : 'text-inkSecondary hover:text-ink'
+                        }"
+                    >
+                        ${CALENDAR_MODE.priorWeekLabel}
                     </button>
                 `
                 : '';
@@ -1179,7 +1202,7 @@
                 `;
             }).join('');
 
-            els.dayToggleGroup.innerHTML = weeklyPillHtml + dailyPillsHtml;
+            els.dayToggleGroup.innerHTML = latestWeekPillHtml + priorWeekPillHtml + dailyPillsHtml;
 
             els.dayToggleGroup.querySelectorAll('.period-toggle-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -1188,6 +1211,10 @@
 
                     if (mode === 'weekly' && state.selectedMode !== 'weekly') {
                         state.selectedMode = 'weekly';
+                        renderDayToggles();
+                        loadBriefingForCurrentSelection();
+                    } else if (mode === 'prior-weekly' && state.selectedMode !== 'prior-weekly') {
+                        state.selectedMode = 'prior-weekly';
                         renderDayToggles();
                         loadBriefingForCurrentSelection();
                     } else if (mode === 'daily' && (state.selectedMode !== 'daily' || newDate !== state.selectedDate)) {
@@ -1344,7 +1371,7 @@
                 loadProfileForMp(mp);
             }
 
-            if (!state.selectedDate && state.weeklyDates.length === 0) {
+            if (!state.selectedDate && state.latestWeekDates.length === 0) {
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
                 els.activityBadge.textContent = 'Awaiting next sitting';
                 els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
@@ -1357,19 +1384,27 @@
             }
 
             try {
-                if (state.selectedMode === 'weekly' && state.weeklyDates.length > 0) {
-                    const rangeLabel = formatWeekRangeLabel(state.weeklyDates);
-                    els.sittingDateDisplay.textContent = `${CALENDAR_MODE.weeklyHeadingPrefix} (${rangeLabel})`;
+                const activeWeekDates = state.selectedMode === 'prior-weekly'
+                    ? state.priorWeekDates
+                    : (state.selectedMode === 'weekly' ? state.latestWeekDates : null);
+
+                if (activeWeekDates && activeWeekDates.length > 0) {
+                    const rangeLabel = formatWeekRangeLabel(activeWeekDates);
+                    const headingPrefix = state.selectedMode === 'prior-weekly'
+                        ? CALENDAR_MODE.priorWeekHeading
+                        : CALENDAR_MODE.latestWeekHeading;
+
+                    els.sittingDateDisplay.textContent = `${headingPrefix} (${rangeLabel})`;
                     els.contextHeading.textContent = 'Key Context';
                     els.votingSectionTitle.textContent = 'Weekly voting record';
 
-                    const inList = state.weeklyDates.join(',');
+                    const inList = activeWeekDates.join(',');
                     const rows = await supabaseGet(
                         'daily_briefings',
                         `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=in.(${inList})&order=sitting_date.asc`
                     );
 
-                    const weekly = compileWeeklyBriefing(mp, state.weeklyDates, rows);
+                    const weekly = compileWeeklyBriefing(mp, activeWeekDates, rows);
                     state.currentBriefing = weekly;
                     els.activityBadge.textContent = weekly.activity_tag;
                     els.summaryPara1.textContent = weekly.summary_para_1;
@@ -1462,9 +1497,10 @@
             const mp = state.selectedMp;
             if (!mp) return;
 
+            const isWeeklyView = state.selectedMode === 'weekly' || state.selectedMode === 'prior-weekly';
             els.modalHansardCitation.textContent = b?.hansard_ref || formatLongDate(state.selectedDate);
             els.modalVerbatimText.textContent = b?.verbatim_excerpt
-                ? (state.selectedMode === 'weekly' ? b.verbatim_excerpt : `“${b.verbatim_excerpt}”`)
+                ? (isWeeklyView ? b.verbatim_excerpt : `“${b.verbatim_excerpt}”`)
                 : `No direct Chamber speech excerpt was recorded for ${mp.short_name} during this period. Full daily Commons proceedings are archived on hansard.parliament.uk.`;
 
             const glossary = Array.isArray(b?.glossary) ? b.glossary : [];
@@ -1529,7 +1565,7 @@
 
                 const recentDateRows = await supabaseGet(
                     'daily_briefings',
-                    'select=sitting_date,activity_tag&parliament_member_id=eq.4514&order=sitting_date.desc&limit=14'
+                    'select=sitting_date,activity_tag&parliament_member_id=eq.4514&order=sitting_date.desc&limit=21'
                 );
 
                 if (!Array.isArray(mps) || mps.length === 0) {
@@ -1549,8 +1585,13 @@
                     state.availableDates = uniqueDates;
                     state.selectedDate = uniqueDates[0];
 
-                    const latestMonday = getMondayOfWeek(uniqueDates[0]);
-                    state.weeklyDates = uniqueDates.filter(d => getMondayOfWeek(d) === latestMonday);
+                    const distinctMondays = [...new Set(uniqueDates.map(d => getMondayOfWeek(d)))];
+                    if (distinctMondays[0]) {
+                        state.latestWeekDates = uniqueDates.filter(d => getMondayOfWeek(d) === distinctMondays[0]);
+                    }
+                    if (distinctMondays[1]) {
+                        state.priorWeekDates = uniqueDates.filter(d => getMondayOfWeek(d) === distinctMondays[1]);
+                    }
 
                     renderDayToggles();
                 }

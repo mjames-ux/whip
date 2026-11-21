@@ -1016,36 +1016,53 @@
             }
         }
 
-        function collectMembershipArrays(source) {
-            if (!source) return [];
-            const arrays = [];
-            if (Array.isArray(source.houseMemberships)) arrays.push(...source.houseMemberships);
-            if (Array.isArray(source.HouseMemberships)) arrays.push(...source.HouseMemberships);
-            if (Array.isArray(source.value)) {
-                for (const entry of source.value) {
-                    if (Array.isArray(entry?.houseMemberships)) arrays.push(...entry.houseMemberships);
-                    if (Array.isArray(entry?.value?.houseMemberships)) arrays.push(...entry.value.houseMemberships);
+        function extractArraysByKey(root, targetKeys, maxDepth = 4) {
+            const found = [];
+            const visited = new Set();
+
+            function walk(node, depth) {
+                if (!node || typeof node !== 'object' || depth > maxDepth || visited.has(node)) return;
+                visited.add(node);
+
+                if (Array.isArray(node)) {
+                    for (const item of node) walk(item, depth + 1);
+                    return;
+                }
+
+                for (const [k, v] of Object.entries(node)) {
+                    if (Array.isArray(v) && targetKeys.includes(k)) {
+                        found.push(...v);
+                    } else if (v && typeof v === 'object') {
+                        walk(v, depth + 1);
+                    }
                 }
             }
-            return arrays;
+
+            walk(root, 0);
+            return found;
         }
 
         function parseMemberBiography(historyPayload, bioPayload, memberPayload, fallbackStartDate) {
-            const bio = bioPayload?.value || bioPayload || {};
             const memberVal = memberPayload?.value || memberPayload || {};
 
             const rawMemberships = [
-                ...collectMembershipArrays(historyPayload),
-                ...collectMembershipArrays(bioPayload)
+                ...extractArraysByKey(historyPayload, ['houseMemberships', 'HouseMemberships']),
+                ...extractArraysByKey(bioPayload, ['houseMemberships', 'HouseMemberships'])
             ];
 
             const seenTerms = new Set();
             const commonsTerms = [];
             for (const m of rawMemberships) {
-                if (Number(m?.house) !== 1 || !m?.membershipStartDate) continue;
-                const start = String(m.membershipStartDate).slice(0, 10);
-                const end = m.membershipEndDate ? String(m.membershipEndDate).slice(0, 10) : null;
-                const seat = m.membershipFrom || 'UK Constituency';
+                if (!m || typeof m !== 'object') continue;
+                const houseNum = m.house ?? m.House;
+                const startRaw = m.membershipStartDate ?? m.MembershipStartDate;
+                if (houseNum !== undefined && Number(houseNum) !== 1) continue;
+                if (!startRaw) continue;
+
+                const start = String(startRaw).slice(0, 10);
+                const endRaw = m.membershipEndDate ?? m.MembershipEndDate;
+                const end = endRaw ? String(endRaw).slice(0, 10) : null;
+                const seat = m.membershipFrom ?? m.MembershipFrom ?? 'UK Constituency';
                 const key = `${start}|${end || 'active'}|${seat}`;
                 if (seenTerms.has(key)) continue;
                 seenTerms.add(key);
@@ -1068,15 +1085,13 @@
                 continuousSpans.push({ ...term });
             }
 
+            const latestStart = memberVal.latestHouseMembership?.membershipStartDate;
+            const latestSeat = memberVal.latestHouseMembership?.membershipFrom;
             const currentSpan = continuousSpans.find(s => !s.end)
                 || continuousSpans[continuousSpans.length - 1]
-                || (memberVal.latestHouseMembership?.membershipStartDate
-                    ? {
-                        seat: memberVal.latestHouseMembership.membershipFrom || 'UK Constituency',
-                        start: String(memberVal.latestHouseMembership.membershipStartDate).slice(0, 10),
-                        end: null
-                    }
-                    : (fallbackStartDate ? { seat: 'UK Constituency', start: fallbackStartDate.slice(0, 10), end: null } : null));
+                || (latestStart
+                    ? { seat: latestSeat || 'UK Constituency', start: String(latestStart).slice(0, 10), end: null }
+                    : (fallbackStartDate ? { seat: 'UK Constituency', start: String(fallbackStartDate).slice(0, 10), end: null } : null));
 
             let totalMonths = 0;
             for (const span of continuousSpans) {
@@ -1084,23 +1099,24 @@
                 if (d) totalMonths += d.totalMonths;
             }
 
-            // Parse won elections from Biography
             const rawElections = [
-                ...(Array.isArray(bio?.electionsContested) ? bio.electionsContested : []),
-                ...(Array.isArray(bio?.elections) ? bio.elections : [])
+                ...extractArraysByKey(bioPayload, ['electionsContested', 'ElectionsContested', 'elections', 'Elections']),
+                ...extractArraysByKey(historyPayload, ['electionsContested', 'ElectionsContested', 'elections', 'Elections'])
             ];
 
             const seenElections = new Set();
             const wonElections = [];
             for (const e of rawElections) {
-                const isWinner = e?.isWinner === true || e?.won === true;
-                const resText = String(e?.result || e?.electionResult || e?.status || '').toLowerCase();
-                if (!isWinner && !resText.includes('elected') && !resText.includes('won') && Number(e?.position) !== 1) {
+                if (!e || typeof e !== 'object') continue;
+                const isWinner = e.isWinner === true || e.IsWinner === true || e.won === true;
+                const resText = String(e.result ?? e.Result ?? e.electionResult ?? e.status ?? '').toLowerCase();
+                if (!isWinner && !resText.includes('elected') && !resText.includes('won') && Number(e.position ?? e.Position) !== 1) {
                     continue;
                 }
-                const title = e?.electionTitle || e?.title || e?.name || 'Parliamentary Election';
-                const dateIso = e?.electionDate ? String(e.electionDate).slice(0, 10) : '';
-                const seat = e?.constituencyName || e?.membershipFrom || '';
+                const title = e.electionTitle ?? e.ElectionTitle ?? e.title ?? e.Title ?? 'Parliamentary Election';
+                const dateRaw = e.electionDate ?? e.ElectionDate ?? '';
+                const dateIso = dateRaw ? String(dateRaw).slice(0, 10) : '';
+                const seat = e.constituencyName ?? e.ConstituencyName ?? e.membershipFrom ?? '';
                 const dedupKey = `${dateIso}|${title}|${seat}`;
                 if (seenElections.has(dedupKey)) continue;
                 seenElections.add(dedupKey);
@@ -1114,7 +1130,6 @@
             }
             wonElections.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
 
-            // Derive election wins from Commons term start dates if electionsContested isn't provided
             if (wonElections.length === 0 && commonsTerms.length > 0) {
                 for (const t of [...commonsTerms].reverse()) {
                     const isGeneralDate = /-07-04$|-12-12$|-06-08$|-05-07$|-05-06$|-05-05$|-06-07$/.test(t.start);
@@ -1355,6 +1370,16 @@
             }
         }
 
+        async function safeFetchJson(url) {
+            try {
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) return null;
+                return await res.json();
+            } catch {
+                return null;
+            }
+        }
+
         async function loadProfileForMp(mp) {
             const memberId = mp.parliament_member_id;
             const seatName = getMpConstituencyName(mp);
@@ -1390,33 +1415,16 @@
             els.profileElectionsSummary.classList.add('hidden');
             els.profileElectionsSection.classList.add('hidden');
 
-            try {
-                const [historyRes, bioRes, memberRes] = await Promise.all([
-                    fetch(`https://members-api.parliament.uk/api/Members/History?ids=${memberId}`, {
-                        headers: { 'Accept': 'application/json' }
-                    }),
-                    fetch(`https://members-api.parliament.uk/api/Members/${memberId}/Biography`, {
-                        headers: { 'Accept': 'application/json' }
-                    }),
-                    fetch(`https://members-api.parliament.uk/api/Members/${memberId}`, {
-                        headers: { 'Accept': 'application/json' }
-                    })
-                ]);
+            const [historyJson, bioJson, memberJson] = await Promise.all([
+                safeFetchJson(`https://members-api.parliament.uk/api/Members/History?ids=${memberId}`),
+                safeFetchJson(`https://members-api.parliament.uk/api/Members/${memberId}/Biography`),
+                safeFetchJson(`https://members-api.parliament.uk/api/Members/${memberId}`)
+            ]);
 
-                const historyJson = historyRes.ok ? await historyRes.json() : null;
-                const bioJson = bioRes.ok ? await bioRes.json() : null;
-                const memberJson = memberRes.ok ? await memberRes.json() : null;
-                const parsedBio = parseMemberBiography(historyJson, bioJson, memberJson, mp.member_since);
-
-                state.memberMetaCache.set(memberId, parsedBio);
-                if (state.selectedMp?.parliament_member_id === memberId) {
-                    renderServiceAndElections(mp, parsedBio);
-                }
-            } catch {
-                if (state.selectedMp?.parliament_member_id === memberId) {
-                    const fallbackParsed = parseMemberBiography(null, null, null, mp.member_since);
-                    renderServiceAndElections(mp, fallbackParsed);
-                }
+            const parsedBio = parseMemberBiography(historyJson, bioJson, memberJson, mp.member_since);
+            state.memberMetaCache.set(memberId, parsedBio);
+            if (state.selectedMp?.parliament_member_id === memberId) {
+                renderServiceAndElections(mp, parsedBio);
             }
         }
 

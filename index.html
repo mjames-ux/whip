@@ -108,7 +108,7 @@
                         id="mpSearchInput"
                         autocomplete="off"
                         aria-label="Search by UK postcode, MP name, or constituency"
-                        placeholder="Enter UK postcode (e.g. CV21 2RR), constituency, or MP name..."
+                        placeholder="Enter UK postcode, constituency, or MP name..."
                         class="w-full pl-11 pr-28 py-3.5 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-transparent focus:border-ink rounded-xl text-sm sm:text-[15px] text-ink placeholder-inkTertiary focus:outline-none transition-all"
                     />
                     <div class="absolute inset-y-0 right-1.5 flex items-center gap-1">
@@ -144,15 +144,6 @@
                     role="listbox"
                     class="hidden absolute left-0 right-0 mt-2 bg-white border border-hairline rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.08)] overflow-hidden z-40"
                 >
-                    <div class="px-4 py-3 bg-surface/70 border-b border-hairline flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <div class="flex items-center gap-1.5 text-inkSecondary">
-                            <span>Try postcode:</span>
-                            <button type="button" data-postcode="CV21 2RR" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">CV21 2RR</button>
-                            <button type="button" data-postcode="TD15 1AA" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">TD15 1AA</button>
-                            <button type="button" data-postcode="M26 2SP" class="sample-postcode-btn font-mono text-[11px] text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 px-1 cursor-pointer">M26 2SP</button>
-                        </div>
-                        <span id="mpCountLabel" class="text-inkTertiary">Loading seats...</span>
-                    </div>
                     <div id="mpDropdownList" class="max-h-72 overflow-y-auto custom-scroll divide-y divide-hairline/60">
                         <!-- Populated dynamically via JS -->
                     </div>
@@ -356,16 +347,11 @@
         const SUPABASE_URL = 'https://njxnofubcrlshnosaglv.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
 
-        /**
-         * Direct PostgREST fetch helper — works cleanly with both `sb_publishable_...`
-         * and legacy `eyJ...` anon keys without external CDN script dependencies.
-         */
         async function supabaseGet(table, queryString) {
             const headers = {
                 'apikey': SUPABASE_ANON_KEY,
                 'Accept': 'application/json'
             };
-            // Only attach Bearer Authorization when using a JWT-formatted key
             if (SUPABASE_ANON_KEY.startsWith('eyJ')) {
                 headers['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
             }
@@ -404,7 +390,6 @@
             dismissPostcodeBanner: document.getElementById('dismissPostcodeBanner'),
             dropdown: document.getElementById('mpDropdown'),
             dropdownList: document.getElementById('mpDropdownList'),
-            mpCountLabel: document.getElementById('mpCountLabel'),
             sittingDateDisplay: document.getElementById('sittingDateDisplay'),
             dayToggleGroup: document.getElementById('dayToggleGroup'),
             dissolutionBanner: document.getElementById('dissolutionBanner'),
@@ -504,16 +489,12 @@
                 });
             }
 
-            els.mpCountLabel.textContent = q
-                ? `${matches.length} matching ${matches.length === 1 ? 'seat' : 'seats'}`
-                : `${state.allMps.length} active seats`;
-
             const displayList = matches.slice(0, 60);
 
             if (displayList.length === 0) {
                 els.dropdownList.innerHTML = `
                     <div class="px-4 py-6 text-center text-xs text-inkTertiary">
-                        No MP or constituency matched "${query}". Try a full UK postcode like <span class="font-mono text-ink">CV21 2RR</span>.
+                        No MP or constituency matched "${query}". Try searching by full UK postcode.
                     </div>
                 `;
                 return;
@@ -770,7 +751,6 @@
 
         async function initApp() {
             try {
-                // 1. Check dissolution status
                 const statusRows = await supabaseGet('system_status', 'select=*&id=eq.1&limit=1');
                 const statusData = Array.isArray(statusRows) ? statusRows[0] : null;
 
@@ -780,7 +760,6 @@
                     return;
                 }
 
-                // 2. Load all 650 active MPs with constituency names & GSS codes
                 const mps = await supabaseGet(
                     'mps',
                     'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
@@ -795,7 +774,6 @@
                 state.allMps = mps;
                 renderDropdownList('');
 
-                // 3. Find the 3 most recent sitting dates in daily_briefings
                 const recentDates = await supabaseGet(
                     'daily_briefings',
                     'select=sitting_date&order=sitting_date.desc&limit=30'
@@ -807,7 +785,6 @@
                     renderDayToggles();
                 }
 
-                // 4. Pick followed MP, or default to Prime Minister Andy Burnham (ID 4514), or first MP
                 const initialMp =
                     (state.followedMpId && mps.find(m => m.parliament_member_id === state.followedMpId)) ||
                     mps.find(m => m.parliament_member_id === 4514) ||
@@ -867,14 +844,6 @@
             } else {
                 els.dropdown.classList.add('hidden');
             }
-        });
-
-        document.querySelectorAll('.sample-postcode-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const pc = btn.getAttribute('data-postcode');
-                els.searchInput.value = pc;
-                lookupPostcode(pc);
-            });
         });
 
         els.dismissPostcodeBanner.addEventListener('click', () => {

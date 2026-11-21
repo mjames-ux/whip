@@ -1192,7 +1192,7 @@
                 `
                 : '';
 
-            const dailyPillsHtml = state.availableDates.slice(0, 3).map(dateStr => {
+            const dailyPillsHtml = state.availableDates.slice(0, 4).map(dateStr => {
                 const isActive = state.selectedMode === 'daily' && dateStr === state.selectedDate;
                 return `
                     <button
@@ -1572,11 +1572,6 @@
                     );
                 }
 
-                const recentDateRows = await supabaseGet(
-                    'daily_briefings',
-                    'select=sitting_date,activity_tag&order=sitting_date.desc&limit=2000'
-                );
-
                 if (!Array.isArray(mps) || mps.length === 0) {
                     showPostcodeStatus('Connected to Supabase, but 0 active MPs were returned. Run GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; in Supabase SQL Editor.', true);
                     return;
@@ -1585,6 +1580,12 @@
                 state.allMps = mps;
                 renderDropdownList(els.searchInput.value);
                 renderWatchlist();
+
+                const probeMemberId = mps[0]?.parliament_member_id || 4514;
+                const recentDateRows = await supabaseGet(
+                    'daily_briefings',
+                    `select=sitting_date,activity_tag&parliament_member_id=eq.${probeMemberId}&order=sitting_date.desc&limit=21`
+                );
 
                 if (Array.isArray(recentDateRows) && recentDateRows.length > 0) {
                     const activeRows = recentDateRows.filter(r => r.activity_tag !== 'Non-Sitting Day');

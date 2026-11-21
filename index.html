@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#FFFFFF">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="description" content="Whip — Plain-English daily summaries of what your MP did in the UK Parliament.">
-    <title>Whip — Your MP, yesterday in Parliament</title>
+    <meta name="description" content="Whip — Plain-English summaries of what your MP did in the UK Parliament.">
+    <title>Whip — Your MP, This Week in Parliament</title>
     <!-- Clean Inline SVG Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111111'/%3E%3Ctext x='14' y='46' font-family='Georgia,serif' font-weight='bold' font-size='38' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='43' r='4' fill='%23006548'/%3E%3C/svg%3E">
     <!-- URL-Encoded Inline PWA Manifest -->
-    <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Whip%20-%20Yesterday%20in%20Parliament%22%2C%22short_name%22%3A%22Whip%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23FFFFFF%22%2C%22theme_color%22%3A%22%23111111%22%7D">
+    <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Whip%20-%20Your%20MP%2C%20This%20Week%20in%20Parliament%22%2C%22short_name%22%3A%22Whip%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23FFFFFF%22%2C%22theme_color%22%3A%22%23111111%22%7D">
     <!-- Google Fonts: Playfair Display & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -86,7 +86,7 @@
                     Whip<span class="text-commonsGreen">.</span>
                 </button>
                 <span id="mastheadSubtitle" class="text-sm sm:text-base text-inkSecondary font-normal tracking-tight">
-                    Your MP, yesterday in Parliament
+                    Your MP, This Week in Parliament
                 </span>
             </div>
             <div id="lastSyncBadge" class="text-xs text-inkTertiary font-medium tracking-tight">
@@ -104,7 +104,7 @@
                 Whip<span class="text-commonsGreen">.</span>
             </h1>
             <p id="landingSubtitle" class="text-base sm:text-lg text-inkSecondary font-normal tracking-tight">
-                Your MP, yesterday in Parliament.
+                Your MP, This Week in Parliament.
             </p>
         </div>
 
@@ -391,9 +391,9 @@
 
         /**
          * Determines UK calendar day context:
-         * - Saturday (6) & Sunday (0): "This week in Parliament" ("This Week")
-         * - Monday (1): "Last week in Parliament" ("Last Week")
-         * - Tuesday–Friday (2–5): "Yesterday in Parliament" (defaults to latest sitting day, with "Last Week" pill available)
+         * - Saturday & Sunday: defaults to weekly view ("This Week")
+         * - Monday: defaults to weekly view ("Last Week")
+         * - Tuesday–Friday: defaults to latest sitting day, with "Last Week" toggle available
          */
         function getCalendarMode() {
             const ukDayName = new Intl.DateTimeFormat('en-GB', {
@@ -406,7 +406,7 @@
                     isWeeklyDefault: true,
                     weeklyPillLabel: 'This Week',
                     weeklyHeadingPrefix: 'This week in Parliament',
-                    subtitle: 'Your MP, this week in Parliament'
+                    subtitle: 'Your MP, This Week in Parliament'
                 };
             }
             if (ukDayName === 'Mon') {
@@ -414,14 +414,14 @@
                     isWeeklyDefault: true,
                     weeklyPillLabel: 'Last Week',
                     weeklyHeadingPrefix: 'Last week in Parliament',
-                    subtitle: 'Your MP, last week in Parliament'
+                    subtitle: 'Your MP, This Week in Parliament'
                 };
             }
             return {
                 isWeeklyDefault: false,
                 weeklyPillLabel: 'Last Week',
                 weeklyHeadingPrefix: 'Last week in Parliament',
-                subtitle: 'Your MP, yesterday in Parliament'
+                subtitle: 'Your MP, This Week in Parliament'
             };
         }
 
@@ -532,7 +532,6 @@
             closeHansardFooterBtn: document.getElementById('closeHansardFooterBtn')
         };
 
-        // Apply weekend / Monday / weekday subtitle immediately
         els.mastheadSubtitle.textContent = CALENDAR_MODE.subtitle;
         els.landingSubtitle.textContent = `${CALENDAR_MODE.subtitle}.`;
 
@@ -540,7 +539,7 @@
 
         function getMondayOfWeek(isoDate) {
             const d = new Date(`${isoDate}T12:00:00Z`);
-            const day = d.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+            const day = d.getUTCDay();
             const diffToMonday = day === 0 ? -6 : 1 - day;
             d.setUTCDate(d.getUTCDate() + diffToMonday);
             return d.toISOString().slice(0, 10);
@@ -882,10 +881,6 @@
             }).join('');
         }
 
-        /**
-         * Synthesizes a weekly roundup ("This week in Parliament" on Sat/Sun,
-         * "Last week in Parliament" on Mon–Fri) from the week's daily_briefings rows.
-         */
         function compileWeeklyBriefing(mp, weekDates, rows) {
             const sortedDates = [...weekDates].sort();
             const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
@@ -899,7 +894,6 @@
                 entry.row.activity_tag !== 'No Vote Recorded'
             );
 
-            // Combine division votes across the week
             const combinedVotes = [];
             for (const { date, row } of activeDayEntries) {
                 const dayVotes = Array.isArray(row.votes) ? row.votes : [];
@@ -911,7 +905,6 @@
                 }
             }
 
-            // Combine glossary terms & verbatim excerpts across the week
             const glossaryMap = new Map();
             const excerpts = [];
             for (const { date, row } of activeDayEntries) {
@@ -946,7 +939,6 @@
                 };
             }
 
-            // Build concise day-by-day weekly synthesis
             const dayHighlights = substantiveEntries
                 .map(({ date, row }) => `${formatShortPillDate(date)}: ${row.summary_para_1}`)
                 .join(' ');
@@ -1155,7 +1147,6 @@
                     return;
                 }
 
-                // Fetch MPs and distinct recent sitting dates (filtered by 1 MP ID so only ~10 rows transfer)
                 const [mps, recentDateRows] = await Promise.all([
                     supabaseGet(
                         'mps',
@@ -1177,7 +1168,6 @@
                 renderWatchlist();
 
                 if (Array.isArray(recentDateRows) && recentDateRows.length > 0) {
-                    // Prefer active sitting days; fall back to all recent dates if needed
                     const activeRows = recentDateRows.filter(r => r.activity_tag !== 'Non-Sitting Day');
                     const sourceRows = activeRows.length > 0 ? activeRows : recentDateRows;
                     const uniqueDates = [...new Set(sourceRows.map(r => r.sitting_date))];
@@ -1185,7 +1175,6 @@
                     state.availableDates = uniqueDates;
                     state.selectedDate = uniqueDates[0];
 
-                    // Group the most recent active sitting week (Mon–Fri)
                     const latestMonday = getMondayOfWeek(uniqueDates[0]);
                     state.weeklyDates = uniqueDates.filter(d => getMondayOfWeek(d) === latestMonday);
 

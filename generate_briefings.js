@@ -4,7 +4,8 @@
  * Fetches House of Commons Hansard speeches, Select/Bill Committee appearances,
  * and Commons Division votes for a target sitting date (defaulting to yesterday UTC,
  * or accepting `--date=YYYY-MM-DD` / `TARGET_DATE` for backfilling), generates
- * plain-English neutral summaries via Gemini, and upserts into `daily_briefings`.
+ * plain-English neutral summaries via Gemini, enriches voting-only context with
+ * UK Parliament Bills API details, and upserts into `daily_briefings`.
  */
 
 import 'dotenv/config';
@@ -14,6 +15,7 @@ const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search/contributio
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
+const BILLS_SEARCH_API = 'https://bills-api.parliament.uk/api/v1/Bills';
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -306,6 +308,78 @@ ${voteDigest ? `Division Votes:\n${voteDigest}\n` : ''}`;
     };
 }
 
+const billContextCache = new Map();
+
+function fallbackBillOrMotionContext(title) {
+    const cleanTitle = (title || '').trim();
+    if (!cleanTitle) return null;
+    const lower = cleanTitle.toLowerCase();
+
+    if (lower.includes('visitor levy')) {
+        return 'The Visitor Levy (England) Bill proposes powers for mayors and strategic authorities in England to introduce a local overnight accommodation levy to support local transport, infrastructure, and tourism.';
+    }
+    if (lower.includes('immigration and asylum')) {
+        return 'The Immigration and Asylum Bill sets out changes to asylum claims, human rights assessments, modern slavery referrals, and immigration appeals.';
+    }
+    if (lower.includes('opposition day')) {
+        return 'Opposition Day debates give non-government parties the floor to scrutinize ministers and put forward motions on policy issues of their choice.';
+    }
+    return null;
+}
+
+/**
+ * Look up plain-English context for bills/motions voted on during the sitting day,
+ * caching lookups by bill/motion title so each title is queried at most once per run.
+ */
+async function getBillContextForDivisions(votes, readableDate) {
+    const snippets = [];
+
+    for (const v of (votes || []).slice(0, 3)) {
+        const cleanBillName = (v.title || '')
+            .replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '')
+            .trim();
+        if (!cleanBillName) continue;
+
+        if (!billContextCache.has(cleanBillName)) {
+            let summary = fallbackBillOrMotionContext(cleanBillName);
+
+            if (!summary && /\bbill\b/i.test(cleanBillName)) {
+                try {
+                    const url = new URL(BILLS_SEARCH_API);
+                    url.searchParams.set('SearchTerm', cleanBillName);
+                    url.searchParams.set('Take', '1');
+                    const data = await fetchJsonWithTimeout(url.toString(), 8000);
+                    const item = data?.items?.[0];
+                    if (item?.longTitle) {
+                        const cleanLongTitle = stripHtml(item.longTitle)
+                            .replace(/^A Bill to\s+/i, '')
+                            .replace(/;\s*and for connected purposes\.?$/i, '')
+                            .replace(/\.$/, '')
+                            .trim();
+                        if (cleanLongTitle) {
+                            summary = `${item.shortTitle || cleanBillName} is legislation to ${cleanLongTitle.charAt(0).toLowerCase()}${cleanLongTitle.slice(1)}.`;
+                        }
+                    }
+                } catch {}
+            }
+
+            if (!summary) {
+                summary = `${cleanBillName} was put before the House of Commons on ${readableDate} to test MPs' support for the proposed measure or motion.`;
+            }
+
+            billContextCache.set(cleanBillName, summary);
+        }
+
+        const cached = billContextCache.get(cleanBillName);
+        if (cached && !snippets.includes(cached)) {
+            snippets.push(cached);
+        }
+        if (snippets.length >= 2) break;
+    }
+
+    return snippets.join(' ');
+}
+
 /**
  * Concurrency helper to process 650 MPs rapidly without rate-limit spikes.
  */
@@ -431,12 +505,14 @@ export async function generateBriefings() {
             }
         }
 
-        // Deterministic zero-token summary for MPs who voted without speaking
+        // Zero-token summary with bill/motion context for MPs who voted without speaking
         if (mpVotes.length > 0) {
             const firstVote = mpVotes[0];
             const extraText = mpVotes.length > 1
                 ? ` and ${mpVotes.length - 1} other ${mpVotes.length - 1 === 1 ? 'division' : 'divisions'}`
                 : '';
+
+            const billContext = await getBillContextForDivisions(mpVotes, readableDate);
 
             return {
                 parliament_member_id: memberId,
@@ -444,7 +520,7 @@ export async function generateBriefings() {
                 activity_tag: mpVotes.length === 1 ? '1 Division Vote' : `${mpVotes.length} Division Votes`,
                 hansard_ref: `Commons Votes ${dateStr}`,
                 summary_para_1: `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but voted ${firstVote.mpVote} on ${firstVote.title}${extraText}.`,
-                summary_para_2: `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions, alongside their committee and constituency responsibilities.`,
+                summary_para_2: billContext,
                 verbatim_excerpt: null,
                 glossary: [],
                 votes: fullDayVotes
@@ -458,7 +534,7 @@ export async function generateBriefings() {
             activity_tag: 'Constituency & Parliamentary Work',
             hansard_ref: `HC Deb ${dateStr}`,
             summary_para_1: `${mp.short_name} had no recorded spoken contributions or division votes in the House of Commons on ${readableDate}.`,
-            summary_para_2: `MPs divide their parliamentary week between main Chamber debates, private bill committees, ministerial correspondence, and constituency casework.`,
+            summary_para_2: `MPs divide their week between main Chamber debates, private bill committees, ministerial correspondence, and constituency casework.`,
             verbatim_excerpt: null,
             glossary: [],
             votes: fullDayVotes

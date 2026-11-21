@@ -74,13 +74,17 @@
 </head>
 <body class="min-h-screen flex flex-col selection:bg-ink selection:text-white">
 
-    <!-- Minimalist Masthead -->
-    <header class="max-w-3xl w-full mx-auto px-6 sm:px-8 pt-10 sm:pt-14 pb-8">
+    <!-- Minimalist Masthead (Shown when viewing a briefing) -->
+    <header id="topMasthead" class="hidden max-w-3xl w-full mx-auto px-6 sm:px-8 pt-10 sm:pt-14 pb-8">
         <div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-4 border-b border-ink pb-6">
             <div class="flex items-baseline gap-3">
-                <a href="#" class="font-editorial font-bold text-5xl sm:text-6xl tracking-[-0.04em] text-ink leading-none">
+                <button
+                    id="resetToHomeBtn"
+                    type="button"
+                    class="font-editorial font-bold text-5xl sm:text-6xl tracking-[-0.04em] text-ink leading-none cursor-pointer text-left"
+                >
                     Whip<span class="text-commonsGreen">.</span>
-                </a>
+                </button>
                 <span class="text-sm sm:text-base text-inkSecondary font-normal tracking-tight">
                     Your MP, yesterday in Parliament
                 </span>
@@ -92,14 +96,24 @@
     </header>
 
     <!-- Main Single-Column Editorial Canvas -->
-    <main class="flex-grow max-w-3xl w-full mx-auto px-6 sm:px-8 pb-24">
+    <main id="mainCanvas" class="flex-grow max-w-2xl w-full mx-auto px-6 sm:px-8 flex flex-col justify-center pb-20">
 
-        <!-- Tactile Utility Search -->
-        <section aria-label="Find your representative" class="mb-14 sm:mb-16">
+        <!-- Centered Hero Wordmark (Shown on initial landing before an MP is selected) -->
+        <div id="landingHero" class="text-center mb-8 sm:mb-10 pt-10">
+            <h1 class="font-editorial font-bold text-6xl sm:text-7xl tracking-[-0.04em] text-ink leading-none mb-4">
+                Whip<span class="text-commonsGreen">.</span>
+            </h1>
+            <p class="text-base sm:text-lg text-inkSecondary font-normal tracking-tight">
+                Your MP, yesterday in Parliament.
+            </p>
+        </div>
+
+        <!-- Tactile Utility Search (Centered on landing, docked at top once MP selected) -->
+        <section id="searchSection" aria-label="Find your representative" class="w-full">
             <div class="relative" id="mpSearchContainer">
                 <div class="relative flex items-center">
-                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-inkTertiary">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="absolute inset-y-0 left-0 pl-4 sm:pl-5 flex items-center pointer-events-none text-inkTertiary">
+                        <svg class="w-4 h-4 sm:w-[18px] sm:h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                         </svg>
                     </div>
@@ -107,15 +121,16 @@
                         type="text"
                         id="mpSearchInput"
                         autocomplete="off"
+                        autofocus
                         aria-label="Search by UK postcode, MP name, or constituency"
                         placeholder="Enter UK postcode, constituency, or MP name..."
-                        class="w-full pl-11 pr-28 py-3.5 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-transparent focus:border-ink rounded-xl text-sm sm:text-[15px] text-ink placeholder-inkTertiary focus:outline-none transition-all"
+                        class="w-full pl-11 sm:pl-12 pr-28 py-4 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-hairline/80 focus:border-ink rounded-2xl text-sm sm:text-base text-ink placeholder-inkTertiary shadow-[0_4px_24px_rgba(0,0,0,0.03)] focus:shadow-[0_8px_30px_rgba(0,0,0,0.06)] focus:outline-none transition-all"
                     />
-                    <div class="absolute inset-y-0 right-1.5 flex items-center gap-1">
+                    <div class="absolute inset-y-0 right-2 flex items-center gap-1">
                         <button
                             id="postcodeLookupBtn"
                             type="button"
-                            class="hidden px-3.5 py-2 rounded-lg bg-ink text-white text-xs font-medium hover:bg-ink/85 transition cursor-pointer"
+                            class="hidden px-4 py-2 rounded-xl bg-ink text-white text-xs font-medium hover:bg-ink/85 transition cursor-pointer"
                         >
                             <span id="postcodeBtnText">Find</span>
                         </button>
@@ -149,127 +164,137 @@
                     </div>
                 </div>
             </div>
-        </section>
 
-        <!-- Sitting Day Navigation -->
-        <section aria-label="Parliamentary sitting date" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight">
-                Loading parliamentary record...
-            </p>
-
-            <div id="dayToggleGroup" class="inline-flex bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary sitting day">
-                <!-- Populated dynamically with available sitting dates -->
-            </div>
-        </section>
-
-        <!-- General Election Dissolution Notice -->
-        <section id="dissolutionBanner" class="hidden py-12 border-t border-b border-hairline mb-12">
-            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-3">
-                General Election Period
-            </p>
-            <h1 class="font-editorial text-3xl sm:text-4xl font-bold text-ink tracking-tight mb-4">
-                Parliament is currently dissolved.
-            </h1>
-            <p class="text-base sm:text-lg text-inkSecondary leading-relaxed max-w-2xl">
-                Ahead of the UK General Election, every seat in the House of Commons is vacant and there are no sitting MPs, chamber debates, or parliamentary votes. Daily briefings will resume automatically the morning after the new Parliament meets.
+            <!-- Subtle Caption Below Centered Search (Hidden once MP selected) -->
+            <p id="landingCaption" class="text-center text-xs text-inkTertiary mt-4 tracking-tight">
+                Plain-English summaries of speeches, committees &amp; votes — updated 7:00 AM daily
             </p>
         </section>
 
-        <!-- Borderless Editorial Briefing -->
-        <article id="briefingArticle" class="fade-transition fade-in">
-            
-            <!-- 1. MP Editorial Header -->
-            <header class="pb-8 mb-8 border-b border-hairline flex flex-col sm:flex-row sm:items-end justify-between gap-6">
-                <div>
-                    <div class="flex items-center gap-2 text-xs sm:text-sm font-medium text-inkSecondary mb-2.5">
-                        <span id="mpPartyDot" class="w-2 h-2 rounded-full inline-block bg-commonsGreen"></span>
-                        <span id="mpPartyName" class="text-ink">—</span>
-                        <span class="text-inkTertiary">/</span>
-                        <span id="mpConstituency">—</span>
-                    </div>
+        <!-- Briefing Workspace (Hidden until user selects an MP or has a followed MP saved) -->
+        <div id="briefingWorkspace" class="hidden w-full mt-14 sm:mt-16">
 
-                    <h1 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
-                        Loading MP...
-                    </h1>
-
-                    <p class="text-sm text-inkSecondary mt-2.5">
-                        <span id="mpRole">—</span>
-                        <span class="mx-2 text-hairline">•</span>
-                        <span id="activityBadge" class="text-inkTertiary">—</span>
-                    </p>
-                </div>
-
-                <div class="shrink-0">
-                    <button
-                        id="saveMpBtn"
-                        type="button"
-                        class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer"
-                    >
-                        <svg id="saveMpIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
-                        </svg>
-                        <span id="saveMpText">Follow MP</span>
-                    </button>
-                </div>
-            </header>
-
-            <!-- 2. Two-Paragraph Accessible Summary -->
-            <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
-                <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
-                    Fetching yesterday's Hansard record...
+            <!-- Sitting Day Navigation -->
+            <section aria-label="Parliamentary sitting date" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight">
+                    Loading parliamentary record...
                 </p>
 
-                <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
-                    <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
-                        Context
-                    </p>
-                    <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                        Loading background context...
-                    </p>
-                </div>
-
-                <div class="pt-2 flex flex-wrap items-center justify-between gap-3">
-                    <button
-                        id="openHansardBtn"
-                        type="button"
-                        class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer"
-                    >
-                        <span>Read official Hansard transcript</span>
-                        <span aria-hidden="true" class="text-inkTertiary">&rarr;</span>
-                    </button>
-                    <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
-                        —
-                    </span>
+                <div id="dayToggleGroup" class="inline-flex bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary sitting day">
+                    <!-- Populated dynamically with available sitting dates -->
                 </div>
             </section>
 
-            <!-- 3. Yesterday's Voting Record -->
-            <section aria-label="Yesterday's Voting Record" class="mt-16 pt-10 border-t border-hairline">
-                <div class="flex items-baseline justify-between gap-4 mb-6">
-                    <h2 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
-                        Voting record
-                    </h2>
-                    <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
-                        0 divisions
-                    </span>
-                </div>
-
-                <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
-                    <!-- Populated dynamically via JS -->
-                </div>
+            <!-- General Election Dissolution Notice -->
+            <section id="dissolutionBanner" class="hidden py-12 border-t border-b border-hairline mb-12">
+                <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-3">
+                    General Election Period
+                </p>
+                <h2 class="font-editorial text-3xl sm:text-4xl font-bold text-ink tracking-tight mb-4">
+                    Parliament is currently dissolved.
+                </h2>
+                <p class="text-base sm:text-lg text-inkSecondary leading-relaxed max-w-2xl">
+                    Ahead of the UK General Election, every seat in the House of Commons is vacant and there are no sitting MPs, chamber debates, or parliamentary votes. Daily briefings will resume automatically the morning after the new Parliament meets.
+                </p>
             </section>
 
-        </article>
+            <!-- Borderless Editorial Briefing -->
+            <article id="briefingArticle" class="fade-transition fade-in">
+                
+                <!-- 1. MP Editorial Header -->
+                <header class="pb-8 mb-8 border-b border-hairline flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+                    <div>
+                        <div class="flex items-center gap-2 text-xs sm:text-sm font-medium text-inkSecondary mb-2.5">
+                            <span id="mpPartyDot" class="w-2 h-2 rounded-full inline-block bg-commonsGreen"></span>
+                            <span id="mpPartyName" class="text-ink">—</span>
+                            <span class="text-inkTertiary">/</span>
+                            <span id="mpConstituency">—</span>
+                        </div>
 
-        <!-- Quiet Editorial Colophon -->
-        <footer class="mt-20 pt-8 border-t border-hairline text-xs text-inkTertiary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 leading-relaxed">
-            <p class="max-w-lg">
-                Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts and Commons Votes data. Party whips and pairing arrangements may affect division attendance.
-            </p>
-            <p class="shrink-0 text-inkSecondary font-medium">
-                Source: parliament.uk
-            </p>
-        </footer>
+                        <h2 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
+                            Loading MP...
+                        </h2>
+
+                        <p class="text-sm text-inkSecondary mt-2.5">
+                            <span id="mpRole">—</span>
+                            <span class="mx-2 text-hairline">•</span>
+                            <span id="activityBadge" class="text-inkTertiary">—</span>
+                        </p>
+                    </div>
+
+                    <div class="shrink-0">
+                        <button
+                            id="saveMpBtn"
+                            type="button"
+                            class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer"
+                        >
+                            <svg id="saveMpIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
+                            </svg>
+                            <span id="saveMpText">Follow MP</span>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- 2. Two-Paragraph Accessible Summary -->
+                <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
+                    <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
+                        Fetching yesterday's Hansard record...
+                    </p>
+
+                    <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
+                        <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
+                            Context
+                        </p>
+                        <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
+                            Loading background context...
+                        </p>
+                    </div>
+
+                    <div class="pt-2 flex flex-wrap items-center justify-between gap-3">
+                        <button
+                            id="openHansardBtn"
+                            type="button"
+                            class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer"
+                        >
+                            <span>Read official Hansard transcript</span>
+                            <span aria-hidden="true" class="text-inkTertiary">&rarr;</span>
+                        </button>
+                        <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
+                            —
+                        </span>
+                    </div>
+                </section>
+
+                <!-- 3. Yesterday's Voting Record -->
+                <section aria-label="Yesterday's Voting Record" class="mt-16 pt-10 border-t border-hairline">
+                    <div class="flex items-baseline justify-between gap-4 mb-6">
+                        <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                            Voting record
+                        </h3>
+                        <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
+                            0 divisions
+                        </span>
+                    </div>
+
+                    <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </section>
+
+            </article>
+
+            <!-- Quiet Editorial Colophon -->
+            <footer class="mt-20 pt-8 border-t border-hairline text-xs text-inkTertiary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 leading-relaxed">
+                <p class="max-w-lg">
+                    Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts, Committees data, and Commons Votes. Party whips and pairing arrangements may affect division attendance.
+                </p>
+                <p class="shrink-0 text-inkSecondary font-medium">
+                    Source: parliament.uk
+                </p>
+            </footer>
+        </div>
+
     </main>
 
     <!-- Minimalist Floating Pill Toast -->
@@ -380,6 +405,12 @@
         };
 
         const els = {
+            topMasthead: document.getElementById('topMasthead'),
+            resetToHomeBtn: document.getElementById('resetToHomeBtn'),
+            mainCanvas: document.getElementById('mainCanvas'),
+            landingHero: document.getElementById('landingHero'),
+            landingCaption: document.getElementById('landingCaption'),
+            briefingWorkspace: document.getElementById('briefingWorkspace'),
             searchContainer: document.getElementById('mpSearchContainer'),
             searchInput: document.getElementById('mpSearchInput'),
             postcodeLookupBtn: document.getElementById('postcodeLookupBtn'),
@@ -420,6 +451,30 @@
         };
 
         const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+        function switchToBriefingLayout() {
+            els.landingHero.classList.add('hidden');
+            els.landingCaption.classList.add('hidden');
+            els.topMasthead.classList.remove('hidden');
+            els.briefingWorkspace.classList.remove('hidden');
+            els.mainCanvas.className = 'flex-grow max-w-3xl w-full mx-auto px-6 sm:px-8 pb-24';
+            els.searchInput.className = 'w-full pl-11 pr-28 py-3.5 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-transparent focus:border-ink rounded-xl text-sm sm:text-[15px] text-ink placeholder-inkTertiary focus:outline-none transition-all';
+        }
+
+        function switchToCenteredLanding() {
+            state.selectedMp = null;
+            els.briefingWorkspace.classList.add('hidden');
+            els.topMasthead.classList.add('hidden');
+            els.landingHero.classList.remove('hidden');
+            els.landingCaption.classList.remove('hidden');
+            els.postcodeStatusBanner.classList.add('hidden');
+            els.postcodeLookupBtn.classList.add('hidden');
+            els.dropdown.classList.add('hidden');
+            els.searchInput.value = '';
+            els.mainCanvas.className = 'flex-grow max-w-2xl w-full mx-auto px-6 sm:px-8 flex flex-col justify-center pb-20';
+            els.searchInput.className = 'w-full pl-11 sm:pl-12 pr-28 py-4 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-hairline/80 focus:border-ink rounded-2xl text-sm sm:text-base text-ink placeholder-inkTertiary shadow-[0_4px_24px_rgba(0,0,0,0.03)] focus:shadow-[0_8px_30px_rgba(0,0,0,0.06)] focus:outline-none transition-all';
+            els.searchInput.focus();
+        }
 
         function formatLongDate(isoDate) {
             if (!isoDate) return 'Recent Sitting';
@@ -487,6 +542,15 @@
                     const party = (mp.party || '').toLowerCase();
                     return name.includes(q) || seat.includes(q) || party.includes(q);
                 });
+            }
+
+            if (state.allMps.length === 0) {
+                els.dropdownList.innerHTML = `
+                    <div class="px-4 py-6 text-center text-xs text-inkTertiary">
+                        Loading parliamentary roster...
+                    </div>
+                `;
+                return;
             }
 
             const displayList = matches.slice(0, 60);
@@ -607,6 +671,8 @@
 
         async function loadBriefingForCurrentSelection() {
             if (!state.selectedMp) return;
+
+            switchToBriefingLayout();
 
             const mp = state.selectedMp;
             const seatName = mp.constituencies?.name || 'UK Constituency';
@@ -755,29 +821,30 @@
                 const statusData = Array.isArray(statusRows) ? statusRows[0] : null;
 
                 if (statusData?.is_parliament_dissolved) {
+                    switchToBriefingLayout();
                     els.dissolutionBanner.classList.remove('hidden');
                     els.briefingArticle.classList.add('hidden');
                     return;
                 }
 
-                const mps = await supabaseGet(
-                    'mps',
-                    'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
-                );
+                const [mps, recentDates] = await Promise.all([
+                    supabaseGet(
+                        'mps',
+                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                    ),
+                    supabaseGet(
+                        'daily_briefings',
+                        'select=sitting_date&order=sitting_date.desc&limit=30'
+                    )
+                ]);
 
                 if (!Array.isArray(mps) || mps.length === 0) {
-                    els.mpName.textContent = 'No MPs returned';
-                    els.summaryPara1.textContent = 'Connected to Supabase, but 0 active MPs were returned. Run GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; in your Supabase SQL Editor and refresh.';
+                    showPostcodeStatus('Connected to Supabase, but 0 active MPs were returned. Run GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; in Supabase SQL Editor.', true);
                     return;
                 }
 
                 state.allMps = mps;
-                renderDropdownList('');
-
-                const recentDates = await supabaseGet(
-                    'daily_briefings',
-                    'select=sitting_date&order=sitting_date.desc&limit=30'
-                );
+                renderDropdownList(els.searchInput.value);
 
                 if (Array.isArray(recentDates) && recentDates.length > 0) {
                     state.availableDates = [...new Set(recentDates.map(r => r.sitting_date))].slice(0, 3);
@@ -785,26 +852,28 @@
                     renderDayToggles();
                 }
 
-                const initialMp =
-                    (state.followedMpId && mps.find(m => m.parliament_member_id === state.followedMpId)) ||
-                    mps.find(m => m.parliament_member_id === 4514) ||
-                    mps.find(m => (m.full_name || '').toLowerCase().includes('burnham')) ||
-                    mps[0];
-
-                await selectMp(initialMp);
+                // Only auto-open a briefing if the user explicitly followed an MP previously
+                if (state.followedMpId) {
+                    const savedMp = mps.find(m => m.parliament_member_id === state.followedMpId);
+                    if (savedMp) {
+                        els.searchInput.value = savedMp.constituencies?.name || savedMp.short_name;
+                        await selectMp(savedMp);
+                    }
+                }
             } catch (err) {
                 console.error('Whip initialization error:', err);
-                els.sittingDateDisplay.textContent = 'Database Connection Notice';
-                els.mpName.textContent = 'Permission Setup Needed';
-                els.summaryPara1.textContent = err.message;
-                els.summaryPara2.textContent = 'In your Supabase SQL Editor, click Run on: GRANT USAGE ON SCHEMA public TO anon; GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; and then refresh this page.';
+                showPostcodeStatus(`Database notice: ${err.message}`, true);
             }
         }
 
         // Event Listeners
+        els.resetToHomeBtn.addEventListener('click', switchToCenteredLanding);
+
         els.searchInput.addEventListener('focus', () => {
-            renderDropdownList(els.searchInput.value);
-            els.dropdown.classList.remove('hidden');
+            if (els.searchInput.value.trim().length > 0) {
+                renderDropdownList(els.searchInput.value);
+                els.dropdown.classList.remove('hidden');
+            }
         });
 
         els.searchInput.addEventListener('input', (e) => {
@@ -814,8 +883,12 @@
             } else {
                 els.postcodeLookupBtn.classList.add('hidden');
             }
-            renderDropdownList(val);
-            els.dropdown.classList.remove('hidden');
+            if (val.trim().length > 0) {
+                renderDropdownList(val);
+                els.dropdown.classList.remove('hidden');
+            } else {
+                els.dropdown.classList.add('hidden');
+            }
         });
 
         els.searchInput.addEventListener('keydown', (e) => {

@@ -258,7 +258,7 @@
 
                         <p class="text-sm text-inkSecondary mt-2.5">
                             <span id="mpRole">—</span>
-                            <span class="mx-2 text-hairline">•</span>
+                            <span id="headerBadgeDivider" class="mx-2 text-hairline">•</span>
                             <span id="activityBadge" class="text-inkTertiary">—</span>
                         </p>
                     </div>
@@ -866,6 +866,7 @@
             mpConstituency: document.getElementById('mpConstituency'),
             mpName: document.getElementById('mpName'),
             mpRole: document.getElementById('mpRole'),
+            headerBadgeDivider: document.getElementById('headerBadgeDivider'),
             activityBadge: document.getElementById('activityBadge'),
             saveMpBtn: document.getElementById('saveMpBtn'),
             saveMpIcon: document.getElementById('saveMpIcon'),
@@ -968,38 +969,16 @@
             return parts.join(', ');
         }
 
-        function getUkIsoDateOffset(daysOffset) {
-            const d = new Date(Date.now() + daysOffset * 86400000);
-            return new Intl.DateTimeFormat('en-CA', {
-                timeZone: 'Europe/London',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            }).format(d);
-        }
-
-        function getSelectedPeriodContextLabel() {
-            if (state.selectedMode === 'weekly' && state.latestWeekDates.length > 0) {
-                return CALENDAR_MODE.latestWeekLabel.toLowerCase();
-            }
-            if (state.selectedMode === 'prior-weekly' && state.priorWeekDates.length > 0) {
-                return CALENDAR_MODE.priorWeekLabel.toLowerCase();
-            }
-            if (state.selectedDate) {
-                if (state.selectedDate === getUkIsoDateOffset(-1)) return 'yesterday';
-                if (state.selectedDate === getUkIsoDateOffset(0)) return 'today';
-                return formatShortPillDate(state.selectedDate);
-            }
-            return '';
-        }
-
         function syncActivityBadgeDisplay() {
             const base = state.baseActivityBadge || '—';
-            if (state.activeTab === 'profile' && base && base !== '—' && base !== 'Awaiting next sitting') {
-                const periodLabel = getSelectedPeriodContextLabel();
-                els.activityBadge.textContent = periodLabel ? `${base} (${periodLabel})` : base;
-            } else {
+            const showBadge = state.activeTab !== 'profile' && Boolean(base) && base !== '—';
+            if (showBadge) {
+                els.headerBadgeDivider.classList.remove('hidden');
+                els.activityBadge.classList.remove('hidden');
                 els.activityBadge.textContent = base;
+            } else {
+                els.headerBadgeDivider.classList.add('hidden');
+                els.activityBadge.classList.add('hidden');
             }
         }
 
@@ -1037,28 +1016,37 @@
             }
         }
 
+        function collectMembershipArrays(source) {
+            if (!source) return [];
+            const arrays = [];
+            if (Array.isArray(source.houseMemberships)) arrays.push(...source.houseMemberships);
+            if (Array.isArray(source.HouseMemberships)) arrays.push(...source.HouseMemberships);
+            if (Array.isArray(source.value)) {
+                for (const entry of source.value) {
+                    if (Array.isArray(entry?.houseMemberships)) arrays.push(...entry.houseMemberships);
+                    if (Array.isArray(entry?.value?.houseMemberships)) arrays.push(...entry.value.houseMemberships);
+                }
+            }
+            return arrays;
+        }
+
         function parseMemberBiography(historyPayload, bioPayload, memberPayload, fallbackStartDate) {
-            const historyItem = Array.isArray(historyPayload?.value)
-                ? (historyPayload.value[0]?.value || historyPayload.value[0])
-                : (Array.isArray(historyPayload) ? (historyPayload[0]?.value || historyPayload[0]) : {});
             const bio = bioPayload?.value || bioPayload || {};
             const memberVal = memberPayload?.value || memberPayload || {};
 
-            // 1. Collect Commons houseMemberships (house === 1) from History first, then Biography
             const rawMemberships = [
-                ...(Array.isArray(historyItem?.houseMemberships) ? historyItem.houseMemberships : []),
-                ...(Array.isArray(bio?.houseMemberships) ? bio.houseMemberships : [])
+                ...collectMembershipArrays(historyPayload),
+                ...collectMembershipArrays(bioPayload)
             ];
 
-            // Deduplicate memberships by start date + seat
             const seenTerms = new Set();
             const commonsTerms = [];
             for (const m of rawMemberships) {
-                if (Number(m.house) !== 1 || !m.membershipStartDate) continue;
+                if (Number(m?.house) !== 1 || !m?.membershipStartDate) continue;
                 const start = String(m.membershipStartDate).slice(0, 10);
                 const end = m.membershipEndDate ? String(m.membershipEndDate).slice(0, 10) : null;
                 const seat = m.membershipFrom || 'UK Constituency';
-                const key = `${start}|${seat}`;
+                const key = `${start}|${end || 'active'}|${seat}`;
                 if (seenTerms.has(key)) continue;
                 seenTerms.add(key);
                 commonsTerms.push({ seat, start, end });
@@ -1096,11 +1084,10 @@
                 if (d) totalMonths += d.totalMonths;
             }
 
-            // 2. Parse won elections from Biography / History
+            // Parse won elections from Biography
             const rawElections = [
                 ...(Array.isArray(bio?.electionsContested) ? bio.electionsContested : []),
-                ...(Array.isArray(bio?.elections) ? bio.elections : []),
-                ...(Array.isArray(historyItem?.electionsContested) ? historyItem.electionsContested : [])
+                ...(Array.isArray(bio?.elections) ? bio.elections : [])
             ];
 
             const seenElections = new Set();
@@ -1127,7 +1114,7 @@
             }
             wonElections.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
 
-            // Fallback: if API didn't return electionsContested, infer start of each Commons term
+            // Derive election wins from Commons term start dates if electionsContested isn't provided
             if (wonElections.length === 0 && commonsTerms.length > 0) {
                 for (const t of [...commonsTerms].reverse()) {
                     const isGeneralDate = /-07-04$|-12-12$|-06-08$|-05-07$|-05-06$|-05-05$|-06-07$/.test(t.start);

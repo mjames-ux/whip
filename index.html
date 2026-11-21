@@ -343,7 +343,7 @@
                 </div>
 
                 <!-- VIEW B: PROFILE TAB CONTENT -->
-                <div id="profileTabContent" class="hidden space-y-10">
+                <div id="profileTabContent" class="hidden space-y-12">
                     <!-- Portrait + Tenure Overview -->
                     <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6">
                         <div class="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-surface border border-hairline shrink-0 flex items-center justify-center">
@@ -372,13 +372,34 @@
                         </div>
                     </div>
 
+                    <!-- Live Register of Members' Financial Interests -->
+                    <div class="pt-8 border-t border-hairline">
+                        <div class="flex items-baseline justify-between gap-4 mb-2">
+                            <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">
+                                Declared interests
+                            </h3>
+                            <span id="profileInterestsBadge" class="text-xs text-inkTertiary font-medium">
+                                Checking register...
+                            </span>
+                        </div>
+                        <p class="text-sm text-inkSecondary mb-6 leading-relaxed">
+                            Active entries in the House of Commons Register of Members’ Financial Interests, including outside employment, donations, hospitality, and property.
+                        </p>
+
+                        <div id="profileInterestsContainer" class="divide-y divide-hairline border-t border-b border-hairline">
+                            <div class="py-5 text-sm text-inkTertiary">
+                                Loading Register of Members’ Financial Interests...
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Official Public Records & Declarations -->
                     <div class="pt-8 border-t border-hairline">
                         <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight mb-2">
                             Official records &amp; declarations
                         </h3>
                         <p class="text-sm text-inkSecondary mb-6 leading-relaxed">
-                            Inspect official parliamentary contact details, declared financial interests, and business cost claims directly on public registers.
+                            Inspect official parliamentary contact details, full historical registers, and business cost claims directly on public registers.
                         </p>
 
                         <div class="divide-y divide-hairline border-t border-b border-hairline">
@@ -409,10 +430,10 @@
                             >
                                 <div>
                                     <p class="text-sm font-medium text-ink group-hover:underline underline-offset-4">
-                                        Register of Members’ Financial Interests
+                                        Full Register of Members’ Financial Interests
                                     </p>
                                     <p class="text-xs text-inkTertiary mt-0.5">
-                                        Declared donations, gifts, hospitality, outside employment, and shareholdings
+                                        Complete historical entries and registration dates on parliament.uk
                                     </p>
                                 </div>
                                 <span aria-hidden="true" class="text-sm text-inkTertiary group-hover:text-ink transition shrink-0">&rarr;</span>
@@ -673,6 +694,12 @@
             return addOuterQuotes ? `“${txt}”` : txt;
         }
 
+        function stripHtmlClient(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = String(html || '');
+            return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+        }
+
         function getCalendarMode() {
             const ukDayName = new Intl.DateTimeFormat('en-GB', {
                 weekday: 'short',
@@ -763,6 +790,7 @@
             selectedDate: null,
             currentBriefing: null,
             memberMetaCache: new Map(),
+            interestsCache: new Map(),
             watchlistIds: loadInitialWatchlist()
         };
 
@@ -787,6 +815,8 @@
             profileInitials: document.getElementById('profileInitials'),
             profileTenureHeadline: document.getElementById('profileTenureHeadline'),
             profileTenureSubtext: document.getElementById('profileTenureSubtext'),
+            profileInterestsBadge: document.getElementById('profileInterestsBadge'),
+            profileInterestsContainer: document.getElementById('profileInterestsContainer'),
             profileParliamentLink: document.getElementById('profileParliamentLink'),
             profileInterestsLink: document.getElementById('profileInterestsLink'),
             profileExpensesLink: document.getElementById('profileExpensesLink'),
@@ -926,6 +956,153 @@
             }
         }
 
+        function parseRegisteredInterestsPayload(payload) {
+            const rawCategories = Array.isArray(payload?.value)
+                ? payload.value
+                : (Array.isArray(payload) ? payload : []);
+
+            const parsedCategories = [];
+            let totalEntries = 0;
+
+            for (const cat of rawCategories) {
+                const categoryName = cat?.name || cat?.categoryName || 'Declared Interest';
+                const rawInterests = Array.isArray(cat?.interests) ? cat.interests : [];
+                const entries = [];
+
+                for (const item of rawInterests) {
+                    if (item?.deletedWhen) continue;
+                    const summaryText = stripHtmlClient(
+                        item?.interest || item?.summary || item?.description || ''
+                    );
+                    if (!summaryText) continue;
+
+                    let registeredLabel = '';
+                    const dateRaw = item?.registeredWhen || item?.createdWhen || item?.lastAmendedWhen;
+                    if (dateRaw) {
+                        const d = new Date(dateRaw);
+                        if (!Number.isNaN(d.getTime())) {
+                            registeredLabel = `Registered ${d.toLocaleDateString('en-GB', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                            })}`;
+                        }
+                    }
+
+                    const childTexts = Array.isArray(item?.childInterests)
+                        ? item.childInterests
+                            .filter(c => !c?.deletedWhen)
+                            .map(c => stripHtmlClient(c?.interest || c?.summary || ''))
+                            .filter(Boolean)
+                        : [];
+
+                    entries.push({
+                        summary: summaryText,
+                        registeredLabel,
+                        details: childTexts
+                    });
+                    totalEntries += 1;
+                }
+
+                if (entries.length > 0) {
+                    parsedCategories.push({
+                        categoryName,
+                        entries
+                    });
+                }
+            }
+
+            return { totalEntries, categories: parsedCategories };
+        }
+
+        function renderRegisteredInterests(mp, parsed) {
+            if (!parsed || parsed.totalEntries === 0) {
+                els.profileInterestsBadge.textContent = 'None declared';
+                els.profileInterestsContainer.innerHTML = `
+                    <div class="py-5 text-sm text-inkSecondary leading-relaxed">
+                        ${mp.short_name} has no active financial interests declared on the current House of Commons register.
+                    </div>
+                `;
+                return;
+            }
+
+            els.profileInterestsBadge.textContent = `${parsed.totalEntries} active ${parsed.totalEntries === 1 ? 'entry' : 'entries'}`;
+
+            els.profileInterestsContainer.innerHTML = parsed.categories.map(cat => {
+                const entriesHtml = cat.entries.slice(0, 6).map(entry => {
+                    const subItemsHtml = entry.details.length > 0
+                        ? `<ul class="mt-2 pl-4 border-l-2 border-hairline space-y-1.5 text-xs text-inkSecondary">
+                            ${entry.details.slice(0, 4).map(d => `<li>${d}</li>`).join('')}
+                           </ul>`
+                        : '';
+
+                    return `
+                        <div class="py-3 first:pt-2 last:pb-1">
+                            <p class="text-sm text-ink leading-relaxed">${entry.summary}</p>
+                            ${subItemsHtml}
+                            ${entry.registeredLabel ? `<p class="text-[11px] text-inkTertiary mt-1 font-mono">${entry.registeredLabel}</p>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                const extraCount = cat.entries.length > 6 ? cat.entries.length - 6 : 0;
+                const moreNoteHtml = extraCount > 0
+                    ? `<p class="text-xs text-inkTertiary pt-2">+ ${extraCount} additional ${extraCount === 1 ? 'entry' : 'entries'} in this category on parliament.uk</p>`
+                    : '';
+
+                return `
+                    <div class="py-5">
+                        <p class="text-xs font-semibold uppercase tracking-[0.11em] text-commonsGreen mb-2">
+                            ${cat.categoryName}
+                        </p>
+                        <div class="divide-y divide-hairline/60">
+                            ${entriesHtml}
+                        </div>
+                        ${moreNoteHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadRegisteredInterestsForMp(mp) {
+            const memberId = mp.parliament_member_id;
+
+            if (state.interestsCache.has(memberId)) {
+                renderRegisteredInterests(mp, state.interestsCache.get(memberId));
+                return;
+            }
+
+            els.profileInterestsBadge.textContent = 'Checking register...';
+            els.profileInterestsContainer.innerHTML = `
+                <div class="py-5 text-sm text-inkTertiary">
+                    Loading Register of Members’ Financial Interests...
+                </div>
+            `;
+
+            try {
+                const res = await fetch(`https://members-api.parliament.uk/api/Members/${memberId}/RegisteredInterests`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const payload = await res.json();
+                const parsed = parseRegisteredInterestsPayload(payload);
+                state.interestsCache.set(memberId, parsed);
+
+                if (state.selectedMp?.parliament_member_id === memberId) {
+                    renderRegisteredInterests(mp, parsed);
+                }
+            } catch {
+                if (state.selectedMp?.parliament_member_id === memberId) {
+                    els.profileInterestsBadge.textContent = 'Unavailable';
+                    els.profileInterestsContainer.innerHTML = `
+                        <div class="py-5 text-sm text-inkSecondary">
+                            Could not load live register entries right now. Use the official parliament.uk link below to inspect declared interests directly.
+                        </div>
+                    `;
+                }
+            }
+        }
+
         async function loadProfileForMp(mp) {
             const memberId = mp.parliament_member_id;
 
@@ -947,6 +1124,8 @@
             els.profileParliamentLink.href = `https://members.parliament.uk/member/${memberId}/contact`;
             els.profileInterestsLink.href = `https://members.parliament.uk/member/${memberId}/registeredinterests`;
             els.profileExpensesLink.href = 'https://www.theipsa.org.uk/mp-staffing-business-costs/your-mp/';
+
+            loadRegisteredInterestsForMp(mp);
 
             const renderTenure = (startDateIso, seatName) => {
                 const tenure = formatTenureDuration(startDateIso);
@@ -1467,7 +1646,6 @@
                 .filter(txt => txt && txt !== GENERIC_VOTING_BOILERPLATE);
             const uniqueContexts = [...new Set(rawContexts)];
 
-            // Case 1: No speeches, no written questions, and no recorded votes all week
             if (substantiveEntries.length === 0 && combinedWrittenQuestions.length === 0) {
                 const missedVotesNote = combinedVotes.length > 0
                     ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded (which can reflect pairing arrangements, committee travel, or constituency duties).`
@@ -1485,7 +1663,6 @@
                 };
             }
 
-            // Case 2: Did not speak in the Chamber all week, but tabled Written Questions and/or voted
             if (spokenEntries.length === 0) {
                 const sentences = [];
                 if (combinedWrittenQuestions.length > 0) {
@@ -1542,7 +1719,6 @@
                 };
             }
 
-            // Case 3: MP spoke in the Chamber or Committee during the week
             const dayHighlights = spokenEntries
                 .map(({ date, row }) => `${formatShortPillDate(date)}: ${row.summary_para_1}`)
                 .join(' ');

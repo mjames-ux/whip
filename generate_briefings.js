@@ -1,11 +1,5 @@
 /**
  * Whip — Step 2: Daily Parliamentary Briefing Generator (`generate_briefings.js`)
- *
- * Fetches House of Commons Hansard speeches (via Spoken Contributions API with
- * automatic fallback to Overview/Debates sections), Select/Bill Committee appearances,
- * and Commons Division votes for a target sitting date, generates plain-English neutral
- * summaries via Gemini, enriches voting-only context with UK Parliament Bills API
- * details, and upserts into `daily_briefings`.
  */
 
 import 'dotenv/config';
@@ -41,20 +35,14 @@ if (!supabaseKey || !geminiApiKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function getTargetDateString() {
-    // 1. CLI argument: node generate_briefings.js --date=2026-11-16
     const arg = process.argv.find(a => a.startsWith('--date='));
     if (arg) {
         const val = arg.split('=')[1]?.trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
     }
-
-    // 2. Environment variable (e.g. GitHub Actions workflow_dispatch input)
     const envDate = cleanEnvValue(process.env.TARGET_DATE, 'TARGET_DATE');
-    if (/^\d{4}-\d{2}-\d{2}$/.test(envDate)) {
-        return envDate;
-    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(envDate)) return envDate;
 
-    // 3. Default: yesterday's UTC date for the 7:00 AM daily run
     const d = new Date();
     d.setUTCDate(d.getUTCDate() - 1);
     return d.toISOString().slice(0, 10);
@@ -94,7 +82,7 @@ async function fetchJsonWithTimeout(url, timeoutMs = 15000) {
 }
 
 function extractSpeechRecordsFromItems(items, byMember, fallbackDebateTitle = 'Commons Debate') {
-    for (const item of items) {
+    for (const item of items || []) {
         const memberId = Number(
             item.MemberId ??
             item.memberId ??
@@ -133,22 +121,52 @@ function extractSpeechRecordsFromItems(items, byMember, fallbackDebateTitle = 'C
     }
 }
 
-/**
- * Fallback: walk Hansard sections-for-day -> individual debate trees if Spoken search returns 0 items.
- */
+async function querySpokenSearchVariant(dateStr, usePrefix, byMember) {
+    let skip = 0;
+    const take = 100;
+
+    while (true) {
+        const url = new URL(HANSARD_SEARCH_API);
+        if (usePrefix) {
+            url.searchParams.set('queryParameters.house', 'Commons');
+            url.searchParams.set('queryParameters.startDate', dateStr);
+            url.searchParams.set('queryParameters.endDate', dateStr);
+            url.searchParams.set('queryParameters.skip', String(skip));
+            url.searchParams.set('queryParameters.take', String(take));
+        } else {
+            url.searchParams.set('house', 'Commons');
+            url.searchParams.set('startDate', dateStr);
+            url.searchParams.set('endDate', dateStr);
+            url.searchParams.set('skip', String(skip));
+            url.searchParams.set('take', String(take));
+        }
+
+        const data = await fetchJsonWithTimeout(url.toString(), 20000);
+        const results = data?.Results || data?.results || [];
+        if (results.length === 0) break;
+
+        extractSpeechRecordsFromItems(results, byMember);
+
+        skip += results.length;
+        const total = data?.TotalResultCount ?? data?.totalResultCount ?? 0;
+        if (skip >= total) break;
+    }
+}
+
 async function fetchHansardViaDebateTrees(dateStr, byMember) {
     const sectionTrees = [];
-    for (const section of ['Commons', 'WestminsterHall']) {
-        try {
-            const url = new URL(HANSARD_SECTIONS_API);
-            url.searchParams.set('date', dateStr);
-            url.searchParams.set('house', section);
-            const data = await fetchJsonWithTimeout(url.toString(), 15000);
-            if (Array.isArray(data)) {
-                sectionTrees.push(...data);
-            }
-        } catch (err) {
-            console.warn(`Hansard sections warning (${section}): ${err.message}`);
+    for (const sec of ['Commons', 'WestminsterHall']) {
+        for (const paramName of ['section', 'house']) {
+            try {
+                const url = new URL(HANSARD_SECTIONS_API);
+                url.searchParams.set('date', dateStr);
+                url.searchParams.set(paramName, sec);
+                const data = await fetchJsonWithTimeout(url.toString(), 15000);
+                if (Array.isArray(data) && data.length > 0) {
+                    sectionTrees.push(...data);
+                    break;
+                }
+            } catch {}
         }
     }
 
@@ -157,7 +175,7 @@ async function fetchHansardViaDebateTrees(dateStr, byMember) {
         for (const node of nodes || []) {
             const id = node.ExternalId || node.externalId || node.DebateSectionExtId || node.Id || node.id;
             const children = node.ChildSections || node.childSections || node.SubSections || [];
-            if (id && children.length === 0) {
+            if (id) {
                 debateIds.add(String(id));
             }
             if (children.length > 0) {
@@ -166,8 +184,6 @@ async function fetchHansardViaDebateTrees(dateStr, byMember) {
         }
     }
     collectDebateIds(sectionTrees);
-
-    console.log(`Fallback debate tree scan: found ${debateIds.size} debate sections for ${dateStr}.`);
 
     for (const extId of debateIds) {
         try {
@@ -179,38 +195,17 @@ async function fetchHansardViaDebateTrees(dateStr, byMember) {
     }
 }
 
-/**
- * 1. Fetch all Commons spoken Hansard contributions for the target date.
- */
 async function fetchHansardContributions(dateStr) {
     const byMember = new Map();
-    let skip = 0;
-    const take = 100;
 
-    while (true) {
-        const url = new URL(HANSARD_SEARCH_API);
-        url.searchParams.set('queryParameters.house', 'Commons');
-        url.searchParams.set('queryParameters.startDate', dateStr);
-        url.searchParams.set('queryParameters.endDate', dateStr);
-        url.searchParams.set('queryParameters.skip', String(skip));
-        url.searchParams.set('queryParameters.take', String(take));
+    try {
+        await querySpokenSearchVariant(dateStr, true, byMember);
+    } catch {}
 
-        let data;
+    if (byMember.size === 0) {
         try {
-            data = await fetchJsonWithTimeout(url.toString(), 20000);
-        } catch (err) {
-            console.warn(`Hansard search warning at skip=${skip}: ${err.message}`);
-            break;
-        }
-
-        const results = data?.Results || data?.results || [];
-        if (results.length === 0) break;
-
-        extractSpeechRecordsFromItems(results, byMember);
-
-        skip += results.length;
-        const total = data?.TotalResultCount ?? data?.totalResultCount ?? 0;
-        if (skip >= total) break;
+            await querySpokenSearchVariant(dateStr, false, byMember);
+        } catch {}
     }
 
     if (byMember.size === 0) {
@@ -220,9 +215,6 @@ async function fetchHansardContributions(dateStr) {
     return byMember;
 }
 
-/**
- * 2. Fetch Commons Division votes for the target date and map each MP's vote.
- */
 async function fetchDivisionVotes(dateStr) {
     const votesByMember = new Map();
     let divisions = [];
@@ -289,16 +281,12 @@ async function fetchDivisionVotes(dateStr) {
     return { divisions: detailedDivisions, votesByMember };
 }
 
-/**
- * 3. Fetch Select Committee meetings held on the target date and map attending MPs.
- */
 async function fetchCommitteeAppearances(dateStr) {
     const byMember = new Map();
     try {
         const url = new URL(COMMITTEES_EVENTS_API);
-        url.searchParams.set('StartDate', `${dateStr}T00:00:00Z`);
-        url.searchParams.set('EndDate', `${dateStr}T23:59:59Z`);
-        url.searchParams.set('House', 'Commons');
+        url.searchParams.set('StartDate', dateStr);
+        url.searchParams.set('EndDate', dateStr);
         const data = await fetchJsonWithTimeout(url.toString(), 15000);
         const items = Array.isArray(data) ? data : (data?.items || []);
 
@@ -323,9 +311,43 @@ async function fetchCommitteeAppearances(dateStr) {
     return byMember;
 }
 
-/**
- * 4. Summarize an MP's spoken/committee activity with Gemini.
- */
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+let workingGeminiModel = null;
+
+async function callGeminiApi(prompt) {
+    const candidates = workingGeminiModel ? [workingGeminiModel] : GEMINI_MODELS;
+    let lastError = null;
+
+    for (const model of candidates) {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.2,
+                    responseMimeType: 'application/json'
+                }
+            }),
+            signal: AbortSignal.timeout(25000)
+        });
+
+        if (res.ok) {
+            workingGeminiModel = model;
+            return res.json();
+        }
+
+        const errBody = await res.text().catch(() => '');
+        lastError = new Error(`Gemini (${model}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
+        if (res.status !== 404) {
+            throw lastError;
+        }
+    }
+
+    throw lastError || new Error('No working Gemini model found');
+}
+
 async function summarizeWithGemini(mp, dateStr, speeches, committees, votes) {
     const speechDigest = speeches
         .slice(0, 8)
@@ -357,25 +379,7 @@ ${speechDigest ? `Spoken Contributions:\n${speechDigest}\n` : ''}
 ${committeeDigest ? `Committee Work:\n${committeeDigest}\n` : ''}
 ${voteDigest ? `Division Votes:\n${voteDigest}\n` : ''}`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-    const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.2,
-                responseMimeType: 'application/json'
-            }
-        }),
-        signal: AbortSignal.timeout(25000)
-    });
-
-    if (!res.ok) {
-        throw new Error(`Gemini HTTP ${res.status}`);
-    }
-
-    const payload = await res.json();
+    const payload = await callGeminiApi(prompt);
     const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     const parsed = JSON.parse(rawText);
 
@@ -456,9 +460,6 @@ async function getBillContextForDivisions(votes, readableDate) {
     return snippets.join(' ');
 }
 
-/**
- * Concurrency helper to process 650 MPs rapidly without rate-limit spikes.
- */
 async function mapWithConcurrency(items, limit, worker) {
     const results = new Array(items.length);
     let idx = 0;
@@ -536,7 +537,6 @@ export async function generateBriefings() {
         const committees = committeesByMember.get(memberId) || [];
         const mpVotes = votesByMember.get(memberId) || [];
 
-        // Build complete division list for this MP (marking Abstained if no Aye/No recorded)
         const votedIds = new Set(mpVotes.map(v => v.divisionId));
         const fullDayVotes = [
             ...mpVotes,
@@ -559,7 +559,6 @@ export async function generateBriefings() {
             };
         }
 
-        // Only call Gemini for MPs who actually spoke or sat in a public committee session
         if (speeches.length > 0 || committees.length > 0) {
             try {
                 const ai = await summarizeWithGemini(mp, dateStr, speeches, committees, mpVotes);
@@ -578,10 +577,31 @@ export async function generateBriefings() {
                 };
             } catch (err) {
                 console.warn(`Gemini fallback for ${mp.short_name} (${memberId}): ${err.message}`);
+
+                const uniqueDebates = [...new Set(speeches.map(s => s.debateTitle))].filter(Boolean);
+                const debateList = uniqueDebates.slice(0, 3).join(', ');
+                const voteClause = mpVotes.length > 0
+                    ? ` and cast ${mpVotes.length} recorded division ${mpVotes.length === 1 ? 'vote' : 'votes'}`
+                    : '';
+
+                return {
+                    parliament_member_id: memberId,
+                    sitting_date: dateStr,
+                    activity_tag: speeches.length > 0 ? 'Chamber Debate' : 'Select Committee',
+                    hansard_ref: speeches[0]?.debateTitle
+                        ? `HC Deb ${dateStr} — ${speeches[0].debateTitle}`
+                        : `Commons Committees ${dateStr}`,
+                    summary_para_1: speeches.length > 0
+                        ? `${mp.short_name} spoke in the House of Commons on ${readableDate} during ${debateList}${voteClause}.`
+                        : `${mp.short_name} took part in ${committees[0]?.committeeName || 'Select Committee'} proceedings on ${readableDate}${voteClause}.`,
+                    summary_para_2: (await getBillContextForDivisions(mpVotes, readableDate)) || `Full verbatim contributions from ${debateList || 'this session'} are recorded in Hansard on parliament.uk.`,
+                    verbatim_excerpt: speeches[0]?.text ? speeches[0].text.slice(0, 280) : null,
+                    glossary: [],
+                    votes: fullDayVotes
+                };
             }
         }
 
-        // Zero-token summary with bill/motion context for MPs who voted without speaking
         if (mpVotes.length > 0) {
             const firstVote = mpVotes[0];
             const extraText = mpVotes.length > 1
@@ -603,7 +623,6 @@ export async function generateBriefings() {
             };
         }
 
-        // Deterministic zero-token summary for MPs with no recorded Chamber speech or vote
         return {
             parliament_member_id: memberId,
             sitting_date: dateStr,
@@ -617,7 +636,6 @@ export async function generateBriefings() {
         };
     });
 
-    // Upsert in chunks of 200 rows
     for (let i = 0; i < rowsToUpsert.length; i += 200) {
         const chunk = rowsToUpsert.slice(i, i + 200);
         const { error: upsertErr } = await supabase
@@ -629,6 +647,9 @@ export async function generateBriefings() {
         }
     }
 
+    if (workingGeminiModel) {
+        console.log(`Gemini model used: ${workingGeminiModel}`);
+    }
     console.log(`[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${dateStr}.`);
 }
 

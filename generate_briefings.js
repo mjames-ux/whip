@@ -1,5 +1,10 @@
 /**
  * Whip — Step 2: Daily Parliamentary Briefing Generator (`generate_briefings.js`)
+ *
+ * Fetches House of Commons Hansard speeches, Select/Bill Committee appearances,
+ * Written Parliamentary Questions, and Commons Division votes for a target sitting date,
+ * generates plain-English neutral summaries via Gemini, enriches voting-only context
+ * with UK Parliament Bills API details, and upserts into `daily_briefings`.
  */
 
 import 'dotenv/config';
@@ -11,6 +16,7 @@ const HANSARD_DEBATE_API = 'https://hansard-api.parliament.uk/debates/debate';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
+const WRITTEN_QUESTIONS_API = 'https://writtenquestions-api.parliament.uk/api/writtenquestions/questions';
 const BILLS_SEARCH_API = 'https://bills-api.parliament.uk/api/v1/Bills';
 
 function cleanEnvValue(val, keyName) {
@@ -68,6 +74,25 @@ function stripHtml(html) {
         .replace(/&#39;/gi, "'")
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+function extractCleanExcerpt(text, maxChars = 600) {
+    const clean = stripHtml(text);
+    if (!clean) return null;
+    if (clean.length <= maxChars) return clean;
+
+    const window = clean.slice(0, maxChars);
+    const lastSentenceEnd = Math.max(
+        window.lastIndexOf('. '),
+        window.lastIndexOf('? '),
+        window.lastIndexOf('! ')
+    );
+    if (lastSentenceEnd > 120) {
+        return window.slice(0, lastSentenceEnd + 1).trim();
+    }
+
+    const lastSpace = window.lastIndexOf(' ');
+    return `${(lastSpace > 80 ? window.slice(0, lastSpace) : window).trim()}…`;
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs = 15000) {
@@ -215,6 +240,77 @@ async function fetchHansardContributions(dateStr) {
     return byMember;
 }
 
+/**
+ * Fetch all Commons Written Questions tabled on the target date in bulk, grouped by askingMemberId.
+ */
+async function fetchWrittenQuestionsForDate(dateStr) {
+    const byMember = new Map();
+    let skip = 0;
+    const take = 100;
+
+    while (true) {
+        const url = new URL(WRITTEN_QUESTIONS_API);
+        url.searchParams.set('tabledWhenFrom', dateStr);
+        url.searchParams.set('tabledWhenTo', dateStr);
+        url.searchParams.set('house', 'Commons');
+        url.searchParams.set('skip', String(skip));
+        url.searchParams.set('take', String(take));
+
+        let data;
+        try {
+            data = await fetchJsonWithTimeout(url.toString(), 15000);
+        } catch (err) {
+            console.warn(`Written Questions fetch warning at skip=${skip}: ${err.message}`);
+            break;
+        }
+
+        const results = data?.results || data?.Results || [];
+        if (results.length === 0) break;
+
+        for (const item of results) {
+            const val = item?.value || item;
+            const memberId = Number(val?.askingMemberId ?? val?.AskingMemberId);
+            if (!memberId) continue;
+
+            const questionId = val?.id ?? val?.Id;
+            const uin = val?.uin ?? val?.Uin ?? '';
+            const department =
+                val?.answeringBodyName ??
+                val?.AnsweringBodyName ??
+                val?.answeringBody?.name ??
+                'Government Department';
+            const heading = stripHtml(val?.heading ?? val?.Heading ?? 'Written Parliamentary Question');
+            const questionText = stripHtml(val?.questionText ?? val?.QuestionText ?? '');
+            const answerText = stripHtml(val?.answerText ?? val?.AnswerText ?? '');
+            const dateAnswered = val?.dateAnswered
+                ? String(val.dateAnswered).slice(0, 10)
+                : null;
+
+            if (!byMember.has(memberId)) {
+                byMember.set(memberId, []);
+            }
+            byMember.get(memberId).push({
+                id: questionId,
+                uin,
+                department,
+                heading,
+                questionText: extractCleanExcerpt(questionText, 500) || questionText,
+                answerText: answerText ? (extractCleanExcerpt(answerText, 650) || answerText) : null,
+                dateAnswered,
+                url: uin
+                    ? `https://questions-statements.parliament.uk/written-questions/detail/${dateStr}/${encodeURIComponent(uin)}`
+                    : 'https://questions-statements.parliament.uk/'
+            });
+        }
+
+        skip += results.length;
+        const total = data?.totalResults ?? data?.TotalResults ?? 0;
+        if (skip >= total) break;
+    }
+
+    return byMember;
+}
+
 async function fetchDivisionVotes(dateStr) {
     const votesByMember = new Map();
     let divisions = [];
@@ -348,7 +444,7 @@ async function callGeminiApi(prompt) {
     throw lastError || new Error('No working Gemini model found');
 }
 
-async function summarizeWithGemini(mp, dateStr, speeches, committees, votes) {
+async function summarizeWithGemini(mp, dateStr, speeches, committees, writtenQuestions, votes) {
     const speechDigest = speeches
         .slice(0, 8)
         .map(s => `- Debate: "${s.debateTitle}" | Excerpt: ${s.text.slice(0, 900)}`)
@@ -358,25 +454,34 @@ async function summarizeWithGemini(mp, dateStr, speeches, committees, votes) {
         .map(c => `- Committee: ${c.committeeName} (${c.topic.slice(0, 250)})`)
         .join('\n');
 
+    const wqDigest = writtenQuestions
+        .slice(0, 8)
+        .map(q => `- To ${q.department} (${q.heading}): "${q.questionText.slice(0, 350)}"`)
+        .join('\n');
+
     const voteDigest = votes
         .map(v => `- ${v.title}: Voted ${v.mpVote} (${v.houseResult})`)
         .join('\n');
+
+    const spokeInChamber = speeches.length > 0;
 
     const prompt = `You are a strictly neutral, non-partisan UK parliamentary reporter writing for Whip (whipdaily.uk).
 Summarize what ${mp.full_name} (${mp.party}, MP for ${mp.constituencies?.name || 'UK'}) did in Parliament on ${formatReadableDate(dateStr)} in plain, accessible British English.
 
 Rules:
 - Be strictly factual, calm, and neutral. Never take a political stance or editorialize.
+- ${spokeInChamber ? `Describe what ${mp.short_name} said in the Chamber and any written questions or votes.` : `Note clearly that ${mp.short_name} did not speak in the main Commons Chamber that day, and highlight the Written Parliamentary Questions they tabled (naming the departments and specific issues) and any division votes.`}
 - Return valid JSON only with keys: "activity_tag", "summary_para_1", "summary_para_2", "verbatim_excerpt", "glossary".
-- "activity_tag": short label (e.g., "Prime Minister's Questions", "Chamber Debate & Votes", "Oral Questions", "Select Committee", "Division Votes").
-- "summary_para_1": 2–3 clear sentences describing specifically what ${mp.short_name} asked, argued, or scrutinized.
-- "summary_para_2": 2–3 sentences explaining the wider policy or legislative context in plain English for an everyday voter.
-- "verbatim_excerpt": a single direct, representative sentence quoted verbatim from the spoken contribution (or null if none).
+- "activity_tag": short label (e.g., "Prime Minister's Questions", "Chamber Debate & Votes", "Written Questions & Votes", "Written Questions", "Select Committee").
+- "summary_para_1": 2–3 clear sentences describing specifically what ${mp.short_name} asked, tabled, or scrutinized.
+- "summary_para_2": 2–3 sentences explaining the wider policy, local constituency, or legislative context in plain English for an everyday voter.
+- "verbatim_excerpt": a single direct, representative sentence quoted verbatim from their spoken contribution (or null if they had no spoken contribution).
 - "glossary": array of 0–2 objects {"term": "...", "plain": "..."} explaining any parliamentary jargon mentioned.
 
 Evidence from ${dateStr}:
 ${speechDigest ? `Spoken Contributions:\n${speechDigest}\n` : ''}
 ${committeeDigest ? `Committee Work:\n${committeeDigest}\n` : ''}
+${wqDigest ? `Written Parliamentary Questions Tabled:\n${wqDigest}\n` : ''}
 ${voteDigest ? `Division Votes:\n${voteDigest}\n` : ''}`;
 
     const payload = await callGeminiApi(prompt);
@@ -384,10 +489,12 @@ ${voteDigest ? `Division Votes:\n${voteDigest}\n` : ''}`;
     const parsed = JSON.parse(rawText);
 
     return {
-        activity_tag: parsed.activity_tag || 'Parliamentary Business',
+        activity_tag: parsed.activity_tag || (spokeInChamber ? 'Chamber Debate' : 'Written Questions'),
         summary_para_1: parsed.summary_para_1 || `${mp.short_name} participated in House of Commons proceedings on ${formatReadableDate(dateStr)}.`,
-        summary_para_2: parsed.summary_para_2 || `MPs scrutinize legislation, question ministers, and represent constituency issues across Chamber and committee sessions.`,
-        verbatim_excerpt: parsed.verbatim_excerpt || (speeches[0]?.text ? speeches[0].text.slice(0, 260) : null),
+        summary_para_2: parsed.summary_para_2 || `Written Parliamentary Questions require government departments to place formal, on-the-record answers before Parliament within a set timeframe.`,
+        verbatim_excerpt: spokeInChamber
+            ? (parsed.verbatim_excerpt || extractCleanExcerpt(speeches[0]?.text, 600))
+            : null,
         glossary: Array.isArray(parsed.glossary) ? parsed.glossary : []
     };
 }
@@ -501,20 +608,23 @@ export async function generateBriefings() {
         throw new Error(`Failed to fetch active MPs: ${mpError?.message || '0 rows'}`);
     }
 
-    const [speechesByMember, { divisions, votesByMember }, committeesByMember] = await Promise.all([
+    const [speechesByMember, { divisions, votesByMember }, committeesByMember, wqByMember] = await Promise.all([
         fetchHansardContributions(dateStr),
         fetchDivisionVotes(dateStr),
-        fetchCommitteeAppearances(dateStr)
+        fetchCommitteeAppearances(dateStr),
+        fetchWrittenQuestionsForDate(dateStr)
     ]);
 
     const isNonSittingDay =
         speechesByMember.size === 0 &&
         divisions.length === 0 &&
-        committeesByMember.size === 0;
+        committeesByMember.size === 0 &&
+        wqByMember.size === 0;
 
     console.log(
         `Evidence for ${dateStr}: ${speechesByMember.size} MPs spoke, ` +
-        `${divisions.length} divisions, ${committeesByMember.size} committee attendees.`
+        `${divisions.length} divisions, ${committeesByMember.size} committee attendees, ` +
+        `${wqByMember.size} MPs tabled written questions.`
     );
 
     const allDivisionSummaries = divisions.map(d => {
@@ -536,6 +646,7 @@ export async function generateBriefings() {
         const speeches = speechesByMember.get(memberId) || [];
         const committees = committeesByMember.get(memberId) || [];
         const mpVotes = votesByMember.get(memberId) || [];
+        const writtenQuestions = wqByMember.get(memberId) || [];
 
         const votedIds = new Set(mpVotes.map(v => v.divisionId));
         const fullDayVotes = [
@@ -555,49 +666,79 @@ export async function generateBriefings() {
                 summary_para_2: `During weekends, recess, and non-sitting Fridays, MPs work in their constituencies holding advice surgeries, visiting local schools and businesses, and responding to constituent casework.`,
                 verbatim_excerpt: null,
                 glossary: [],
-                votes: []
+                votes: [],
+                written_questions: []
             };
         }
 
-        if (speeches.length > 0 || committees.length > 0) {
+        // Spoken contributions, committee work, OR written parliamentary questions
+        if (speeches.length > 0 || committees.length > 0 || writtenQuestions.length > 0) {
             try {
-                const ai = await summarizeWithGemini(mp, dateStr, speeches, committees, mpVotes);
+                const ai = await summarizeWithGemini(mp, dateStr, speeches, committees, writtenQuestions, mpVotes);
+                const hansardRef = speeches[0]?.debateTitle
+                    ? `HC Deb ${dateStr} — ${speeches[0].debateTitle}`
+                    : (committees.length > 0
+                        ? `Commons Committees ${dateStr}`
+                        : `Written Questions ${dateStr}`);
+
                 return {
                     parliament_member_id: memberId,
                     sitting_date: dateStr,
                     activity_tag: ai.activity_tag,
-                    hansard_ref: speeches[0]?.debateTitle
-                        ? `HC Deb ${dateStr} — ${speeches[0].debateTitle}`
-                        : `Commons Committees ${dateStr}`,
+                    hansard_ref: hansardRef,
                     summary_para_1: ai.summary_para_1,
                     summary_para_2: ai.summary_para_2,
                     verbatim_excerpt: ai.verbatim_excerpt,
                     glossary: ai.glossary,
-                    votes: fullDayVotes
+                    votes: fullDayVotes,
+                    written_questions: writtenQuestions
                 };
             } catch (err) {
                 console.warn(`Gemini fallback for ${mp.short_name} (${memberId}): ${err.message}`);
 
-                const uniqueDebates = [...new Set(speeches.map(s => s.debateTitle))].filter(Boolean);
-                const debateList = uniqueDebates.slice(0, 3).join(', ');
+                if (speeches.length > 0 || committees.length > 0) {
+                    const uniqueDebates = [...new Set(speeches.map(s => s.debateTitle))].filter(Boolean);
+                    const debateList = uniqueDebates.slice(0, 3).join(', ');
+                    const voteClause = mpVotes.length > 0
+                        ? ` and cast ${mpVotes.length} recorded division ${mpVotes.length === 1 ? 'vote' : 'votes'}`
+                        : '';
+
+                    return {
+                        parliament_member_id: memberId,
+                        sitting_date: dateStr,
+                        activity_tag: speeches.length > 0 ? 'Chamber Debate' : 'Select Committee',
+                        hansard_ref: speeches[0]?.debateTitle
+                            ? `HC Deb ${dateStr} — ${speeches[0].debateTitle}`
+                            : `Commons Committees ${dateStr}`,
+                        summary_para_1: speeches.length > 0
+                            ? `${mp.short_name} spoke in the House of Commons on ${readableDate} during ${debateList}${voteClause}.`
+                            : `${mp.short_name} took part in ${committees[0]?.committeeName || 'Select Committee'} proceedings on ${readableDate}${voteClause}.`,
+                        summary_para_2: (await getBillContextForDivisions(mpVotes, readableDate)) || `Full verbatim contributions from ${debateList || 'this session'} are recorded in Hansard on parliament.uk.`,
+                        verbatim_excerpt: extractCleanExcerpt(speeches[0]?.text, 600),
+                        glossary: [],
+                        votes: fullDayVotes,
+                        written_questions: writtenQuestions
+                    };
+                }
+
+                // Deterministic Written Questions fallback if Gemini is rate-limited
+                const depts = [...new Set(writtenQuestions.map(q => q.department))];
+                const topics = [...new Set(writtenQuestions.map(q => q.heading))].slice(0, 3);
                 const voteClause = mpVotes.length > 0
-                    ? ` and cast ${mpVotes.length} recorded division ${mpVotes.length === 1 ? 'vote' : 'votes'}`
+                    ? `, alongside casting ${mpVotes.length} recorded division ${mpVotes.length === 1 ? 'vote' : 'votes'}`
                     : '';
 
                 return {
                     parliament_member_id: memberId,
                     sitting_date: dateStr,
-                    activity_tag: speeches.length > 0 ? 'Chamber Debate' : 'Select Committee',
-                    hansard_ref: speeches[0]?.debateTitle
-                        ? `HC Deb ${dateStr} — ${speeches[0].debateTitle}`
-                        : `Commons Committees ${dateStr}`,
-                    summary_para_1: speeches.length > 0
-                        ? `${mp.short_name} spoke in the House of Commons on ${readableDate} during ${debateList}${voteClause}.`
-                        : `${mp.short_name} took part in ${committees[0]?.committeeName || 'Select Committee'} proceedings on ${readableDate}${voteClause}.`,
-                    summary_para_2: (await getBillContextForDivisions(mpVotes, readableDate)) || `Full verbatim contributions from ${debateList || 'this session'} are recorded in Hansard on parliament.uk.`,
-                    verbatim_excerpt: speeches[0]?.text ? speeches[0].text.slice(0, 280) : null,
+                    activity_tag: writtenQuestions.length === 1 ? '1 Written Question' : `${writtenQuestions.length} Written Questions`,
+                    hansard_ref: `Written Questions ${dateStr}`,
+                    summary_para_1: `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${writtenQuestions.length} written ${writtenQuestions.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}${voteClause}.`,
+                    summary_para_2: (await getBillContextForDivisions(mpVotes, readableDate)) || `Written Parliamentary Questions allow backbench MPs to press ministers for detailed data and policy commitments on constituency and national issues.`,
+                    verbatim_excerpt: null,
                     glossary: [],
-                    votes: fullDayVotes
+                    votes: fullDayVotes,
+                    written_questions: writtenQuestions
                 };
             }
         }
@@ -619,7 +760,8 @@ export async function generateBriefings() {
                 summary_para_2: billContext,
                 verbatim_excerpt: null,
                 glossary: [],
-                votes: fullDayVotes
+                votes: fullDayVotes,
+                written_questions: []
             };
         }
 
@@ -628,11 +770,12 @@ export async function generateBriefings() {
             sitting_date: dateStr,
             activity_tag: 'Constituency & Parliamentary Work',
             hansard_ref: `HC Deb ${dateStr}`,
-            summary_para_1: `${mp.short_name} had no recorded spoken contributions or division votes in the House of Commons on ${readableDate}.`,
+            summary_para_1: `${mp.short_name} had no recorded spoken contributions, written questions, or division votes in the House of Commons on ${readableDate}.`,
             summary_para_2: `MPs divide their week between main Chamber debates, private bill committees, ministerial correspondence, and constituency casework.`,
             verbatim_excerpt: null,
             glossary: [],
-            votes: fullDayVotes
+            votes: fullDayVotes,
+            written_questions: []
         };
     });
 

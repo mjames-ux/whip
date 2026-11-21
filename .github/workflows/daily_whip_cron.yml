@@ -29,12 +29,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync active Commons roster (Sundays or manual)
-        if: github.event.schedule == '0 7 * * *' && github.run_number % 7 == 0
+      - name: Sync active Commons roster (Sundays or manual backfill)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node sync_roster.js
+        run: |
+          if [ "$(date -u +%u)" = "7" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            node sync_roster.js
+          else
+            echo "Skipping roster sync (runs on Sundays or manual triggers)."
+          fi
 
       - name: Generate daily briefings
         env:

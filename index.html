@@ -74,7 +74,7 @@
 </head>
 <body class="min-h-screen flex flex-col selection:bg-ink selection:text-white">
 
-    <!-- Minimalist Masthead (Shown when viewing a briefing) -->
+    <!-- Minimalist Masthead (Shown when viewing an MP) -->
     <header id="topMasthead" class="hidden max-w-3xl w-full mx-auto px-6 sm:px-8 pt-10 sm:pt-14 pb-8">
         <div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-4 border-b border-ink pb-6">
             <div class="flex items-baseline gap-3">
@@ -186,19 +186,41 @@
             </div>
         </section>
 
-        <!-- Briefing Workspace (Hidden until user selects an MP) -->
+        <!-- MP Workspace (Hidden until user selects an MP) -->
         <div id="briefingWorkspace" class="hidden w-full mt-12 sm:mt-14">
 
-            <!-- Sitting Day / Weekly Roundup Navigation -->
-            <section aria-label="Parliamentary sitting period" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight">
-                    Loading parliamentary record...
-                </p>
+            <!-- Primary Section Tabs (Briefing | Profile) + Period Controls -->
+            <section aria-label="View and sitting period" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="inline-flex bg-surface p-1 rounded-lg self-start" role="tablist" aria-label="MP section">
+                    <button
+                        id="tabBriefingBtn"
+                        type="button"
+                        role="tab"
+                        aria-selected="true"
+                        class="px-3.5 py-1.5 rounded-md text-xs font-medium bg-white text-ink shadow-2xs transition cursor-pointer"
+                    >
+                        Briefing
+                    </button>
+                    <button
+                        id="tabProfileBtn"
+                        type="button"
+                        role="tab"
+                        aria-selected="false"
+                        class="px-3.5 py-1.5 rounded-md text-xs font-medium text-inkSecondary hover:text-ink transition cursor-pointer"
+                    >
+                        Profile
+                    </button>
+                </div>
 
                 <div id="dayToggleGroup" class="inline-flex flex-wrap bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary period">
                     <!-- Populated dynamically with Weekly Review + available sitting dates -->
                 </div>
             </section>
+
+            <!-- Sitting Date / Period Label (Shown in Briefing tab) -->
+            <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight mb-6">
+                Loading parliamentary record...
+            </p>
 
             <!-- General Election Dissolution Notice -->
             <section id="dissolutionBanner" class="hidden py-12 border-t border-b border-hairline mb-12">
@@ -213,10 +235,10 @@
                 </p>
             </section>
 
-            <!-- Borderless Editorial Briefing -->
+            <!-- Borderless Editorial Container -->
             <article id="briefingArticle" class="fade-transition fade-in">
                 
-                <!-- 1. MP Editorial Header -->
+                <!-- 1. Shared MP Editorial Header -->
                 <header class="pb-8 mb-8 border-b border-hairline flex flex-col sm:flex-row sm:items-end justify-between gap-6">
                     <div>
                         <div class="flex items-center gap-2 text-xs sm:text-sm font-medium text-inkSecondary mb-2.5">
@@ -251,51 +273,151 @@
                     </div>
                 </header>
 
-                <!-- 2. Two-Paragraph Accessible Summary -->
-                <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
-                    <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
-                        Fetching parliamentary record...
-                    </p>
+                <!-- VIEW A: BRIEFING TAB CONTENT -->
+                <div id="briefingTabContent">
+                    <!-- 2. Two-Paragraph Accessible Summary -->
+                    <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
+                        <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
+                            Fetching parliamentary record...
+                        </p>
 
-                    <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
-                        <p id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
-                            Context
-                        </p>
-                        <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                            Loading background context...
-                        </p>
+                        <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
+                            <p id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
+                                Context
+                            </p>
+                            <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
+                                Loading background context...
+                            </p>
+                        </div>
+
+                        <div class="pt-2 flex flex-wrap items-center justify-between gap-3">
+                            <button
+                                id="openHansardBtn"
+                                type="button"
+                                class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer"
+                            >
+                                <span>Read official Hansard transcript</span>
+                                <span aria-hidden="true" class="text-inkTertiary">&rarr;</span>
+                            </button>
+                            <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
+                                —
+                            </span>
+                        </div>
+                    </section>
+
+                    <!-- 3. Voting Record -->
+                    <section aria-label="Voting Record" class="mt-16 pt-10 border-t border-hairline">
+                        <div class="flex items-baseline justify-between gap-4 mb-6">
+                            <h3 id="votingSectionTitle" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                                Voting record
+                            </h3>
+                            <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
+                                0 divisions
+                            </span>
+                        </div>
+
+                        <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </section>
+                </div>
+
+                <!-- VIEW B: PROFILE TAB CONTENT -->
+                <div id="profileTabContent" class="hidden space-y-10">
+                    <!-- Portrait + Tenure Overview -->
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+                        <div class="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-surface border border-hairline shrink-0 flex items-center justify-center">
+                            <img
+                                id="profilePortraitImg"
+                                src=""
+                                alt=""
+                                class="w-full h-full object-cover object-top hidden"
+                            />
+                            <div id="profilePortraitFallback" class="w-full h-full flex flex-col items-center justify-center text-inkSecondary select-none">
+                                <span id="profileInitials" class="font-editorial font-bold text-2xl sm:text-3xl text-ink tracking-tight">—</span>
+                                <span class="text-[10px] uppercase tracking-widest text-inkTertiary mt-0.5">No photo</span>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen">
+                                Parliamentary Service
+                            </p>
+                            <p id="profileTenureHeadline" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                                Loading service record...
+                            </p>
+                            <p id="profileTenureSubtext" class="text-sm text-inkSecondary leading-relaxed">
+                                Checking UK Parliament membership dates...
+                            </p>
+                        </div>
                     </div>
 
-                    <div class="pt-2 flex flex-wrap items-center justify-between gap-3">
-                        <button
-                            id="openHansardBtn"
-                            type="button"
-                            class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer"
-                        >
-                            <span>Read official Hansard transcript</span>
-                            <span aria-hidden="true" class="text-inkTertiary">&rarr;</span>
-                        </button>
-                        <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
-                            —
-                        </span>
-                    </div>
-                </section>
-
-                <!-- 3. Voting Record -->
-                <section aria-label="Voting Record" class="mt-16 pt-10 border-t border-hairline">
-                    <div class="flex items-baseline justify-between gap-4 mb-6">
-                        <h3 id="votingSectionTitle" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
-                            Voting record
+                    <!-- Official Public Records & Declarations -->
+                    <div class="pt-8 border-t border-hairline">
+                        <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight mb-2">
+                            Official records &amp; declarations
                         </h3>
-                        <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
-                            0 divisions
-                        </span>
-                    </div>
+                        <p class="text-sm text-inkSecondary mb-6 leading-relaxed">
+                            Inspect official parliamentary contact details, declared financial interests, and business cost claims directly on public registers.
+                        </p>
 
-                    <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
-                        <!-- Populated dynamically via JS -->
+                        <div class="divide-y divide-hairline border-t border-b border-hairline">
+                            <a
+                                id="profileParliamentLink"
+                                href="https://members.parliament.uk"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="py-4 flex items-center justify-between gap-4 group"
+                            >
+                                <div>
+                                    <p class="text-sm font-medium text-ink group-hover:underline underline-offset-4">
+                                        Official UK Parliament Profile
+                                    </p>
+                                    <p class="text-xs text-inkTertiary mt-0.5">
+                                        Biography, committee memberships, and constituency contact details on parliament.uk
+                                    </p>
+                                </div>
+                                <span aria-hidden="true" class="text-sm text-inkTertiary group-hover:text-ink transition shrink-0">&rarr;</span>
+                            </a>
+
+                            <a
+                                id="profileInterestsLink"
+                                href="https://members.parliament.uk"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="py-4 flex items-center justify-between gap-4 group"
+                            >
+                                <div>
+                                    <p class="text-sm font-medium text-ink group-hover:underline underline-offset-4">
+                                        Register of Members’ Financial Interests
+                                    </p>
+                                    <p class="text-xs text-inkTertiary mt-0.5">
+                                        Declared donations, gifts, hospitality, outside employment, and shareholdings
+                                    </p>
+                                </div>
+                                <span aria-hidden="true" class="text-sm text-inkTertiary group-hover:text-ink transition shrink-0">&rarr;</span>
+                            </a>
+
+                            <a
+                                id="profileExpensesLink"
+                                href="https://www.theipsa.org.uk/mp-staffing-business-costs/your-mp/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="py-4 flex items-center justify-between gap-4 group"
+                            >
+                                <div>
+                                    <p class="text-sm font-medium text-ink group-hover:underline underline-offset-4">
+                                        MPs’ Staffing &amp; Business Costs (IPSA)
+                                    </p>
+                                    <p class="text-xs text-inkTertiary mt-0.5">
+                                        Independent Parliamentary Standards Authority expense claims and office budgets
+                                    </p>
+                                </div>
+                                <span aria-hidden="true" class="text-sm text-inkTertiary group-hover:text-ink transition shrink-0">&rarr;</span>
+                            </a>
+                        </div>
                     </div>
-                </section>
+                </div>
 
             </article>
 
@@ -389,12 +511,6 @@
         const WATCHLIST_MAX = 10;
         const WATCHLIST_STORAGE_KEY = 'whip_watchlist_ids';
 
-        /**
-         * Determines UK calendar day context:
-         * - Saturday & Sunday: defaults to weekly view ("This Week")
-         * - Monday: defaults to weekly view ("Last Week")
-         * - Tuesday–Friday: defaults to latest sitting day, with "Last Week" toggle available
-         */
         function getCalendarMode() {
             const ukDayName = new Intl.DateTimeFormat('en-GB', {
                 weekday: 'short',
@@ -473,9 +589,11 @@
             availableDates: [],
             weeklyDates: [],
             selectedMp: null,
+            activeTab: 'briefing', // 'briefing' | 'profile'
             selectedMode: CALENDAR_MODE.isWeeklyDefault ? 'weekly' : 'daily',
             selectedDate: null,
             currentBriefing: null,
+            memberMetaCache: new Map(),
             watchlistIds: loadInitialWatchlist()
         };
 
@@ -491,6 +609,18 @@
             watchlistCountLabel: document.getElementById('watchlistCountLabel'),
             watchlistPills: document.getElementById('watchlistPills'),
             briefingWorkspace: document.getElementById('briefingWorkspace'),
+            tabBriefingBtn: document.getElementById('tabBriefingBtn'),
+            tabProfileBtn: document.getElementById('tabProfileBtn'),
+            briefingTabContent: document.getElementById('briefingTabContent'),
+            profileTabContent: document.getElementById('profileTabContent'),
+            profilePortraitImg: document.getElementById('profilePortraitImg'),
+            profilePortraitFallback: document.getElementById('profilePortraitFallback'),
+            profileInitials: document.getElementById('profileInitials'),
+            profileTenureHeadline: document.getElementById('profileTenureHeadline'),
+            profileTenureSubtext: document.getElementById('profileTenureSubtext'),
+            profileParliamentLink: document.getElementById('profileParliamentLink'),
+            profileInterestsLink: document.getElementById('profileInterestsLink'),
+            profileExpensesLink: document.getElementById('profileExpensesLink'),
             searchContainer: document.getElementById('mpSearchContainer'),
             searchInput: document.getElementById('mpSearchInput'),
             postcodeLookupBtn: document.getElementById('postcodeLookupBtn'),
@@ -536,6 +666,150 @@
         els.landingSubtitle.textContent = `${CALENDAR_MODE.subtitle}.`;
 
         const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+        function getInitials(name) {
+            const cleaned = (name || '')
+                .replace(/^(Sir|Dame|Dr|Mr|Mrs|Ms|Mx|Rt Hon)\s+/gi, '')
+                .trim();
+            const parts = cleaned.split(/\s+/).filter(Boolean);
+            if (parts.length === 0) return 'MP';
+            if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+            return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+        }
+
+        function formatTenureDuration(startDateIso) {
+            if (!startDateIso) return null;
+            const start = new Date(`${startDateIso.slice(0, 10)}T12:00:00Z`);
+            if (Number.isNaN(start.getTime())) return null;
+
+            const now = new Date();
+            let years = now.getUTCFullYear() - start.getUTCFullYear();
+            let months = now.getUTCMonth() - start.getUTCMonth();
+
+            if (now.getUTCDate() < start.getUTCDate()) {
+                months -= 1;
+            }
+            if (months < 0) {
+                years -= 1;
+                months += 12;
+            }
+
+            const parts = [];
+            if (years > 0) parts.push(`${years} ${years === 1 ? 'year' : 'years'}`);
+            if (months > 0) parts.push(`${months} ${months === 1 ? 'month' : 'months'}`);
+            if (parts.length === 0) parts.push('Less than a month');
+
+            const formattedStart = start.toLocaleDateString('en-GB', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                timeZone: 'UTC'
+            });
+
+            return {
+                durationLabel: parts.join(', '),
+                formattedStart
+            };
+        }
+
+        function setActiveTab(tabName) {
+            state.activeTab = tabName;
+            const isProfile = tabName === 'profile';
+
+            if (isProfile) {
+                els.tabBriefingBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-medium text-inkSecondary hover:text-ink transition cursor-pointer';
+                els.tabBriefingBtn.setAttribute('aria-selected', 'false');
+                els.tabProfileBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-medium bg-white text-ink shadow-2xs transition cursor-pointer';
+                els.tabProfileBtn.setAttribute('aria-selected', 'true');
+
+                els.dayToggleGroup.classList.add('hidden');
+                els.sittingDateDisplay.classList.add('hidden');
+                els.briefingTabContent.classList.add('hidden');
+                els.profileTabContent.classList.remove('hidden');
+
+                if (state.selectedMp) {
+                    loadProfileForMp(state.selectedMp);
+                }
+            } else {
+                els.tabProfileBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-medium text-inkSecondary hover:text-ink transition cursor-pointer';
+                els.tabProfileBtn.setAttribute('aria-selected', 'false');
+                els.tabBriefingBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-medium bg-white text-ink shadow-2xs transition cursor-pointer';
+                els.tabBriefingBtn.setAttribute('aria-selected', 'true');
+
+                els.dayToggleGroup.classList.remove('hidden');
+                els.sittingDateDisplay.classList.remove('hidden');
+                els.profileTabContent.classList.add('hidden');
+                els.briefingTabContent.classList.remove('hidden');
+            }
+        }
+
+        async function loadProfileForMp(mp) {
+            const memberId = mp.parliament_member_id;
+
+            // 1. Official Portrait with automatic initials fallback if no photo exists
+            els.profileInitials.textContent = getInitials(mp.full_name);
+            els.profilePortraitImg.classList.add('hidden');
+            els.profilePortraitFallback.classList.remove('hidden');
+
+            els.profilePortraitImg.onload = () => {
+                els.profilePortraitFallback.classList.add('hidden');
+                els.profilePortraitImg.classList.remove('hidden');
+            };
+            els.profilePortraitImg.onerror = () => {
+                els.profilePortraitImg.classList.add('hidden');
+                els.profilePortraitFallback.classList.remove('hidden');
+            };
+            els.profilePortraitImg.alt = `Official portrait of ${mp.full_name}`;
+            els.profilePortraitImg.src = `https://members-api.parliament.uk/api/Members/${memberId}/Thumbnail`;
+
+            // 2. Official Parliament Profile & Register of Financial Interests links
+            els.profileParliamentLink.href = `https://members.parliament.uk/member/${memberId}/contact`;
+            els.profileInterestsLink.href = `https://members.parliament.uk/member/${memberId}/registeredinterests`;
+            els.profileExpensesLink.href = 'https://www.theipsa.org.uk/mp-staffing-business-costs/your-mp/';
+
+            // 3. Tenure / Length of Service
+            const renderTenure = (startDateIso, seatName) => {
+                const tenure = formatTenureDuration(startDateIso);
+                if (!tenure) {
+                    els.profileTenureHeadline.textContent = 'Current Member of Parliament';
+                    els.profileTenureSubtext.textContent = `Representing ${seatName} in the House of Commons.`;
+                    return;
+                }
+                els.profileTenureHeadline.textContent = `MP for ${tenure.durationLabel}`;
+                els.profileTenureSubtext.textContent = `Current term for ${seatName} began on ${tenure.formattedStart}.`;
+            };
+
+            const seatName = mp.constituencies?.name || 'their constituency';
+            if (mp.member_since) {
+                renderTenure(mp.member_since, seatName);
+                return;
+            }
+
+            if (state.memberMetaCache.has(memberId)) {
+                renderTenure(state.memberMetaCache.get(memberId), seatName);
+                return;
+            }
+
+            els.profileTenureHeadline.textContent = 'Loading service record...';
+            els.profileTenureSubtext.textContent = `Checking UK Parliament records for ${seatName}...`;
+
+            try {
+                const res = await fetch(`https://members-api.parliament.uk/api/Members/${memberId}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const startDate = data?.value?.latestHouseMembership?.membershipStartDate || null;
+                state.memberMetaCache.set(memberId, startDate);
+                if (state.selectedMp?.parliament_member_id === memberId) {
+                    renderTenure(startDate, seatName);
+                }
+            } catch {
+                if (state.selectedMp?.parliament_member_id === memberId) {
+                    renderTenure(null, seatName);
+                }
+            }
+        }
 
         function getMondayOfWeek(isoDate) {
             const d = new Date(`${isoDate}T12:00:00Z`);
@@ -987,6 +1261,11 @@
             els.mpRole.textContent = displayRole;
             updateWatchlistButton();
 
+            // Refresh Profile tab content in parallel if Profile tab is currently active
+            if (state.activeTab === 'profile') {
+                loadProfileForMp(mp);
+            }
+
             if (!state.selectedDate && state.weeklyDates.length === 0) {
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
                 els.activityBadge.textContent = 'Awaiting next sitting';
@@ -1147,16 +1426,24 @@
                     return;
                 }
 
-                const [mps, recentDateRows] = await Promise.all([
-                    supabaseGet(
+                // Try selecting member_since if the column exists; gracefully fall back if not added yet
+                let mps;
+                try {
+                    mps = await supabaseGet(
+                        'mps',
+                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title,member_since,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                    );
+                } catch {
+                    mps = await supabaseGet(
                         'mps',
                         'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
-                    ),
-                    supabaseGet(
-                        'daily_briefings',
-                        'select=sitting_date,activity_tag&parliament_member_id=eq.4514&order=sitting_date.desc&limit=14'
-                    )
-                ]);
+                    );
+                }
+
+                const recentDateRows = await supabaseGet(
+                    'daily_briefings',
+                    'select=sitting_date,activity_tag&parliament_member_id=eq.4514&order=sitting_date.desc&limit=14'
+                );
 
                 if (!Array.isArray(mps) || mps.length === 0) {
                     showPostcodeStatus('Connected to Supabase, but 0 active MPs were returned. Run GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon; in Supabase SQL Editor.', true);
@@ -1188,6 +1475,8 @@
 
         // Event Listeners
         els.resetToHomeBtn.addEventListener('click', switchToCenteredLanding);
+        els.tabBriefingBtn.addEventListener('click', () => setActiveTab('briefing'));
+        els.tabProfileBtn.addEventListener('click', () => setActiveTab('profile'));
 
         els.searchInput.addEventListener('focus', () => {
             if (els.searchInput.value.trim().length > 0) {

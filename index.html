@@ -1037,22 +1037,35 @@
             }
         }
 
-        function parseMemberBiography(bioPayload, memberPayload, fallbackStartDate) {
+        function parseMemberBiography(historyPayload, bioPayload, memberPayload, fallbackStartDate) {
+            const historyItem = Array.isArray(historyPayload?.value)
+                ? (historyPayload.value[0]?.value || historyPayload.value[0])
+                : (Array.isArray(historyPayload) ? (historyPayload[0]?.value || historyPayload[0]) : {});
             const bio = bioPayload?.value || bioPayload || {};
             const memberVal = memberPayload?.value || memberPayload || {};
 
-            // 1. Parse Commons houseMemberships (house === 1)
-            const rawMemberships = Array.isArray(bio.houseMemberships) ? bio.houseMemberships : [];
-            const commonsTerms = rawMemberships
-                .filter(m => Number(m.house) === 1 && m.membershipStartDate)
-                .map(m => ({
-                    seat: m.membershipFrom || 'UK Constituency',
-                    start: String(m.membershipStartDate).slice(0, 10),
-                    end: m.membershipEndDate ? String(m.membershipEndDate).slice(0, 10) : null
-                }))
-                .sort((a, b) => a.start.localeCompare(b.start));
+            // 1. Collect Commons houseMemberships (house === 1) from History first, then Biography
+            const rawMemberships = [
+                ...(Array.isArray(historyItem?.houseMemberships) ? historyItem.houseMemberships : []),
+                ...(Array.isArray(bio?.houseMemberships) ? bio.houseMemberships : [])
+            ];
 
-            // Merge adjacent/overlapping Commons terms (e.g. boundary changes where end of old seat is within 45 days of new seat)
+            // Deduplicate memberships by start date + seat
+            const seenTerms = new Set();
+            const commonsTerms = [];
+            for (const m of rawMemberships) {
+                if (Number(m.house) !== 1 || !m.membershipStartDate) continue;
+                const start = String(m.membershipStartDate).slice(0, 10);
+                const end = m.membershipEndDate ? String(m.membershipEndDate).slice(0, 10) : null;
+                const seat = m.membershipFrom || 'UK Constituency';
+                const key = `${start}|${seat}`;
+                if (seenTerms.has(key)) continue;
+                seenTerms.add(key);
+                commonsTerms.push({ seat, start, end });
+            }
+            commonsTerms.sort((a, b) => a.start.localeCompare(b.start));
+
+            // Merge adjacent/overlapping Commons terms (e.g. boundary changes within 45 days)
             const continuousSpans = [];
             for (const term of commonsTerms) {
                 const prev = continuousSpans[continuousSpans.length - 1];
@@ -1083,27 +1096,49 @@
                 if (d) totalMonths += d.totalMonths;
             }
 
-            // 2. Parse won elections from electionsContested
-            const rawElections = Array.isArray(bio.electionsContested) ? bio.electionsContested : [];
-            const wonElections = rawElections
-                .filter(e => {
-                    if (e?.isWinner === true) return true;
-                    const resText = String(e?.result || e?.electionResult || '').toLowerCase();
-                    return resText.includes('elected') || resText.includes('won') || Number(e?.position) === 1;
-                })
-                .map(e => {
-                    const title = e?.electionTitle || e?.title || 'Parliamentary Election';
-                    const dateIso = e?.electionDate ? String(e.electionDate).slice(0, 10) : '';
-                    const isByElection = /by-?election/i.test(title);
-                    const seat = e?.constituencyName || e?.membershipFrom || '';
-                    return {
-                        title,
-                        dateIso,
-                        isByElection,
-                        seat
-                    };
-                })
-                .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+            // 2. Parse won elections from Biography / History
+            const rawElections = [
+                ...(Array.isArray(bio?.electionsContested) ? bio.electionsContested : []),
+                ...(Array.isArray(bio?.elections) ? bio.elections : []),
+                ...(Array.isArray(historyItem?.electionsContested) ? historyItem.electionsContested : [])
+            ];
+
+            const seenElections = new Set();
+            const wonElections = [];
+            for (const e of rawElections) {
+                const isWinner = e?.isWinner === true || e?.won === true;
+                const resText = String(e?.result || e?.electionResult || e?.status || '').toLowerCase();
+                if (!isWinner && !resText.includes('elected') && !resText.includes('won') && Number(e?.position) !== 1) {
+                    continue;
+                }
+                const title = e?.electionTitle || e?.title || e?.name || 'Parliamentary Election';
+                const dateIso = e?.electionDate ? String(e.electionDate).slice(0, 10) : '';
+                const seat = e?.constituencyName || e?.membershipFrom || '';
+                const dedupKey = `${dateIso}|${title}|${seat}`;
+                if (seenElections.has(dedupKey)) continue;
+                seenElections.add(dedupKey);
+
+                wonElections.push({
+                    title,
+                    dateIso,
+                    isByElection: /by-?election/i.test(title),
+                    seat
+                });
+            }
+            wonElections.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+
+            // Fallback: if API didn't return electionsContested, infer start of each Commons term
+            if (wonElections.length === 0 && commonsTerms.length > 0) {
+                for (const t of [...commonsTerms].reverse()) {
+                    const isGeneralDate = /-07-04$|-12-12$|-06-08$|-05-07$|-05-06$|-05-05$|-06-07$/.test(t.start);
+                    wonElections.push({
+                        title: isGeneralDate ? `${t.start.slice(0, 4)} General Election` : `${t.seat} By-election`,
+                        dateIso: t.start,
+                        isByElection: !isGeneralDate,
+                        seat: t.seat
+                    });
+                }
+            }
 
             return {
                 currentSpan,
@@ -1369,7 +1404,10 @@
             els.profileElectionsSection.classList.add('hidden');
 
             try {
-                const [bioRes, memberRes] = await Promise.all([
+                const [historyRes, bioRes, memberRes] = await Promise.all([
+                    fetch(`https://members-api.parliament.uk/api/Members/History?ids=${memberId}`, {
+                        headers: { 'Accept': 'application/json' }
+                    }),
                     fetch(`https://members-api.parliament.uk/api/Members/${memberId}/Biography`, {
                         headers: { 'Accept': 'application/json' }
                     }),
@@ -1378,9 +1416,10 @@
                     })
                 ]);
 
+                const historyJson = historyRes.ok ? await historyRes.json() : null;
                 const bioJson = bioRes.ok ? await bioRes.json() : null;
                 const memberJson = memberRes.ok ? await memberRes.json() : null;
-                const parsedBio = parseMemberBiography(bioJson, memberJson, mp.member_since);
+                const parsedBio = parseMemberBiography(historyJson, bioJson, memberJson, mp.member_since);
 
                 state.memberMetaCache.set(memberId, parsedBio);
                 if (state.selectedMp?.parliament_member_id === memberId) {
@@ -1388,7 +1427,7 @@
                 }
             } catch {
                 if (state.selectedMp?.parliament_member_id === memberId) {
-                    const fallbackParsed = parseMemberBiography(null, null, mp.member_since);
+                    const fallbackParsed = parseMemberBiography(null, null, null, mp.member_since);
                     renderServiceAndElections(mp, fallbackParsed);
                 }
             }
@@ -1990,9 +2029,7 @@
 
             const mp = state.selectedMp;
             const seatName = getMpConstituencyName(mp);
-            const displayRole = mp.parliament_member_id === 4514
-                ? 'Prime Minister'
-                : (mp.role_title || `MP for ${seatName}`);
+            const displayRole = mp.role_title || `MP for ${seatName}`;
 
             els.briefingArticle.classList.remove('fade-in');
             els.briefingArticle.classList.add('fade-out');

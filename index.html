@@ -344,7 +344,7 @@
 
                 <!-- VIEW B: PROFILE TAB CONTENT -->
                 <div id="profileTabContent" class="hidden space-y-12">
-                    <!-- Portrait + Tenure Overview -->
+                    <!-- Portrait + Tenure & Electoral History Overview -->
                     <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6">
                         <div class="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden bg-surface border border-hairline shrink-0 flex items-center justify-center">
                             <img
@@ -369,6 +369,28 @@
                             <p id="profileTenureSubtext" class="text-sm text-inkSecondary leading-relaxed">
                                 Checking UK Parliament membership dates...
                             </p>
+                            <p id="profileElectionsSummary" class="hidden text-xs sm:text-sm font-medium text-ink pt-0.5">
+                                —
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Electoral History (Won General Elections & By-elections) -->
+                    <div id="profileElectionsSection" class="hidden pt-8 border-t border-hairline">
+                        <div class="flex items-baseline justify-between gap-4 mb-2">
+                            <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">
+                                Election wins
+                            </h3>
+                            <span id="profileElectionsBadge" class="text-xs text-inkTertiary font-medium">
+                                —
+                            </span>
+                        </div>
+                        <p class="text-sm text-inkSecondary mb-5 leading-relaxed">
+                            Parliamentary elections won by this Member, distinguishing General Elections from by-elections.
+                        </p>
+
+                        <div id="profileElectionsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                            <!-- Populated dynamically via JS -->
                         </div>
                     </div>
 
@@ -788,6 +810,7 @@
             activeTab: 'briefing',
             selectedMode: CALENDAR_MODE.isWeeklyDefault ? 'weekly' : 'daily',
             selectedDate: null,
+            baseActivityBadge: '—',
             currentBriefing: null,
             memberMetaCache: new Map(),
             interestsCache: new Map(),
@@ -815,6 +838,10 @@
             profileInitials: document.getElementById('profileInitials'),
             profileTenureHeadline: document.getElementById('profileTenureHeadline'),
             profileTenureSubtext: document.getElementById('profileTenureSubtext'),
+            profileElectionsSummary: document.getElementById('profileElectionsSummary'),
+            profileElectionsSection: document.getElementById('profileElectionsSection'),
+            profileElectionsBadge: document.getElementById('profileElectionsBadge'),
+            profileElectionsList: document.getElementById('profileElectionsList'),
             profileInterestsBadge: document.getElementById('profileInterestsBadge'),
             profileInterestsContainer: document.getElementById('profileInterestsContainer'),
             profileParliamentLink: document.getElementById('profileParliamentLink'),
@@ -890,16 +917,20 @@
             return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
         }
 
-        function formatTenureDuration(startDateIso) {
+        function formatDurationBetween(startDateIso, endDateIso = null) {
             if (!startDateIso) return null;
             const start = new Date(`${startDateIso.slice(0, 10)}T12:00:00Z`);
             if (Number.isNaN(start.getTime())) return null;
 
-            const now = new Date();
-            let years = now.getUTCFullYear() - start.getUTCFullYear();
-            let months = now.getUTCMonth() - start.getUTCMonth();
+            const end = endDateIso
+                ? new Date(`${endDateIso.slice(0, 10)}T12:00:00Z`)
+                : new Date();
+            if (Number.isNaN(end.getTime())) return null;
 
-            if (now.getUTCDate() < start.getUTCDate()) {
+            let years = end.getUTCFullYear() - start.getUTCFullYear();
+            let months = end.getUTCMonth() - start.getUTCMonth();
+
+            if (end.getUTCDate() < start.getUTCDate()) {
                 months -= 1;
             }
             if (months < 0) {
@@ -907,6 +938,7 @@
                 months += 12;
             }
 
+            const totalMonths = Math.max(0, years * 12 + months);
             const parts = [];
             if (years > 0) parts.push(`${years} ${years === 1 ? 'year' : 'years'}`);
             if (months > 0) parts.push(`${months} ${months === 1 ? 'month' : 'months'}`);
@@ -921,8 +953,54 @@
 
             return {
                 durationLabel: parts.join(', '),
+                totalMonths,
                 formattedStart
             };
+        }
+
+        function formatMonthsAsLabel(totalMonths) {
+            if (totalMonths <= 0) return 'Less than a month';
+            const years = Math.floor(totalMonths / 12);
+            const months = totalMonths % 12;
+            const parts = [];
+            if (years > 0) parts.push(`${years} ${years === 1 ? 'year' : 'years'}`);
+            if (months > 0) parts.push(`${months} ${months === 1 ? 'month' : 'months'}`);
+            return parts.join(', ');
+        }
+
+        function getUkIsoDateOffset(daysOffset) {
+            const d = new Date(Date.now() + daysOffset * 86400000);
+            return new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Europe/London',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(d);
+        }
+
+        function getSelectedPeriodContextLabel() {
+            if (state.selectedMode === 'weekly' && state.latestWeekDates.length > 0) {
+                return CALENDAR_MODE.latestWeekLabel.toLowerCase();
+            }
+            if (state.selectedMode === 'prior-weekly' && state.priorWeekDates.length > 0) {
+                return CALENDAR_MODE.priorWeekLabel.toLowerCase();
+            }
+            if (state.selectedDate) {
+                if (state.selectedDate === getUkIsoDateOffset(-1)) return 'yesterday';
+                if (state.selectedDate === getUkIsoDateOffset(0)) return 'today';
+                return formatShortPillDate(state.selectedDate);
+            }
+            return '';
+        }
+
+        function syncActivityBadgeDisplay() {
+            const base = state.baseActivityBadge || '—';
+            if (state.activeTab === 'profile' && base && base !== '—' && base !== 'Awaiting next sitting') {
+                const periodLabel = getSelectedPeriodContextLabel();
+                els.activityBadge.textContent = periodLabel ? `${base} (${periodLabel})` : base;
+            } else {
+                els.activityBadge.textContent = base;
+            }
         }
 
         function setActiveTab(tabName) {
@@ -940,6 +1018,7 @@
                 els.briefingTabContent.classList.add('hidden');
                 els.profileTabContent.classList.remove('hidden');
 
+                syncActivityBadgeDisplay();
                 if (state.selectedMp) {
                     loadProfileForMp(state.selectedMp);
                 }
@@ -953,7 +1032,158 @@
                 els.sittingDateDisplay.classList.remove('hidden');
                 els.profileTabContent.classList.add('hidden');
                 els.briefingTabContent.classList.remove('hidden');
+
+                syncActivityBadgeDisplay();
             }
+        }
+
+        function parseMemberBiography(bioPayload, memberPayload, fallbackStartDate) {
+            const bio = bioPayload?.value || bioPayload || {};
+            const memberVal = memberPayload?.value || memberPayload || {};
+
+            // 1. Parse Commons houseMemberships (house === 1)
+            const rawMemberships = Array.isArray(bio.houseMemberships) ? bio.houseMemberships : [];
+            const commonsTerms = rawMemberships
+                .filter(m => Number(m.house) === 1 && m.membershipStartDate)
+                .map(m => ({
+                    seat: m.membershipFrom || 'UK Constituency',
+                    start: String(m.membershipStartDate).slice(0, 10),
+                    end: m.membershipEndDate ? String(m.membershipEndDate).slice(0, 10) : null
+                }))
+                .sort((a, b) => a.start.localeCompare(b.start));
+
+            // Merge adjacent/overlapping Commons terms (e.g. boundary changes where end of old seat is within 45 days of new seat)
+            const continuousSpans = [];
+            for (const term of commonsTerms) {
+                const prev = continuousSpans[continuousSpans.length - 1];
+                if (prev && prev.end) {
+                    const gapDays = (new Date(`${term.start}T12:00:00Z`) - new Date(`${prev.end}T12:00:00Z`)) / 86400000;
+                    if (gapDays <= 45) {
+                        prev.end = term.end;
+                        prev.seat = term.seat;
+                        continue;
+                    }
+                }
+                continuousSpans.push({ ...term });
+            }
+
+            const currentSpan = continuousSpans.find(s => !s.end)
+                || continuousSpans[continuousSpans.length - 1]
+                || (memberVal.latestHouseMembership?.membershipStartDate
+                    ? {
+                        seat: memberVal.latestHouseMembership.membershipFrom || 'UK Constituency',
+                        start: String(memberVal.latestHouseMembership.membershipStartDate).slice(0, 10),
+                        end: null
+                    }
+                    : (fallbackStartDate ? { seat: 'UK Constituency', start: fallbackStartDate.slice(0, 10), end: null } : null));
+
+            let totalMonths = 0;
+            for (const span of continuousSpans) {
+                const d = formatDurationBetween(span.start, span.end);
+                if (d) totalMonths += d.totalMonths;
+            }
+
+            // 2. Parse won elections from electionsContested
+            const rawElections = Array.isArray(bio.electionsContested) ? bio.electionsContested : [];
+            const wonElections = rawElections
+                .filter(e => {
+                    if (e?.isWinner === true) return true;
+                    const resText = String(e?.result || e?.electionResult || '').toLowerCase();
+                    return resText.includes('elected') || resText.includes('won') || Number(e?.position) === 1;
+                })
+                .map(e => {
+                    const title = e?.electionTitle || e?.title || 'Parliamentary Election';
+                    const dateIso = e?.electionDate ? String(e.electionDate).slice(0, 10) : '';
+                    const isByElection = /by-?election/i.test(title);
+                    const seat = e?.constituencyName || e?.membershipFrom || '';
+                    return {
+                        title,
+                        dateIso,
+                        isByElection,
+                        seat
+                    };
+                })
+                .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+
+            return {
+                currentSpan,
+                hasMultipleTerms: continuousSpans.length > 1,
+                totalServiceLabel: totalMonths > 0 ? formatMonthsAsLabel(totalMonths) : null,
+                wonElections
+            };
+        }
+
+        function renderServiceAndElections(mp, parsedBio) {
+            const seatName = getMpConstituencyName(mp);
+            const span = parsedBio?.currentSpan;
+
+            if (!span) {
+                els.profileTenureHeadline.textContent = 'Current Member of Parliament';
+                els.profileTenureSubtext.textContent = `Representing ${seatName} in the House of Commons.`;
+            } else {
+                const currentDur = formatDurationBetween(span.start, null);
+                els.profileTenureHeadline.textContent = currentDur
+                    ? `MP for ${currentDur.durationLabel}`
+                    : 'Current Member of Parliament';
+
+                if (parsedBio.hasMultipleTerms && parsedBio.totalServiceLabel) {
+                    els.profileTenureSubtext.textContent = `Current continuous term for ${seatName} began on ${currentDur.formattedStart} (${parsedBio.totalServiceLabel} total service across separate Commons terms).`;
+                } else {
+                    els.profileTenureSubtext.textContent = `Continuous service for ${seatName} since ${currentDur.formattedStart}.`;
+                }
+            }
+
+            const wins = parsedBio?.wonElections || [];
+            if (wins.length === 0) {
+                els.profileElectionsSummary.classList.add('hidden');
+                els.profileElectionsSection.classList.add('hidden');
+                return;
+            }
+
+            const byElectionCount = wins.filter(w => w.isByElection).length;
+            const generalCount = wins.length - byElectionCount;
+
+            const breakdownParts = [];
+            if (generalCount > 0) {
+                breakdownParts.push(`${generalCount} ${generalCount === 1 ? 'General Election' : 'General Elections'}`);
+            }
+            if (byElectionCount > 0) {
+                breakdownParts.push(`${byElectionCount} ${byElectionCount === 1 ? 'By-election' : 'By-elections'}`);
+            }
+
+            const summaryText = `Won ${wins.length} ${wins.length === 1 ? 'election' : 'elections'} (${breakdownParts.join(', ')})`;
+            els.profileElectionsSummary.textContent = summaryText;
+            els.profileElectionsSummary.classList.remove('hidden');
+
+            els.profileElectionsSection.classList.remove('hidden');
+            els.profileElectionsBadge.textContent = `${wins.length} ${wins.length === 1 ? 'win' : 'wins'}`;
+
+            els.profileElectionsList.innerHTML = wins.map(w => {
+                const dateLabel = w.dateIso
+                    ? new Date(`${w.dateIso}T12:00:00Z`).toLocaleDateString('en-GB', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        timeZone: 'UTC'
+                    })
+                    : '';
+                const typeBadgeClass = w.isByElection
+                    ? 'bg-amber-50 text-amber-900 border-amber-200'
+                    : 'bg-surface text-inkSecondary border-hairline';
+                const typeLabel = w.isByElection ? 'By-election' : 'General Election';
+
+                return `
+                    <div class="py-3.5 flex items-center justify-between gap-4">
+                        <div class="min-w-0 pr-3">
+                            <p class="text-sm font-medium text-ink truncate">${w.title}</p>
+                            <p class="text-xs text-inkTertiary mt-0.5">${[w.seat, dateLabel].filter(Boolean).join(' • ')}</p>
+                        </div>
+                        <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${typeBadgeClass}">
+                            ${typeLabel}
+                        </span>
+                    </div>
+                `;
+            }).join('');
         }
 
         function parseRegisteredInterestsPayload(payload) {
@@ -1105,6 +1335,7 @@
 
         async function loadProfileForMp(mp) {
             const memberId = mp.parliament_member_id;
+            const seatName = getMpConstituencyName(mp);
 
             els.profileInitials.textContent = getInitials(mp.full_name);
             els.profilePortraitImg.classList.add('hidden');
@@ -1127,45 +1358,38 @@
 
             loadRegisteredInterestsForMp(mp);
 
-            const renderTenure = (startDateIso, seatName) => {
-                const tenure = formatTenureDuration(startDateIso);
-                if (!tenure) {
-                    els.profileTenureHeadline.textContent = 'Current Member of Parliament';
-                    els.profileTenureSubtext.textContent = `Representing ${seatName} in the House of Commons.`;
-                    return;
-                }
-                els.profileTenureHeadline.textContent = `MP for ${tenure.durationLabel}`;
-                els.profileTenureSubtext.textContent = `Current term for ${seatName} began on ${tenure.formattedStart}.`;
-            };
-
-            const seatName = getMpConstituencyName(mp);
-            if (mp.member_since) {
-                renderTenure(mp.member_since, seatName);
-                return;
-            }
-
             if (state.memberMetaCache.has(memberId)) {
-                renderTenure(state.memberMetaCache.get(memberId), seatName);
+                renderServiceAndElections(mp, state.memberMetaCache.get(memberId));
                 return;
             }
 
             els.profileTenureHeadline.textContent = 'Loading service record...';
             els.profileTenureSubtext.textContent = `Checking UK Parliament records for ${seatName}...`;
+            els.profileElectionsSummary.classList.add('hidden');
+            els.profileElectionsSection.classList.add('hidden');
 
             try {
-                const res = await fetch(`https://members-api.parliament.uk/api/Members/${memberId}`, {
-                    headers: { 'Accept': 'application/json' }
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                const startDate = data?.value?.latestHouseMembership?.membershipStartDate || null;
-                state.memberMetaCache.set(memberId, startDate);
+                const [bioRes, memberRes] = await Promise.all([
+                    fetch(`https://members-api.parliament.uk/api/Members/${memberId}/Biography`, {
+                        headers: { 'Accept': 'application/json' }
+                    }),
+                    fetch(`https://members-api.parliament.uk/api/Members/${memberId}`, {
+                        headers: { 'Accept': 'application/json' }
+                    })
+                ]);
+
+                const bioJson = bioRes.ok ? await bioRes.json() : null;
+                const memberJson = memberRes.ok ? await memberRes.json() : null;
+                const parsedBio = parseMemberBiography(bioJson, memberJson, mp.member_since);
+
+                state.memberMetaCache.set(memberId, parsedBio);
                 if (state.selectedMp?.parliament_member_id === memberId) {
-                    renderTenure(startDate, seatName);
+                    renderServiceAndElections(mp, parsedBio);
                 }
             } catch {
                 if (state.selectedMp?.parliament_member_id === memberId) {
-                    renderTenure(null, seatName);
+                    const fallbackParsed = parseMemberBiography(null, null, mp.member_since);
+                    renderServiceAndElections(mp, fallbackParsed);
                 }
             }
         }
@@ -1786,7 +2010,8 @@
 
             if (!state.selectedDate && state.latestWeekDates.length === 0) {
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
-                els.activityBadge.textContent = 'Awaiting next sitting';
+                state.baseActivityBadge = 'Awaiting next sitting';
+                syncActivityBadgeDisplay();
                 els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
                 els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
                 els.hansardRefTag.textContent = 'parliament.uk';
@@ -1820,7 +2045,8 @@
 
                     const weekly = compileWeeklyBriefing(mp, activeWeekDates, rows);
                     state.currentBriefing = weekly;
-                    els.activityBadge.textContent = weekly.activity_tag;
+                    state.baseActivityBadge = weekly.activity_tag;
+                    syncActivityBadgeDisplay();
                     els.summaryPara1.textContent = weekly.summary_para_1;
                     els.summaryPara2.textContent = weekly.summary_para_2;
                     els.hansardRefTag.textContent = weekly.hansard_ref;
@@ -1839,7 +2065,8 @@
 
                     if (!briefing) {
                         state.currentBriefing = null;
-                        els.activityBadge.textContent = 'Constituency & Parliamentary Work';
+                        state.baseActivityBadge = 'Constituency & Parliamentary Work';
+                        syncActivityBadgeDisplay();
                         els.summaryPara1.textContent = `No Chamber speech, written question, or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
                         els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
                         els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
@@ -1852,7 +2079,8 @@
                             : rawPara2;
 
                         state.currentBriefing = { ...briefing, summary_para_2: enrichedContext };
-                        els.activityBadge.textContent = briefing.activity_tag || 'Parliamentary Business';
+                        state.baseActivityBadge = briefing.activity_tag || 'Parliamentary Business';
+                        syncActivityBadgeDisplay();
                         els.summaryPara1.textContent = briefing.summary_para_1;
                         els.summaryPara2.textContent = enrichedContext;
                         els.hansardRefTag.textContent = briefing.hansard_ref || `HC Deb ${formatShortPillDate(state.selectedDate)}`;

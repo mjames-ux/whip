@@ -375,7 +375,7 @@
                         </div>
                     </div>
 
-                    <!-- Electoral History (Won General Elections & By-elections) -->
+                    <!-- Electoral History (Won General Elections & By-elections with Majority & Vote Share) -->
                     <div id="profileElectionsSection" class="hidden pt-8 border-t border-hairline">
                         <div class="flex items-baseline justify-between gap-4 mb-2">
                             <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">
@@ -386,7 +386,7 @@
                             </span>
                         </div>
                         <p class="text-sm text-inkSecondary mb-5 leading-relaxed">
-                            Parliamentary elections won by this Member, distinguishing General Elections from by-elections.
+                            Parliamentary elections won by this Member, including majority and share of the vote.
                         </p>
 
                         <div id="profileElectionsList" class="divide-y divide-hairline border-t border-b border-hairline">
@@ -1032,6 +1032,51 @@
             '1979-05-03'
         ]);
 
+        function extractMajorityAndShare(electionResultPayload, memberId, fullName) {
+            const val = electionResultPayload?.value || electionResultPayload || {};
+            const candidates = Array.isArray(val.candidates) ? val.candidates : [];
+            const rawMajority = val.majority ?? val.Majority ?? null;
+
+            const surname = String(fullName || '').trim().split(/\s+/).pop()?.toLowerCase() || '';
+            const matchedCand = candidates.find(c => Number(c?.memberId) === Number(memberId))
+                || candidates.find(c => surname && String(c?.name || '').toLowerCase().includes(surname))
+                || candidates[0];
+
+            let voteSharePct = null;
+            if (matchedCand) {
+                if (typeof matchedCand.voteShare === 'number') {
+                    voteSharePct = matchedCand.voteShare <= 1
+                        ? matchedCand.voteShare * 100
+                        : matchedCand.voteShare;
+                } else if (typeof matchedCand.votes === 'number') {
+                    const totalVotes = Number(val.turnout)
+                        || candidates.reduce((sum, c) => sum + (Number(c?.votes) || 0), 0);
+                    if (totalVotes > 0) {
+                        voteSharePct = (matchedCand.votes / totalVotes) * 100;
+                    }
+                }
+            }
+
+            let majorityNum = typeof rawMajority === 'number' ? rawMajority : null;
+            if (majorityNum === null && candidates.length >= 2) {
+                const sorted = [...candidates]
+                    .map(c => Number(c?.votes) || 0)
+                    .sort((a, b) => b - a);
+                if (sorted[0] > 0) {
+                    majorityNum = sorted[0] - sorted[1];
+                }
+            }
+
+            return {
+                majorityLabel: majorityNum !== null && majorityNum >= 0
+                    ? `Majority ${majorityNum.toLocaleString('en-GB')}`
+                    : null,
+                voteShareLabel: voteSharePct !== null && voteSharePct > 0
+                    ? `${voteSharePct.toFixed(1)}% of vote`
+                    : null
+            };
+        }
+
         function parseMemberBiography(bioPayload, memberPayload, fallbackStartDate, currentSeatName) {
             const bio = bioPayload?.value || bioPayload || {};
             const memberVal = memberPayload?.value || memberPayload || {};
@@ -1075,7 +1120,7 @@
                 if (d) totalMonths += d.totalMonths;
             }
 
-            // 2. Parse won constituencies & win counts from `representations` (house === 1)
+            // 2. Parse won constituencies, IDs & win counts from `representations` (house === 1)
             const rawReps = Array.isArray(bio.representations) ? bio.representations : [];
             const commonsReps = rawReps
                 .filter(r => Number(r?.house) === 1 && (r?.startDate || r?.name))
@@ -1083,6 +1128,7 @@
                     const infoText = String(r?.additionalInfo || '');
                     const countMatch = infoText.match(/elected\s+(\d+)\s+time/i);
                     return {
+                        constituencyId: Number(r?.id) || null,
                         seat: r.name || currentSeatName || 'UK Constituency',
                         start: r.startDate ? String(r.startDate).slice(0, 10) : '',
                         end: r.endDate ? String(r.endDate).slice(0, 10) : null,
@@ -1091,32 +1137,33 @@
                 })
                 .sort((a, b) => a.start.localeCompare(b.start));
 
-            // Sum total wins declared across representations (or fallback to commonsTerms count)
             const totalWinsFromReps = commonsReps.reduce((acc, r) => acc + r.electedCount, 0);
             const totalWins = Math.max(totalWinsFromReps, commonsTerms.length);
 
-            // Build chronological election win entries by matching each term/representation start date
             const candidateWinEvents = [];
             const seenDates = new Set();
 
-            function findSeatForDate(isoDate) {
-                if (!isoDate) return currentSeatName || 'UK Constituency';
-                const match = commonsReps.find(r =>
+            function findRepForDate(isoDate) {
+                if (!isoDate) return commonsReps[commonsReps.length - 1] || null;
+                return commonsReps.find(r =>
                     r.start && r.start <= isoDate && (!r.end || r.end >= isoDate)
-                );
-                return match?.seat || commonsReps[commonsReps.length - 1]?.seat || currentSeatName || 'UK Constituency';
+                ) || commonsReps[commonsReps.length - 1] || null;
             }
 
             for (const term of commonsTerms) {
                 if (!term.start || seenDates.has(term.start)) continue;
                 seenDates.add(term.start);
-                const seat = findSeatForDate(term.start);
+                const rep = findRepForDate(term.start);
+                const seat = rep?.seat || currentSeatName || 'UK Constituency';
                 const isGeneral = UK_GENERAL_ELECTION_DATES.has(term.start);
                 candidateWinEvents.push({
                     title: isGeneral ? `${term.start.slice(0, 4)} General Election` : `${seat} By-election`,
                     dateIso: term.start,
                     isByElection: !isGeneral,
-                    seat
+                    seat,
+                    constituencyId: rep?.constituencyId || null,
+                    majorityLabel: null,
+                    voteShareLabel: null
                 });
             }
 
@@ -1128,12 +1175,13 @@
                     title: isGeneral ? `${rep.start.slice(0, 4)} General Election` : `${rep.seat} By-election`,
                     dateIso: rep.start,
                     isByElection: !isGeneral,
-                    seat: rep.seat
+                    seat: rep.seat,
+                    constituencyId: rep.constituencyId,
+                    majorityLabel: null,
+                    voteShareLabel: null
                 });
             }
 
-            // If an MP served continuously across multiple General Elections (e.g. Elected 8 times in one representation),
-            // include every General Election polling date that fell within their continuous Commons span(s).
             if (totalWins > candidateWinEvents.length && continuousSpans.length > 0) {
                 for (const geDate of UK_GENERAL_ELECTION_DATES) {
                     if (seenDates.has(geDate)) continue;
@@ -1142,12 +1190,15 @@
                     );
                     if (inSpan) {
                         seenDates.add(geDate);
-                        const seat = findSeatForDate(geDate);
+                        const rep = findRepForDate(geDate);
                         candidateWinEvents.push({
                             title: `${geDate.slice(0, 4)} General Election`,
                             dateIso: geDate,
                             isByElection: false,
-                            seat
+                            seat: rep?.seat || currentSeatName || 'UK Constituency',
+                            constituencyId: rep?.constituencyId || null,
+                            majorityLabel: null,
+                            voteShareLabel: null
                         });
                     }
                 }
@@ -1162,6 +1213,60 @@
                 totalWins: Math.max(totalWins, candidateWinEvents.length),
                 wonElections: candidateWinEvents
             };
+        }
+
+        async function enrichElectionWinsWithResults(mp, parsedBio) {
+            const wins = parsedBio?.wonElections || [];
+            const distinctConstituencyIds = [...new Set(wins.map(w => w.constituencyId).filter(Boolean))];
+            if (distinctConstituencyIds.length === 0) return;
+
+            const resultsByConstituency = new Map();
+            await Promise.all(
+                distinctConstituencyIds.map(async (cId) => {
+                    const payload = await safeFetchJson(
+                        `https://members-api.parliament.uk/api/Location/Constituency/${cId}/ElectionResults`
+                    );
+                    const list = Array.isArray(payload?.value)
+                        ? payload.value
+                        : (Array.isArray(payload) ? payload : []);
+                    resultsByConstituency.set(cId, list);
+                })
+            );
+
+            for (const win of wins) {
+                if (!win.constituencyId || !win.dateIso) continue;
+                const list = resultsByConstituency.get(win.constituencyId) || [];
+                const winYear = win.dateIso.slice(0, 4);
+
+                let matched = list.find(item => {
+                    const d = String(item?.electionDate || '').slice(0, 10);
+                    return d === win.dateIso;
+                });
+
+                if (!matched) {
+                    const targetMs = new Date(`${win.dateIso}T12:00:00Z`).getTime();
+                    matched = list.find(item => {
+                        const d = String(item?.electionDate || '').slice(0, 10);
+                        if (!d) return false;
+                        const diffDays = Math.abs(new Date(`${d}T12:00:00Z`).getTime() - targetMs) / 86400000;
+                        return diffDays <= 14;
+                    });
+                }
+
+                if (!matched) {
+                    matched = list.find(item => {
+                        const d = String(item?.electionDate || '').slice(0, 10);
+                        const isBy = Boolean(item?.isByElection) || /by-?election/i.test(item?.electionTitle || '');
+                        return d.startsWith(winYear) && isBy === win.isByElection;
+                    });
+                }
+
+                if (matched) {
+                    const stats = extractMajorityAndShare(matched, mp.parliament_member_id, mp.full_name);
+                    win.majorityLabel = stats.majorityLabel;
+                    win.voteShareLabel = stats.voteShareLabel;
+                }
+            }
         }
 
         function renderServiceAndElections(mp, parsedBio) {
@@ -1196,17 +1301,15 @@
             const byElectionCount = wins.filter(w => w.isByElection).length;
             const generalCount = Math.max(0, totalWinCount - byElectionCount);
 
-            const breakdownParts = [];
-            if (generalCount > 0) {
-                breakdownParts.push(`${generalCount} ${generalCount === 1 ? 'General Election' : 'General Elections'}`);
-            }
+            let summaryText = `Won ${totalWinCount} ${totalWinCount === 1 ? 'election' : 'elections'}`;
             if (byElectionCount > 0) {
+                const breakdownParts = [];
+                if (generalCount > 0) {
+                    breakdownParts.push(`${generalCount} ${generalCount === 1 ? 'General Election' : 'General Elections'}`);
+                }
                 breakdownParts.push(`${byElectionCount} ${byElectionCount === 1 ? 'By-election' : 'By-elections'}`);
+                summaryText += ` (${breakdownParts.join(', ')})`;
             }
-
-            const summaryText = breakdownParts.length > 0
-                ? `Won ${totalWinCount} ${totalWinCount === 1 ? 'election' : 'elections'} (${breakdownParts.join(', ')})`
-                : `Won ${totalWinCount} parliamentary ${totalWinCount === 1 ? 'election' : 'elections'}`;
 
             els.profileElectionsSummary.textContent = summaryText;
             els.profileElectionsSummary.classList.remove('hidden');
@@ -1233,11 +1336,14 @@
                     : 'bg-surface text-inkSecondary border-hairline';
                 const typeLabel = w.isByElection ? 'By-election' : 'General Election';
 
+                const resultStats = [w.majorityLabel, w.voteShareLabel].filter(Boolean).join(' • ');
+                const metaLine = [w.seat, dateLabel, resultStats].filter(Boolean).join(' • ');
+
                 return `
                     <div class="py-3.5 flex items-center justify-between gap-4">
                         <div class="min-w-0 pr-3">
                             <p class="text-sm font-medium text-ink truncate">${w.title}</p>
-                            <p class="text-xs text-inkTertiary mt-0.5">${[w.seat, dateLabel].filter(Boolean).join(' • ')}</p>
+                            <p class="text-xs text-inkTertiary mt-0.5">${metaLine}</p>
                         </div>
                         <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${typeBadgeClass}">
                             ${typeLabel}
@@ -1445,6 +1551,8 @@
             ]);
 
             const parsedBio = parseMemberBiography(bioJson, memberJson, mp.member_since, seatName);
+            await enrichElectionWinsWithResults(mp, parsedBio);
+
             state.memberMetaCache.set(memberId, parsedBio);
             if (state.selectedMp?.parliament_member_id === memberId) {
                 renderServiceAndElections(mp, parsedBio);

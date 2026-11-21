@@ -167,7 +167,7 @@
 
             <!-- Subtle Caption Below Centered Search (Hidden once MP selected) -->
             <p id="landingCaption" class="text-center text-xs text-inkTertiary mt-4 tracking-tight">
-                Plain-English summaries of speeches, committees &amp; votes — updated 7:00 AM daily
+                Plain-English summaries of speeches, written questions &amp; votes — updated 7:00 AM daily
                 <span class="mx-1.5 text-hairline">&bull;</span>
                 <button type="button" class="open-terms-btn underline decoration-hairline hover:decoration-ink hover:text-ink transition cursor-pointer">
                     Terms &amp; Privacy
@@ -309,7 +309,23 @@
                         </div>
                     </section>
 
-                    <!-- 3. Voting Record -->
+                    <!-- 3. Written Parliamentary Questions (Shown when MP tabled questions) -->
+                    <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden mt-16 pt-10 border-t border-hairline">
+                        <div class="flex items-baseline justify-between gap-4 mb-6">
+                            <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                                Written questions
+                            </h3>
+                            <span id="wqCountBadge" class="text-xs text-inkTertiary font-medium">
+                                0 questions
+                            </span>
+                        </div>
+
+                        <div id="writtenQuestionsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </section>
+
+                    <!-- 4. Voting Record -->
                     <section aria-label="Voting Record" class="mt-16 pt-10 border-t border-hairline">
                         <div class="flex items-baseline justify-between gap-4 mb-6">
                             <h3 id="votingSectionTitle" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
@@ -428,7 +444,7 @@
             <!-- Quiet Editorial Colophon -->
             <footer class="mt-20 pt-8 border-t border-hairline text-xs text-inkTertiary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 leading-relaxed">
                 <p class="max-w-lg">
-                    Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts, Committees data, and Commons Votes. Party whips and pairing arrangements may affect division attendance.
+                    Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts, Written Questions, and Commons Votes. Party whips and pairing arrangements may affect division attendance.
                 </p>
                 <div class="shrink-0 flex items-center gap-3 text-inkSecondary font-medium">
                     <button type="button" class="open-terms-btn underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer">
@@ -552,7 +568,7 @@
                 <div>
                     <h4 class="font-semibold text-ink mb-1">2. Automated Summaries &amp; Accuracy</h4>
                     <p>
-                        Daily and weekly briefings are generated automatically from official Hansard debates, Committees records, and Commons Votes data. While designed to remain strictly neutral and factual, automated summaries may occasionally omit procedural nuance. Always consult the linked verbatim <span class="text-ink font-medium">parliament.uk</span> transcript before relying on information for journalistic, legal, or campaign purposes.
+                        Daily and weekly briefings are generated automatically from official Hansard debates, Written Questions, and Commons Votes data. While designed to remain strictly neutral and factual, automated summaries may occasionally omit procedural nuance. Always consult the linked verbatim <span class="text-ink font-medium">parliament.uk</span> transcript before relying on information for journalistic, legal, or campaign purposes.
                     </p>
                 </div>
 
@@ -643,6 +659,18 @@
             if (unique.length === 1) return unique[0];
             if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
             return `${unique[0]}, ${unique[1]}, and ${unique.length - 2} other ${unique.length - 2 === 1 ? 'measure' : 'measures'}`;
+        }
+
+        function formatCleanModalQuote(rawText, addOuterQuotes) {
+            let txt = String(rawText || '').trim();
+            if (!txt) return '';
+            if (!/[.?!…"”']$/.test(txt)) {
+                const lastSpace = txt.lastIndexOf(' ');
+                if (lastSpace > 40) {
+                    txt = `${txt.slice(0, lastSpace).trim()}…`;
+                }
+            }
+            return addOuterQuotes ? `“${txt}”` : txt;
         }
 
         function getCalendarMode() {
@@ -790,6 +818,9 @@
             summaryPara2: document.getElementById('summaryPara2'),
             openHansardBtn: document.getElementById('openHansardBtn'),
             hansardRefTag: document.getElementById('hansardRefTag'),
+            writtenQuestionsSection: document.getElementById('writtenQuestionsSection'),
+            wqCountBadge: document.getElementById('wqCountBadge'),
+            writtenQuestionsList: document.getElementById('writtenQuestionsList'),
             votingSectionTitle: document.getElementById('votingSectionTitle'),
             voteCountBadge: document.getElementById('voteCountBadge'),
             votingRecordsList: document.getElementById('votingRecordsList'),
@@ -1290,6 +1321,61 @@
             });
         }
 
+        function renderWrittenQuestions(questions) {
+            const list = Array.isArray(questions) ? questions : [];
+            if (list.length === 0) {
+                els.writtenQuestionsSection.classList.add('hidden');
+                els.writtenQuestionsList.innerHTML = '';
+                return;
+            }
+
+            els.writtenQuestionsSection.classList.remove('hidden');
+            els.wqCountBadge.textContent = `${list.length} ${list.length === 1 ? 'question' : 'questions'}`;
+
+            els.writtenQuestionsList.innerHTML = list.map(q => {
+                const dateNote = q.sittingDateLabel ? ` • Tabled ${q.sittingDateLabel}` : '';
+                const hasAnswer = Boolean(q.answerText);
+                const statusBadge = hasAnswer
+                    ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-900 border border-emerald-200">Answered</span>`
+                    : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-surface text-inkSecondary border border-hairline">Awaiting reply</span>`;
+
+                const answerHtml = hasAnswer
+                    ? `
+                        <div class="mt-3 pl-4 border-l-2 border-hairline text-xs sm:text-sm text-inkSecondary leading-relaxed">
+                            <span class="font-semibold text-ink">Ministerial reply: </span>${q.answerText}
+                        </div>
+                    `
+                    : '';
+
+                return `
+                    <div class="py-5 space-y-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-xs font-medium text-commonsGreen">
+                                ${q.department || 'Government Department'}${dateNote}
+                            </span>
+                            ${statusBadge}
+                        </div>
+                        <p class="text-sm sm:text-[15px] font-medium text-ink leading-snug">
+                            ${q.heading || 'Written Parliamentary Question'}
+                        </p>
+                        ${q.questionText ? `<p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">${q.questionText}</p>` : ''}
+                        ${answerHtml}
+                        <div class="pt-1">
+                            <a
+                                href="${q.url || 'https://questions-statements.parliament.uk/'}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="inline-flex items-center gap-1 text-xs font-medium text-inkTertiary hover:text-ink underline decoration-hairline hover:decoration-ink underline-offset-4 transition"
+                            >
+                                <span>View on parliament.uk</span>
+                                <span aria-hidden="true">&rarr;</span>
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         function renderVotingRecords(votes) {
             const list = Array.isArray(votes) ? votes : [];
             els.voteCountBadge.textContent = `${list.length} ${list.length === 1 ? 'division' : 'divisions'}`;
@@ -1338,17 +1424,22 @@
             );
 
             const spokenEntries = substantiveEntries.filter(entry =>
-                !/^\d+\s+Division Votes?$/i.test(entry.row.activity_tag || '')
+                !/^\d+\s+Division Votes?$/i.test(entry.row.activity_tag || '') &&
+                !/^\d+\s+Written Questions?$/i.test(entry.row.activity_tag || '') &&
+                !/^Written Questions/i.test(entry.row.activity_tag || '')
             );
 
             const combinedVotes = [];
+            const combinedWrittenQuestions = [];
             for (const { date, row } of activeDayEntries) {
+                const dateLabel = formatShortPillDate(date);
                 const dayVotes = Array.isArray(row.votes) ? row.votes : [];
                 for (const v of dayVotes) {
-                    combinedVotes.push({
-                        ...v,
-                        sittingDateLabel: formatShortPillDate(date)
-                    });
+                    combinedVotes.push({ ...v, sittingDateLabel: dateLabel });
+                }
+                const dayWqs = Array.isArray(row.written_questions) ? row.written_questions : [];
+                for (const q of dayWqs) {
+                    combinedWrittenQuestions.push({ ...q, sittingDateLabel: dateLabel });
                 }
             }
 
@@ -1371,14 +1462,13 @@
             const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
             const billContext = buildVoteContextFromList(combinedVotes);
 
-            // Deduplicate context paragraphs and strip repetitive boilerplate
             const rawContexts = substantiveEntries
                 .map(({ row }) => (row.summary_para_2 || '').trim())
                 .filter(txt => txt && txt !== GENERIC_VOTING_BOILERPLATE);
             const uniqueContexts = [...new Set(rawContexts)];
 
-            // Case 1: MP neither spoke nor cast a recorded vote all week
-            if (substantiveEntries.length === 0) {
+            // Case 1: No speeches, no written questions, and no recorded votes all week
+            if (substantiveEntries.length === 0 && combinedWrittenQuestions.length === 0) {
                 const missedVotesNote = combinedVotes.length > 0
                     ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded (which can reflect pairing arrangements, committee travel, or constituency duties).`
                     : `MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.`;
@@ -1386,69 +1476,109 @@
                 return {
                     activity_tag: `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`,
                     hansard_ref: `Week of ${rangeLabel}`,
-                    summary_para_1: `${mp.short_name} did not speak in the Commons Chamber, Westminster Hall, or public Bill Committees during the week of ${rangeLabel}.`,
+                    summary_para_1: `${mp.short_name} did not speak in the Commons Chamber, table written questions, or cast recorded votes during the week of ${rangeLabel}.`,
                     summary_para_2: billContext ? `${billContext} ${missedVotesNote}` : missedVotesNote,
                     verbatim_excerpt: null,
                     glossary: Array.from(glossaryMap.values()),
-                    votes: combinedVotes
+                    votes: combinedVotes,
+                    written_questions: []
                 };
             }
 
-            // Case 2: MP did not speak in the Chamber all week, but voted in divisions
-            if (spokenEntries.length === 0 && activeVoteRows.length > 0) {
-                const ayeTitles = activeVoteRows.filter(v => v.mpVote === 'Aye').map(v => v.title);
-                const noTitles = activeVoteRows.filter(v => v.mpVote === 'No').map(v => v.title);
+            // Case 2: Did not speak in the Chamber all week, but tabled Written Questions and/or voted
+            if (spokenEntries.length === 0) {
+                const sentences = [];
+                if (combinedWrittenQuestions.length > 0) {
+                    const depts = [...new Set(combinedWrittenQuestions.map(q => q.department))];
+                    const topics = [...new Set(combinedWrittenQuestions.map(q => q.heading))].slice(0, 2);
+                    const deptList = depts.length === 1
+                        ? depts[0]
+                        : `${depts.slice(0, 2).join(' and ')}${depts.length > 2 ? ` (+${depts.length - 2} more)` : ''}`;
 
-                const voteParts = [];
-                if (ayeTitles.length > 0) {
-                    voteParts.push(`voting Aye on ${formatCleanSubjectList(ayeTitles)}`);
-                }
-                if (noTitles.length > 0) {
-                    voteParts.push(`voting No on ${formatCleanSubjectList(noTitles)}`);
+                    sentences.push(
+                        `${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, but tabled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'} to ${deptList} on ${topics.join(' and ')}.`
+                    );
                 }
 
-                const summaryText = `${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, but cast ${activeVoteRows.length} recorded ${activeVoteRows.length === 1 ? 'vote' : 'votes'} across ${substantiveEntries.length} sitting ${substantiveEntries.length === 1 ? 'day' : 'days'}, ${voteParts.join(' and ')}.`;
+                if (activeVoteRows.length > 0) {
+                    const ayeTitles = activeVoteRows.filter(v => v.mpVote === 'Aye').map(v => v.title);
+                    const noTitles = activeVoteRows.filter(v => v.mpVote === 'No').map(v => v.title);
+                    const voteParts = [];
+                    if (ayeTitles.length > 0) voteParts.push(`voting Aye on ${formatCleanSubjectList(ayeTitles)}`);
+                    if (noTitles.length > 0) voteParts.push(`voting No on ${formatCleanSubjectList(noTitles)}`);
+
+                    if (sentences.length === 0) {
+                        sentences.push(
+                            `${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, but cast ${activeVoteRows.length} recorded ${activeVoteRows.length === 1 ? 'vote' : 'votes'} across ${substantiveEntries.length} sitting ${substantiveEntries.length === 1 ? 'day' : 'days'}, ${voteParts.join(' and ')}.`
+                        );
+                    } else {
+                        sentences.push(
+                            `They also cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}, ${voteParts.join(' and ')}.`
+                        );
+                    }
+                }
+
+                const tagParts = [];
+                if (combinedWrittenQuestions.length > 0) {
+                    tagParts.push(`${combinedWrittenQuestions.length} Written ${combinedWrittenQuestions.length === 1 ? 'Question' : 'Questions'}`);
+                }
+                if (activeVoteRows.length > 0) {
+                    tagParts.push(`${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`);
+                }
 
                 const contextText = uniqueContexts.length > 0
                     ? uniqueContexts.slice(0, 2).join(' ')
-                    : (billContext || GENERIC_VOTING_BOILERPLATE);
+                    : (billContext || `Written Parliamentary Questions require government departments to place formal, on-the-record answers before Parliament within a set timeframe.`);
 
                 return {
-                    activity_tag: `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`,
+                    activity_tag: tagParts.join(' & ') || 'Weekly Roundup',
                     hansard_ref: `Week of ${rangeLabel}`,
-                    summary_para_1: summaryText,
+                    summary_para_1: sentences.join(' '),
                     summary_para_2: contextText,
                     verbatim_excerpt: null,
                     glossary: Array.from(glossaryMap.values()),
-                    votes: combinedVotes
+                    votes: combinedVotes,
+                    written_questions: combinedWrittenQuestions
                 };
             }
 
-            // Case 3: MP spoke or took part in committee sessions during the week
+            // Case 3: MP spoke in the Chamber or Committee during the week
             const dayHighlights = spokenEntries
                 .map(({ date, row }) => `${formatShortPillDate(date)}: ${row.summary_para_1}`)
                 .join(' ');
 
-            const votingAddendum = activeVoteRows.length > 0
-                ? ` Across the week, ${mp.short_name} also cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}.`
+            const extras = [];
+            if (combinedWrittenQuestions.length > 0) {
+                extras.push(`tabled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'}`);
+            }
+            if (activeVoteRows.length > 0) {
+                extras.push(`cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}`);
+            }
+            const extraSentence = extras.length > 0
+                ? ` Across the week, ${mp.short_name} also ${extras.join(' and ')}.`
                 : '';
 
             const contextHighlights = uniqueContexts.length > 0
                 ? uniqueContexts.slice(0, 2).join(' ')
                 : (billContext || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`);
 
-            const tagParts = [];
-            tagParts.push(`${spokenEntries.length} Active ${spokenEntries.length === 1 ? 'Day' : 'Days'}`);
-            if (activeVoteRows.length > 0) tagParts.push(`${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`);
+            const tagParts = [`${spokenEntries.length} Active ${spokenEntries.length === 1 ? 'Day' : 'Days'}`];
+            if (combinedWrittenQuestions.length > 0) {
+                tagParts.push(`${combinedWrittenQuestions.length} Written ${combinedWrittenQuestions.length === 1 ? 'Question' : 'Questions'}`);
+            }
+            if (activeVoteRows.length > 0) {
+                tagParts.push(`${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`);
+            }
 
             return {
                 activity_tag: tagParts.join(' & ') || 'Weekly Roundup',
                 hansard_ref: `Week of ${rangeLabel}`,
-                summary_para_1: dayHighlights + votingAddendum,
+                summary_para_1: dayHighlights + extraSentence,
                 summary_para_2: contextHighlights,
                 verbatim_excerpt: excerpts.length > 0 ? excerpts.join('\n\n') : null,
                 glossary: Array.from(glossaryMap.values()),
-                votes: combinedVotes
+                votes: combinedVotes,
+                written_questions: combinedWrittenQuestions
             };
         }
 
@@ -1484,6 +1614,7 @@
                 els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
                 els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
                 els.hansardRefTag.textContent = 'parliament.uk';
+                renderWrittenQuestions([]);
                 renderVotingRecords([]);
                 els.briefingArticle.classList.remove('fade-out');
                 els.briefingArticle.classList.add('fade-in');
@@ -1517,6 +1648,7 @@
                     els.summaryPara1.textContent = weekly.summary_para_1;
                     els.summaryPara2.textContent = weekly.summary_para_2;
                     els.hansardRefTag.textContent = weekly.hansard_ref;
+                    renderWrittenQuestions(weekly.written_questions);
                     renderVotingRecords(weekly.votes);
                 } else {
                     els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
@@ -1532,9 +1664,10 @@
                     if (!briefing) {
                         state.currentBriefing = null;
                         els.activityBadge.textContent = 'Constituency & Parliamentary Work';
-                        els.summaryPara1.textContent = `No Chamber speech or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
+                        els.summaryPara1.textContent = `No Chamber speech, written question, or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
                         els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
                         els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                        renderWrittenQuestions([]);
                         renderVotingRecords([]);
                     } else {
                         const rawPara2 = (briefing.summary_para_2 || '').trim();
@@ -1547,6 +1680,7 @@
                         els.summaryPara1.textContent = briefing.summary_para_1;
                         els.summaryPara2.textContent = enrichedContext;
                         els.hansardRefTag.textContent = briefing.hansard_ref || `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                        renderWrittenQuestions(briefing.written_questions);
                         renderVotingRecords(briefing.votes);
                     }
                 }
@@ -1613,7 +1747,7 @@
             const isWeeklyView = state.selectedMode === 'weekly' || state.selectedMode === 'prior-weekly';
             els.modalHansardCitation.textContent = b?.hansard_ref || formatLongDate(state.selectedDate);
             els.modalVerbatimText.textContent = b?.verbatim_excerpt
-                ? (isWeeklyView ? b.verbatim_excerpt : `“${b.verbatim_excerpt}”`)
+                ? formatCleanModalQuote(b.verbatim_excerpt, !isWeeklyView)
                 : `No direct Chamber speech excerpt was recorded for ${mp.short_name} during this period. Full daily Commons proceedings are archived on hansard.parliament.uk.`;
 
             const glossary = Array.isArray(b?.glossary) ? b.glossary : [];

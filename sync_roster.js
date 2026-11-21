@@ -59,7 +59,6 @@ export async function syncRoster() {
         if (skip >= (data?.totalResults || 0)) break;
     }
 
-    // Detect General Election dissolution (0 active Commons members)
     if (allItems.length === 0) {
         console.warn('0 active MPs returned — enabling Dissolution Mode.');
         await supabase
@@ -79,15 +78,15 @@ export async function syncRoster() {
         activeIds.add(val.id);
         const membership = val.latestHouseMembership || {};
         const seatName = membership.membershipFrom;
-        const gssCode = membership.membershipFromId ? String(membership.membershipFromId) : null;
+        const parliamentConstituencyId = membership.membershipFromId ? Number(membership.membershipFromId) : null;
         const memberSince = membership.membershipStartDate
             ? String(membership.membershipStartDate).slice(0, 10)
             : null;
 
-        if (seatName && !constituencyMap.has(seatName)) {
+        if (seatName && parliamentConstituencyId && !constituencyMap.has(seatName)) {
             constituencyMap.set(seatName, {
-                name: seatName,
-                gss_code: gssCode
+                parliament_constituency_id: parliamentConstituencyId,
+                name: seatName
             });
         }
 
@@ -125,7 +124,6 @@ export async function syncRoster() {
         .upsert(finalMps, { onConflict: 'parliament_member_id' });
     if (mpErr) throw new Error(`MPs upsert error: ${mpErr.message}`);
 
-    // Mark any former MPs (by-election/resignation) as no longer current
     const { data: existingCurrent } = await supabase
         .from('mps')
         .select('parliament_member_id')

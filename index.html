@@ -1016,61 +1016,39 @@
             }
         }
 
-        function extractArraysByKey(root, targetKeys, maxDepth = 4) {
-            const found = [];
-            const visited = new Set();
+        // Known UK General Election polling dates (1979–2024+)
+        const UK_GENERAL_ELECTION_DATES = new Set([
+            '2024-07-04',
+            '2019-12-12',
+            '2017-06-08',
+            '2015-05-07',
+            '2010-05-06',
+            '2005-05-05',
+            '2001-06-07',
+            '1997-05-01',
+            '1992-04-09',
+            '1987-06-11',
+            '1983-06-09',
+            '1979-05-03'
+        ]);
 
-            function walk(node, depth) {
-                if (!node || typeof node !== 'object' || depth > maxDepth || visited.has(node)) return;
-                visited.add(node);
-
-                if (Array.isArray(node)) {
-                    for (const item of node) walk(item, depth + 1);
-                    return;
-                }
-
-                for (const [k, v] of Object.entries(node)) {
-                    if (Array.isArray(v) && targetKeys.includes(k)) {
-                        found.push(...v);
-                    } else if (v && typeof v === 'object') {
-                        walk(v, depth + 1);
-                    }
-                }
-            }
-
-            walk(root, 0);
-            return found;
-        }
-
-        function parseMemberBiography(historyPayload, bioPayload, memberPayload, fallbackStartDate) {
+        function parseMemberBiography(bioPayload, memberPayload, fallbackStartDate, currentSeatName) {
+            const bio = bioPayload?.value || bioPayload || {};
             const memberVal = memberPayload?.value || memberPayload || {};
 
-            const rawMemberships = [
-                ...extractArraysByKey(historyPayload, ['houseMemberships', 'HouseMemberships']),
-                ...extractArraysByKey(bioPayload, ['houseMemberships', 'HouseMemberships'])
-            ];
+            // 1. Parse Commons houseMemberships (house === 1) using startDate & endDate
+            const rawMemberships = Array.isArray(bio.houseMemberships) ? bio.houseMemberships : [];
+            const commonsTerms = rawMemberships
+                .filter(m => Number(m?.house) === 1 && (m?.startDate || m?.membershipStartDate))
+                .map(m => ({
+                    start: String(m.startDate || m.membershipStartDate).slice(0, 10),
+                    end: (m.endDate || m.membershipEndDate)
+                        ? String(m.endDate || m.membershipEndDate).slice(0, 10)
+                        : null
+                }))
+                .sort((a, b) => a.start.localeCompare(b.start));
 
-            const seenTerms = new Set();
-            const commonsTerms = [];
-            for (const m of rawMemberships) {
-                if (!m || typeof m !== 'object') continue;
-                const houseNum = m.house ?? m.House;
-                const startRaw = m.membershipStartDate ?? m.MembershipStartDate;
-                if (houseNum !== undefined && Number(houseNum) !== 1) continue;
-                if (!startRaw) continue;
-
-                const start = String(startRaw).slice(0, 10);
-                const endRaw = m.membershipEndDate ?? m.MembershipEndDate;
-                const end = endRaw ? String(endRaw).slice(0, 10) : null;
-                const seat = m.membershipFrom ?? m.MembershipFrom ?? 'UK Constituency';
-                const key = `${start}|${end || 'active'}|${seat}`;
-                if (seenTerms.has(key)) continue;
-                seenTerms.add(key);
-                commonsTerms.push({ seat, start, end });
-            }
-            commonsTerms.sort((a, b) => a.start.localeCompare(b.start));
-
-            // Merge adjacent/overlapping Commons terms (e.g. boundary changes within 45 days)
+            // Merge adjacent Commons terms separated by <= 45 days (e.g. boundary changes)
             const continuousSpans = [];
             for (const term of commonsTerms) {
                 const prev = continuousSpans[continuousSpans.length - 1];
@@ -1078,7 +1056,6 @@
                     const gapDays = (new Date(`${term.start}T12:00:00Z`) - new Date(`${prev.end}T12:00:00Z`)) / 86400000;
                     if (gapDays <= 45) {
                         prev.end = term.end;
-                        prev.seat = term.seat;
                         continue;
                     }
                 }
@@ -1086,12 +1063,11 @@
             }
 
             const latestStart = memberVal.latestHouseMembership?.membershipStartDate;
-            const latestSeat = memberVal.latestHouseMembership?.membershipFrom;
             const currentSpan = continuousSpans.find(s => !s.end)
                 || continuousSpans[continuousSpans.length - 1]
                 || (latestStart
-                    ? { seat: latestSeat || 'UK Constituency', start: String(latestStart).slice(0, 10), end: null }
-                    : (fallbackStartDate ? { seat: 'UK Constituency', start: String(fallbackStartDate).slice(0, 10), end: null } : null));
+                    ? { start: String(latestStart).slice(0, 10), end: null }
+                    : (fallbackStartDate ? { start: String(fallbackStartDate).slice(0, 10), end: null } : null));
 
             let totalMonths = 0;
             for (const span of continuousSpans) {
@@ -1099,54 +1075,92 @@
                 if (d) totalMonths += d.totalMonths;
             }
 
-            const rawElections = [
-                ...extractArraysByKey(bioPayload, ['electionsContested', 'ElectionsContested', 'elections', 'Elections']),
-                ...extractArraysByKey(historyPayload, ['electionsContested', 'ElectionsContested', 'elections', 'Elections'])
-            ];
+            // 2. Parse won constituencies & win counts from `representations` (house === 1)
+            const rawReps = Array.isArray(bio.representations) ? bio.representations : [];
+            const commonsReps = rawReps
+                .filter(r => Number(r?.house) === 1 && (r?.startDate || r?.name))
+                .map(r => {
+                    const infoText = String(r?.additionalInfo || '');
+                    const countMatch = infoText.match(/elected\s+(\d+)\s+time/i);
+                    return {
+                        seat: r.name || currentSeatName || 'UK Constituency',
+                        start: r.startDate ? String(r.startDate).slice(0, 10) : '',
+                        end: r.endDate ? String(r.endDate).slice(0, 10) : null,
+                        electedCount: countMatch ? Number(countMatch[1]) : 1
+                    };
+                })
+                .sort((a, b) => a.start.localeCompare(b.start));
 
-            const seenElections = new Set();
-            const wonElections = [];
-            for (const e of rawElections) {
-                if (!e || typeof e !== 'object') continue;
-                const isWinner = e.isWinner === true || e.IsWinner === true || e.won === true;
-                const resText = String(e.result ?? e.Result ?? e.electionResult ?? e.status ?? '').toLowerCase();
-                if (!isWinner && !resText.includes('elected') && !resText.includes('won') && Number(e.position ?? e.Position) !== 1) {
-                    continue;
-                }
-                const title = e.electionTitle ?? e.ElectionTitle ?? e.title ?? e.Title ?? 'Parliamentary Election';
-                const dateRaw = e.electionDate ?? e.ElectionDate ?? '';
-                const dateIso = dateRaw ? String(dateRaw).slice(0, 10) : '';
-                const seat = e.constituencyName ?? e.ConstituencyName ?? e.membershipFrom ?? '';
-                const dedupKey = `${dateIso}|${title}|${seat}`;
-                if (seenElections.has(dedupKey)) continue;
-                seenElections.add(dedupKey);
+            // Sum total wins declared across representations (or fallback to commonsTerms count)
+            const totalWinsFromReps = commonsReps.reduce((acc, r) => acc + r.electedCount, 0);
+            const totalWins = Math.max(totalWinsFromReps, commonsTerms.length);
 
-                wonElections.push({
-                    title,
-                    dateIso,
-                    isByElection: /by-?election/i.test(title),
+            // Build chronological election win entries by matching each term/representation start date
+            const candidateWinEvents = [];
+            const seenDates = new Set();
+
+            function findSeatForDate(isoDate) {
+                if (!isoDate) return currentSeatName || 'UK Constituency';
+                const match = commonsReps.find(r =>
+                    r.start && r.start <= isoDate && (!r.end || r.end >= isoDate)
+                );
+                return match?.seat || commonsReps[commonsReps.length - 1]?.seat || currentSeatName || 'UK Constituency';
+            }
+
+            for (const term of commonsTerms) {
+                if (!term.start || seenDates.has(term.start)) continue;
+                seenDates.add(term.start);
+                const seat = findSeatForDate(term.start);
+                const isGeneral = UK_GENERAL_ELECTION_DATES.has(term.start);
+                candidateWinEvents.push({
+                    title: isGeneral ? `${term.start.slice(0, 4)} General Election` : `${seat} By-election`,
+                    dateIso: term.start,
+                    isByElection: !isGeneral,
                     seat
                 });
             }
-            wonElections.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
 
-            if (wonElections.length === 0 && commonsTerms.length > 0) {
-                for (const t of [...commonsTerms].reverse()) {
-                    const isGeneralDate = /-07-04$|-12-12$|-06-08$|-05-07$|-05-06$|-05-05$|-06-07$/.test(t.start);
-                    wonElections.push({
-                        title: isGeneralDate ? `${t.start.slice(0, 4)} General Election` : `${t.seat} By-election`,
-                        dateIso: t.start,
-                        isByElection: !isGeneralDate,
-                        seat: t.seat
-                    });
+            for (const rep of commonsReps) {
+                if (!rep.start || seenDates.has(rep.start)) continue;
+                seenDates.add(rep.start);
+                const isGeneral = UK_GENERAL_ELECTION_DATES.has(rep.start);
+                candidateWinEvents.push({
+                    title: isGeneral ? `${rep.start.slice(0, 4)} General Election` : `${rep.seat} By-election`,
+                    dateIso: rep.start,
+                    isByElection: !isGeneral,
+                    seat: rep.seat
+                });
+            }
+
+            // If an MP served continuously across multiple General Elections (e.g. Elected 8 times in one representation),
+            // include every General Election polling date that fell within their continuous Commons span(s).
+            if (totalWins > candidateWinEvents.length && continuousSpans.length > 0) {
+                for (const geDate of UK_GENERAL_ELECTION_DATES) {
+                    if (seenDates.has(geDate)) continue;
+                    const inSpan = continuousSpans.some(span =>
+                        span.start <= geDate && (!span.end || span.end >= geDate)
+                    );
+                    if (inSpan) {
+                        seenDates.add(geDate);
+                        const seat = findSeatForDate(geDate);
+                        candidateWinEvents.push({
+                            title: `${geDate.slice(0, 4)} General Election`,
+                            dateIso: geDate,
+                            isByElection: false,
+                            seat
+                        });
+                    }
                 }
             }
+
+            candidateWinEvents.sort((a, b) => b.dateIso.localeCompare(a.dateIso));
 
             return {
                 currentSpan,
                 hasMultipleTerms: continuousSpans.length > 1,
                 totalServiceLabel: totalMonths > 0 ? formatMonthsAsLabel(totalMonths) : null,
-                wonElections
+                totalWins: Math.max(totalWins, candidateWinEvents.length),
+                wonElections: candidateWinEvents
             };
         }
 
@@ -1171,14 +1185,16 @@
             }
 
             const wins = parsedBio?.wonElections || [];
-            if (wins.length === 0) {
+            const totalWinCount = Math.max(parsedBio?.totalWins || 0, wins.length);
+
+            if (totalWinCount === 0) {
                 els.profileElectionsSummary.classList.add('hidden');
                 els.profileElectionsSection.classList.add('hidden');
                 return;
             }
 
             const byElectionCount = wins.filter(w => w.isByElection).length;
-            const generalCount = wins.length - byElectionCount;
+            const generalCount = Math.max(0, totalWinCount - byElectionCount);
 
             const breakdownParts = [];
             if (generalCount > 0) {
@@ -1188,12 +1204,20 @@
                 breakdownParts.push(`${byElectionCount} ${byElectionCount === 1 ? 'By-election' : 'By-elections'}`);
             }
 
-            const summaryText = `Won ${wins.length} ${wins.length === 1 ? 'election' : 'elections'} (${breakdownParts.join(', ')})`;
+            const summaryText = breakdownParts.length > 0
+                ? `Won ${totalWinCount} ${totalWinCount === 1 ? 'election' : 'elections'} (${breakdownParts.join(', ')})`
+                : `Won ${totalWinCount} parliamentary ${totalWinCount === 1 ? 'election' : 'elections'}`;
+
             els.profileElectionsSummary.textContent = summaryText;
             els.profileElectionsSummary.classList.remove('hidden');
 
+            if (wins.length === 0) {
+                els.profileElectionsSection.classList.add('hidden');
+                return;
+            }
+
             els.profileElectionsSection.classList.remove('hidden');
-            els.profileElectionsBadge.textContent = `${wins.length} ${wins.length === 1 ? 'win' : 'wins'}`;
+            els.profileElectionsBadge.textContent = `${totalWinCount} ${totalWinCount === 1 ? 'win' : 'wins'}`;
 
             els.profileElectionsList.innerHTML = wins.map(w => {
                 const dateLabel = w.dateIso
@@ -1415,13 +1439,12 @@
             els.profileElectionsSummary.classList.add('hidden');
             els.profileElectionsSection.classList.add('hidden');
 
-            const [historyJson, bioJson, memberJson] = await Promise.all([
-                safeFetchJson(`https://members-api.parliament.uk/api/Members/History?ids=${memberId}`),
+            const [bioJson, memberJson] = await Promise.all([
                 safeFetchJson(`https://members-api.parliament.uk/api/Members/${memberId}/Biography`),
                 safeFetchJson(`https://members-api.parliament.uk/api/Members/${memberId}`)
             ]);
 
-            const parsedBio = parseMemberBiography(historyJson, bioJson, memberJson, mp.member_since);
+            const parsedBio = parseMemberBiography(bioJson, memberJson, mp.member_since, seatName);
             state.memberMetaCache.set(memberId, parsedBio);
             if (state.selectedMp?.parliament_member_id === memberId) {
                 renderServiceAndElections(mp, parsedBio);

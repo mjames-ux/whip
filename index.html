@@ -169,10 +169,25 @@
             <p id="landingCaption" class="text-center text-xs text-inkTertiary mt-4 tracking-tight">
                 Plain-English summaries of speeches, committees &amp; votes — updated 7:00 AM daily
             </p>
+
+            <!-- Persistent Watchlist Bar (Accessible on both landing & briefing pages) -->
+            <div id="watchlistContainer" class="hidden mt-6 pt-5 border-t border-hairline/70">
+                <div class="flex items-center justify-between gap-2 mb-2.5">
+                    <span class="text-[11px] font-semibold uppercase tracking-[0.12em] text-inkTertiary">
+                        Watchlist
+                    </span>
+                    <span id="watchlistCountLabel" class="text-[11px] text-inkTertiary font-mono">
+                        0 / 5
+                    </span>
+                </div>
+                <div id="watchlistPills" class="flex flex-wrap items-center gap-2">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
         </section>
 
-        <!-- Briefing Workspace (Hidden until user selects an MP or has a followed MP saved) -->
-        <div id="briefingWorkspace" class="hidden w-full mt-14 sm:mt-16">
+        <!-- Briefing Workspace (Hidden until user selects an MP) -->
+        <div id="briefingWorkspace" class="hidden w-full mt-12 sm:mt-14">
 
             <!-- Sitting Day Navigation -->
             <section aria-label="Parliamentary sitting date" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -231,7 +246,7 @@
                             <svg id="saveMpIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
                             </svg>
-                            <span id="saveMpText">Follow MP</span>
+                            <span id="saveMpText">Add to Watchlist</span>
                         </button>
                     </div>
                 </header>
@@ -305,7 +320,7 @@
         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transform translate-y-16 opacity-0 transition-all duration-300 pointer-events-none"
     >
         <div class="bg-ink text-white text-xs sm:text-sm font-medium px-5 py-2.5 rounded-full shadow-xl">
-            <span id="toastMessage">Following MP</span>
+            <span id="toastMessage">Added to watchlist</span>
         </div>
     </div>
 
@@ -371,6 +386,29 @@
     <script>
         const SUPABASE_URL = 'https://njxnofubcrlshnosaglv.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
+        const WATCHLIST_MAX = 10;
+        const WATCHLIST_STORAGE_KEY = 'whip_watchlist_ids';
+
+        function loadInitialWatchlist() {
+            try {
+                const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        return parsed.map(Number).filter(Boolean).slice(0, WATCHLIST_MAX);
+                    }
+                }
+                // Migrate legacy single followed MP if present
+                const legacy = localStorage.getItem('whip_followed_mp_id');
+                if (legacy) {
+                    const migrated = [Number(legacy)].filter(Boolean);
+                    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(migrated));
+                    localStorage.removeItem('whip_followed_mp_id');
+                    return migrated;
+                }
+            } catch {}
+            return [];
+        }
 
         async function supabaseGet(table, queryString) {
             const headers = {
@@ -399,9 +437,7 @@
             selectedMp: null,
             selectedDate: null,
             currentBriefing: null,
-            followedMpId: localStorage.getItem('whip_followed_mp_id')
-                ? Number(localStorage.getItem('whip_followed_mp_id'))
-                : null
+            watchlistIds: loadInitialWatchlist()
         };
 
         const els = {
@@ -410,6 +446,9 @@
             mainCanvas: document.getElementById('mainCanvas'),
             landingHero: document.getElementById('landingHero'),
             landingCaption: document.getElementById('landingCaption'),
+            watchlistContainer: document.getElementById('watchlistContainer'),
+            watchlistCountLabel: document.getElementById('watchlistCountLabel'),
+            watchlistPills: document.getElementById('watchlistPills'),
             briefingWorkspace: document.getElementById('briefingWorkspace'),
             searchContainer: document.getElementById('mpSearchContainer'),
             searchInput: document.getElementById('mpSearchInput'),
@@ -452,6 +491,87 @@
 
         const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
 
+        function persistWatchlist() {
+            localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(state.watchlistIds));
+        }
+
+        function renderWatchlist() {
+            if (state.allMps.length === 0 || state.watchlistIds.length === 0) {
+                els.watchlistContainer.classList.add('hidden');
+                return;
+            }
+
+            const watchedMps = state.watchlistIds
+                .map(id => state.allMps.find(m => m.parliament_member_id === id))
+                .filter(Boolean);
+
+            if (watchedMps.length === 0) {
+                els.watchlistContainer.classList.add('hidden');
+                return;
+            }
+
+            els.watchlistContainer.classList.remove('hidden');
+            els.watchlistCountLabel.textContent = `${watchedMps.length} / ${WATCHLIST_MAX}`;
+
+            els.watchlistPills.innerHTML = watchedMps.map(mp => {
+                const isSelected = state.selectedMp?.parliament_member_id === mp.parliament_member_id;
+                const dotColor = mp.party_color || '#006548';
+                const seatName = mp.constituencies?.name || '';
+                return `
+                    <div class="inline-flex items-center rounded-full border text-xs transition ${
+                        isSelected
+                            ? 'bg-ink text-white border-ink'
+                            : 'bg-surface/70 hover:bg-surface text-ink border-hairline'
+                    }">
+                        <button
+                            type="button"
+                            data-watch-select="${mp.parliament_member_id}"
+                            class="inline-flex items-center gap-2 pl-3 pr-2 py-1.5 font-medium cursor-pointer"
+                            title="${mp.full_name} — ${seatName}"
+                        >
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background-color: ${dotColor}"></span>
+                            <span>${mp.short_name}</span>
+                        </button>
+                        <button
+                            type="button"
+                            data-watch-remove="${mp.parliament_member_id}"
+                            aria-label="Remove ${mp.short_name} from watchlist"
+                            class="pr-2.5 pl-1 py-1.5 text-[13px] leading-none opacity-60 hover:opacity-100 cursor-pointer"
+                        >
+                            &times;
+                        </button>
+                    </div>
+                `;
+            }).join('');
+
+            els.watchlistPills.querySelectorAll('[data-watch-select]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = Number(btn.getAttribute('data-watch-select'));
+                    const chosen = state.allMps.find(m => m.parliament_member_id === id);
+                    if (chosen) {
+                        els.searchInput.value = chosen.constituencies?.name || chosen.short_name;
+                        els.dropdown.classList.add('hidden');
+                        selectMp(chosen);
+                    }
+                });
+            });
+
+            els.watchlistPills.querySelectorAll('[data-watch-remove]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = Number(btn.getAttribute('data-watch-remove'));
+                    const targetMp = state.allMps.find(m => m.parliament_member_id === id);
+                    state.watchlistIds = state.watchlistIds.filter(wId => wId !== id);
+                    persistWatchlist();
+                    renderWatchlist();
+                    updateWatchlistButton();
+                    if (targetMp) {
+                        showToast(`Removed ${targetMp.short_name} from watchlist`);
+                    }
+                });
+            });
+        }
+
         function switchToBriefingLayout() {
             els.landingHero.classList.add('hidden');
             els.landingCaption.classList.add('hidden');
@@ -473,6 +593,7 @@
             els.searchInput.value = '';
             els.mainCanvas.className = 'flex-grow max-w-2xl w-full mx-auto px-6 sm:px-8 flex flex-col justify-center pb-20';
             els.searchInput.className = 'w-full pl-11 sm:pl-12 pr-28 py-4 bg-surface hover:bg-[#F1F1EE] focus:bg-white border border-hairline/80 focus:border-ink rounded-2xl text-sm sm:text-base text-ink placeholder-inkTertiary shadow-[0_4px_24px_rgba(0,0,0,0.03)] focus:shadow-[0_8px_30px_rgba(0,0,0,0.06)] focus:outline-none transition-all';
+            renderWatchlist();
             els.searchInput.focus();
         }
 
@@ -517,17 +638,17 @@
             els.postcodeStatusBanner.classList.remove('hidden');
         }
 
-        function updateFollowButton() {
+        function updateWatchlistButton() {
             if (!state.selectedMp) return;
-            const isFollowing = state.followedMpId === state.selectedMp.parliament_member_id;
-            if (isFollowing) {
+            const isWatched = state.watchlistIds.includes(state.selectedMp.parliament_member_id);
+            if (isWatched) {
                 els.saveMpBtn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-ink text-white border border-ink transition cursor-pointer';
                 els.saveMpIcon.setAttribute('fill', 'currentColor');
-                els.saveMpText.textContent = 'Following';
+                els.saveMpText.textContent = 'On Watchlist';
             } else {
                 els.saveMpBtn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border border-hairline text-ink hover:border-ink transition cursor-pointer';
                 els.saveMpIcon.setAttribute('fill', 'none');
-                els.saveMpText.textContent = 'Follow MP';
+                els.saveMpText.textContent = 'Add to Watchlist';
             }
         }
 
@@ -673,6 +794,7 @@
             if (!state.selectedMp) return;
 
             switchToBriefingLayout();
+            renderWatchlist();
 
             const mp = state.selectedMp;
             const seatName = mp.constituencies?.name || 'UK Constituency';
@@ -688,7 +810,7 @@
             els.mpConstituency.textContent = seatName;
             els.mpName.textContent = mp.full_name;
             els.mpRole.textContent = displayRole;
-            updateFollowButton();
+            updateWatchlistButton();
 
             if (!state.selectedDate) {
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
@@ -845,20 +967,12 @@
 
                 state.allMps = mps;
                 renderDropdownList(els.searchInput.value);
+                renderWatchlist();
 
                 if (Array.isArray(recentDates) && recentDates.length > 0) {
                     state.availableDates = [...new Set(recentDates.map(r => r.sitting_date))].slice(0, 3);
                     state.selectedDate = state.availableDates[0];
                     renderDayToggles();
-                }
-
-                // Only auto-open a briefing if the user explicitly followed an MP previously
-                if (state.followedMpId) {
-                    const savedMp = mps.find(m => m.parliament_member_id === state.followedMpId);
-                    if (savedMp) {
-                        els.searchInput.value = savedMp.constituencies?.name || savedMp.short_name;
-                        await selectMp(savedMp);
-                    }
                 }
             } catch (err) {
                 console.error('Whip initialization error:', err);
@@ -932,16 +1046,25 @@
         els.saveMpBtn.addEventListener('click', () => {
             if (!state.selectedMp) return;
             const id = state.selectedMp.parliament_member_id;
-            if (state.followedMpId === id) {
-                state.followedMpId = null;
-                localStorage.removeItem('whip_followed_mp_id');
-                showToast(`Unfollowed ${state.selectedMp.short_name}`);
+            const exists = state.watchlistIds.includes(id);
+
+            if (exists) {
+                state.watchlistIds = state.watchlistIds.filter(wId => wId !== id);
+                persistWatchlist();
+                renderWatchlist();
+                updateWatchlistButton();
+                showToast(`Removed ${state.selectedMp.short_name} from watchlist`);
             } else {
-                state.followedMpId = id;
-                localStorage.setItem('whip_followed_mp_id', String(id));
-                showToast(`Following ${state.selectedMp.short_name}`);
+                if (state.watchlistIds.length >= WATCHLIST_MAX) {
+                    showToast(`Watchlist full (max ${WATCHLIST_MAX} MPs) — remove one first`);
+                    return;
+                }
+                state.watchlistIds = [...state.watchlistIds, id];
+                persistWatchlist();
+                renderWatchlist();
+                updateWatchlistButton();
+                showToast(`Added ${state.selectedMp.short_name} to watchlist`);
             }
-            updateFollowButton();
         });
 
         els.openHansardBtn.addEventListener('click', openHansardModal);

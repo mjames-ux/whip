@@ -756,6 +756,14 @@
 
         const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
 
+        function getMpConstituencyName(mp) {
+            if (mp?.constituencies?.name) return mp.constituencies.name;
+            if (mp?.role_title && mp.role_title.startsWith('MP for ')) {
+                return mp.role_title.replace(/^MP for\s+/i, '').trim();
+            }
+            return 'UK Constituency';
+        }
+
         function getInitials(name) {
             const cleaned = (name || '')
                 .replace(/^(Sir|Dame|Dr|Mr|Mrs|Ms|Mx|Rt Hon)\s+/gi, '')
@@ -865,7 +873,7 @@
                 els.profileTenureSubtext.textContent = `Current term for ${seatName} began on ${tenure.formattedStart}.`;
             };
 
-            const seatName = mp.constituencies?.name || 'their constituency';
+            const seatName = getMpConstituencyName(mp);
             if (mp.member_since) {
                 renderTenure(mp.member_since, seatName);
                 return;
@@ -940,7 +948,7 @@
             els.watchlistPills.innerHTML = watchedMps.map(mp => {
                 const isSelected = state.selectedMp?.parliament_member_id === mp.parliament_member_id;
                 const dotColor = mp.party_color || '#006548';
-                const seatName = mp.constituencies?.name || '';
+                const seatName = getMpConstituencyName(mp);
                 return `
                     <div class="inline-flex items-center rounded-full border text-xs transition ${
                         isSelected
@@ -973,7 +981,7 @@
                     const id = Number(btn.getAttribute('data-watch-select'));
                     const chosen = state.allMps.find(m => m.parliament_member_id === id);
                     if (chosen) {
-                        els.searchInput.value = chosen.constituencies?.name || chosen.short_name;
+                        els.searchInput.value = getMpConstituencyName(chosen);
                         els.dropdown.classList.add('hidden');
                         selectMp(chosen);
                     }
@@ -1083,7 +1091,7 @@
             if (q && !UK_POSTCODE_REGEX.test(q)) {
                 matches = state.allMps.filter(mp => {
                     const name = (mp.full_name || '').toLowerCase();
-                    const seat = (mp.constituencies?.name || '').toLowerCase();
+                    const seat = getMpConstituencyName(mp).toLowerCase();
                     const party = (mp.party || '').toLowerCase();
                     return name.includes(q) || seat.includes(q) || party.includes(q);
                 });
@@ -1110,7 +1118,7 @@
             }
 
             els.dropdownList.innerHTML = displayList.map(mp => {
-                const seatName = mp.constituencies?.name || 'UK Constituency';
+                const seatName = getMpConstituencyName(mp);
                 const dotColor = mp.party_color || '#006548';
                 return `
                     <button
@@ -1138,7 +1146,7 @@
                     const chosen = state.allMps.find(m => m.parliament_member_id === mpId);
                     if (chosen) {
                         els.dropdown.classList.add('hidden');
-                        els.searchInput.value = chosen.constituencies?.name || chosen.short_name;
+                        els.searchInput.value = getMpConstituencyName(chosen);
                         els.postcodeLookupBtn.classList.add('hidden');
                         selectMp(chosen);
                     }
@@ -1352,7 +1360,7 @@
             renderWatchlist();
 
             const mp = state.selectedMp;
-            const seatName = mp.constituencies?.name || 'UK Constituency';
+            const seatName = getMpConstituencyName(mp);
             const displayRole = mp.parliament_member_id === 4514
                 ? 'Prime Minister'
                 : (mp.role_title || `MP for ${seatName}`);
@@ -1472,7 +1480,7 @@
 
                 const matchedMp = state.allMps.find(m =>
                     (gssCode && m.constituencies?.gss_code === gssCode) ||
-                    (constituencyName && (m.constituencies?.name || '').toLowerCase() === constituencyName.toLowerCase())
+                    (constituencyName && getMpConstituencyName(m).toLowerCase() === constituencyName.toLowerCase())
                 );
 
                 if (!matchedMp) {
@@ -1480,10 +1488,11 @@
                     return;
                 }
 
+                const resolvedSeat = getMpConstituencyName(matchedMp);
                 els.dropdown.classList.add('hidden');
-                els.searchInput.value = `${payload.result.postcode} — ${matchedMp.constituencies?.name || constituencyName}`;
+                els.searchInput.value = `${payload.result.postcode} — ${resolvedSeat}`;
                 els.postcodeLookupBtn.classList.add('hidden');
-                showPostcodeStatus(`Matched <strong>${payload.result.postcode}</strong> to <strong>${matchedMp.constituencies?.name || constituencyName}</strong>.`);
+                showPostcodeStatus(`Matched <strong>${payload.result.postcode}</strong> to <strong>${resolvedSeat}</strong>.`);
                 await selectMp(matchedMp);
             } catch {
                 showPostcodeStatus('Postcode lookup is temporarily unavailable. Search by constituency or MP name instead.', true);
@@ -1554,18 +1563,18 @@
                 try {
                     mps = await supabaseGet(
                         'mps',
-                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title,member_since,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title,member_since,constituencies(name)&is_current_member=eq.true&order=short_name.asc&limit=1000'
                     );
                 } catch {
                     mps = await supabaseGet(
                         'mps',
-                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title&is_current_member=eq.true&order=short_name.asc&limit=1000'
                     );
                 }
 
                 const recentDateRows = await supabaseGet(
                     'daily_briefings',
-                    'select=sitting_date,activity_tag&parliament_member_id=eq.4514&order=sitting_date.desc&limit=21'
+                    'select=sitting_date,activity_tag&order=sitting_date.desc&limit=2000'
                 );
 
                 if (!Array.isArray(mps) || mps.length === 0) {

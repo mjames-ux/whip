@@ -1,17 +1,19 @@
 /**
  * Whip — Step 2: Daily Parliamentary Briefing Generator (`generate_briefings.js`)
  *
- * Fetches House of Commons Hansard speeches, Select/Bill Committee appearances,
- * and Commons Division votes for a target sitting date (defaulting to yesterday UTC,
- * or accepting `--date=YYYY-MM-DD` / `TARGET_DATE` for backfilling), generates
- * plain-English neutral summaries via Gemini, enriches voting-only context with
- * UK Parliament Bills API details, and upserts into `daily_briefings`.
+ * Fetches House of Commons Hansard speeches (via Spoken Contributions API with
+ * automatic fallback to Overview/Debates sections), Select/Bill Committee appearances,
+ * and Commons Division votes for a target sitting date, generates plain-English neutral
+ * summaries via Gemini, enriches voting-only context with UK Parliament Bills API
+ * details, and upserts into `daily_briefings`.
  */
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
 const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search/contributions/Spoken.json';
+const HANSARD_SECTIONS_API = 'https://hansard-api.parliament.uk/overview/sectionsforday.json';
+const HANSARD_DEBATE_API = 'https://hansard-api.parliament.uk/debates/debate';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
@@ -91,6 +93,92 @@ async function fetchJsonWithTimeout(url, timeoutMs = 15000) {
     return res.json();
 }
 
+function extractSpeechRecordsFromItems(items, byMember, fallbackDebateTitle = 'Commons Debate') {
+    for (const item of items) {
+        const memberId = Number(
+            item.MemberId ??
+            item.memberId ??
+            item.AttributedToMemberId ??
+            item.attributedToMemberId
+        );
+        if (!memberId) continue;
+
+        const text = stripHtml(
+            item.Value ??
+            item.value ??
+            item.ContributionText ??
+            item.contributionText ??
+            item.Text ??
+            item.text ??
+            ''
+        );
+        if (!text) continue;
+
+        const debateTitle =
+            item.DebateSection ??
+            item.debateSection ??
+            item.Section ??
+            item.section ??
+            fallbackDebateTitle;
+
+        if (!byMember.has(memberId)) {
+            byMember.set(memberId, []);
+        }
+        byMember.get(memberId).push({
+            debateTitle,
+            time: item.Timecode ?? item.timecode ?? '',
+            hansardId: item.HansardSection ?? item.hansardSection ?? '',
+            text
+        });
+    }
+}
+
+/**
+ * Fallback: walk Hansard sections-for-day -> individual debate trees if Spoken search returns 0 items.
+ */
+async function fetchHansardViaDebateTrees(dateStr, byMember) {
+    const sectionTrees = [];
+    for (const section of ['Commons', 'WestminsterHall']) {
+        try {
+            const url = new URL(HANSARD_SECTIONS_API);
+            url.searchParams.set('date', dateStr);
+            url.searchParams.set('house', section);
+            const data = await fetchJsonWithTimeout(url.toString(), 15000);
+            if (Array.isArray(data)) {
+                sectionTrees.push(...data);
+            }
+        } catch (err) {
+            console.warn(`Hansard sections warning (${section}): ${err.message}`);
+        }
+    }
+
+    const debateIds = new Set();
+    function collectDebateIds(nodes) {
+        for (const node of nodes || []) {
+            const id = node.ExternalId || node.externalId || node.DebateSectionExtId || node.Id || node.id;
+            const children = node.ChildSections || node.childSections || node.SubSections || [];
+            if (id && children.length === 0) {
+                debateIds.add(String(id));
+            }
+            if (children.length > 0) {
+                collectDebateIds(children);
+            }
+        }
+    }
+    collectDebateIds(sectionTrees);
+
+    console.log(`Fallback debate tree scan: found ${debateIds.size} debate sections for ${dateStr}.`);
+
+    for (const extId of debateIds) {
+        try {
+            const debate = await fetchJsonWithTimeout(`${HANSARD_DEBATE_API}/${encodeURIComponent(extId)}.json`, 15000);
+            const title = debate?.Overview?.Title || debate?.Title || 'Commons Debate';
+            const items = debate?.Items || debate?.items || [];
+            extractSpeechRecordsFromItems(items, byMember, title);
+        } catch {}
+    }
+}
+
 /**
  * 1. Fetch all Commons spoken Hansard contributions for the target date.
  */
@@ -101,40 +189,32 @@ async function fetchHansardContributions(dateStr) {
 
     while (true) {
         const url = new URL(HANSARD_SEARCH_API);
-        url.searchParams.set('House', 'Commons');
-        url.searchParams.set('StartDate', dateStr);
-        url.searchParams.set('EndDate', dateStr);
-        url.searchParams.set('Skip', String(skip));
-        url.searchParams.set('Take', String(take));
+        url.searchParams.set('queryParameters.house', 'Commons');
+        url.searchParams.set('queryParameters.startDate', dateStr);
+        url.searchParams.set('queryParameters.endDate', dateStr);
+        url.searchParams.set('queryParameters.skip', String(skip));
+        url.searchParams.set('queryParameters.take', String(take));
 
         let data;
         try {
             data = await fetchJsonWithTimeout(url.toString(), 20000);
         } catch (err) {
-            console.warn(`Hansard fetch warning at skip=${skip}: ${err.message}`);
+            console.warn(`Hansard search warning at skip=${skip}: ${err.message}`);
             break;
         }
 
-        const results = data?.Results || [];
+        const results = data?.Results || data?.results || [];
         if (results.length === 0) break;
 
-        for (const item of results) {
-            const memberId = Number(item.MemberId);
-            if (!memberId) continue;
-
-            if (!byMember.has(memberId)) {
-                byMember.set(memberId, []);
-            }
-            byMember.get(memberId).push({
-                debateTitle: item.DebateSection || item.Section || 'Commons Debate',
-                time: item.Timecode || '',
-                hansardId: item.HansardSection || '',
-                text: stripHtml(item.Value || item.ContributionText || '')
-            });
-        }
+        extractSpeechRecordsFromItems(results, byMember);
 
         skip += results.length;
-        if (skip >= (data?.TotalResultCount || 0)) break;
+        const total = data?.TotalResultCount ?? data?.totalResultCount ?? 0;
+        if (skip >= total) break;
+    }
+
+    if (byMember.size === 0) {
+        await fetchHansardViaDebateTrees(dateStr, byMember);
     }
 
     return byMember;
@@ -266,7 +346,7 @@ Summarize what ${mp.full_name} (${mp.party}, MP for ${mp.constituencies?.name ||
 Rules:
 - Be strictly factual, calm, and neutral. Never take a political stance or editorialize.
 - Return valid JSON only with keys: "activity_tag", "summary_para_1", "summary_para_2", "verbatim_excerpt", "glossary".
-- "activity_tag": short label (e.g., "Chamber Debate & Votes", "Oral Questions", "Select Committee", "Division Votes").
+- "activity_tag": short label (e.g., "Prime Minister's Questions", "Chamber Debate & Votes", "Oral Questions", "Select Committee", "Division Votes").
 - "summary_para_1": 2–3 clear sentences describing specifically what ${mp.short_name} asked, argued, or scrutinized.
 - "summary_para_2": 2–3 sentences explaining the wider policy or legislative context in plain English for an everyday voter.
 - "verbatim_excerpt": a single direct, representative sentence quoted verbatim from the spoken contribution (or null if none).
@@ -327,10 +407,6 @@ function fallbackBillOrMotionContext(title) {
     return null;
 }
 
-/**
- * Look up plain-English context for bills/motions voted on during the sitting day,
- * caching lookups by bill/motion title so each title is queried at most once per run.
- */
 async function getBillContextForDivisions(votes, readableDate) {
     const snippets = [];
 

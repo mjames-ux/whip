@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#FFFFFF">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="description" content="Whip — Plain-English daily summaries of what your MP did yesterday in the UK Parliament.">
+    <meta name="description" content="Whip — Plain-English daily summaries of what your MP did in the UK Parliament.">
     <title>Whip — Your MP, yesterday in Parliament</title>
     <!-- Clean Inline SVG Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111111'/%3E%3Ctext x='14' y='46' font-family='Georgia,serif' font-weight='bold' font-size='38' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='43' r='4' fill='%23006548'/%3E%3C/svg%3E">
@@ -85,7 +85,7 @@
                 >
                     Whip<span class="text-commonsGreen">.</span>
                 </button>
-                <span class="text-sm sm:text-base text-inkSecondary font-normal tracking-tight">
+                <span id="mastheadSubtitle" class="text-sm sm:text-base text-inkSecondary font-normal tracking-tight">
                     Your MP, yesterday in Parliament
                 </span>
             </div>
@@ -103,7 +103,7 @@
             <h1 class="font-editorial font-bold text-6xl sm:text-7xl tracking-[-0.04em] text-ink leading-none mb-4">
                 Whip<span class="text-commonsGreen">.</span>
             </h1>
-            <p class="text-base sm:text-lg text-inkSecondary font-normal tracking-tight">
+            <p id="landingSubtitle" class="text-base sm:text-lg text-inkSecondary font-normal tracking-tight">
                 Your MP, yesterday in Parliament.
             </p>
         </div>
@@ -177,7 +177,7 @@
                         Watchlist
                     </span>
                     <span id="watchlistCountLabel" class="text-[11px] text-inkTertiary font-mono">
-                        0 / 5
+                        0 / 10
                     </span>
                 </div>
                 <div id="watchlistPills" class="flex flex-wrap items-center gap-2">
@@ -189,14 +189,14 @@
         <!-- Briefing Workspace (Hidden until user selects an MP) -->
         <div id="briefingWorkspace" class="hidden w-full mt-12 sm:mt-14">
 
-            <!-- Sitting Day Navigation -->
-            <section aria-label="Parliamentary sitting date" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <!-- Sitting Day / Weekly Roundup Navigation -->
+            <section aria-label="Parliamentary sitting period" class="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight">
                     Loading parliamentary record...
                 </p>
 
-                <div id="dayToggleGroup" class="inline-flex bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary sitting day">
-                    <!-- Populated dynamically with available sitting dates -->
+                <div id="dayToggleGroup" class="inline-flex flex-wrap bg-surface p-1 rounded-lg self-start sm:self-auto" role="group" aria-label="Select parliamentary period">
+                    <!-- Populated dynamically with Weekly Review + available sitting dates -->
                 </div>
             </section>
 
@@ -254,11 +254,11 @@
                 <!-- 2. Two-Paragraph Accessible Summary -->
                 <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
                     <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
-                        Fetching yesterday's Hansard record...
+                        Fetching parliamentary record...
                     </p>
 
                     <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
-                        <p class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
+                        <p id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
                             Context
                         </p>
                         <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
@@ -281,10 +281,10 @@
                     </div>
                 </section>
 
-                <!-- 3. Yesterday's Voting Record -->
-                <section aria-label="Yesterday's Voting Record" class="mt-16 pt-10 border-t border-hairline">
+                <!-- 3. Voting Record -->
+                <section aria-label="Voting Record" class="mt-16 pt-10 border-t border-hairline">
                     <div class="flex items-baseline justify-between gap-4 mb-6">
-                        <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                        <h3 id="votingSectionTitle" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
                             Voting record
                         </h3>
                         <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
@@ -389,6 +389,44 @@
         const WATCHLIST_MAX = 10;
         const WATCHLIST_STORAGE_KEY = 'whip_watchlist_ids';
 
+        /**
+         * Determines UK calendar day context:
+         * - Saturday (6) & Sunday (0): "This week in Parliament" ("This Week")
+         * - Monday (1): "Last week in Parliament" ("Last Week")
+         * - Tuesday–Friday (2–5): "Yesterday in Parliament" (defaults to latest sitting day, with "Last Week" pill available)
+         */
+        function getCalendarMode() {
+            const ukDayName = new Intl.DateTimeFormat('en-GB', {
+                weekday: 'short',
+                timeZone: 'Europe/London'
+            }).format(new Date());
+
+            if (ukDayName === 'Sat' || ukDayName === 'Sun') {
+                return {
+                    isWeeklyDefault: true,
+                    weeklyPillLabel: 'This Week',
+                    weeklyHeadingPrefix: 'This week in Parliament',
+                    subtitle: 'Your MP, this week in Parliament'
+                };
+            }
+            if (ukDayName === 'Mon') {
+                return {
+                    isWeeklyDefault: true,
+                    weeklyPillLabel: 'Last Week',
+                    weeklyHeadingPrefix: 'Last week in Parliament',
+                    subtitle: 'Your MP, last week in Parliament'
+                };
+            }
+            return {
+                isWeeklyDefault: false,
+                weeklyPillLabel: 'Last Week',
+                weeklyHeadingPrefix: 'Last week in Parliament',
+                subtitle: 'Your MP, yesterday in Parliament'
+            };
+        }
+
+        const CALENDAR_MODE = getCalendarMode();
+
         function loadInitialWatchlist() {
             try {
                 const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
@@ -398,7 +436,6 @@
                         return parsed.map(Number).filter(Boolean).slice(0, WATCHLIST_MAX);
                     }
                 }
-                // Migrate legacy single followed MP if present
                 const legacy = localStorage.getItem('whip_followed_mp_id');
                 if (legacy) {
                     const migrated = [Number(legacy)].filter(Boolean);
@@ -434,7 +471,9 @@
         const state = {
             allMps: [],
             availableDates: [],
+            weeklyDates: [],
             selectedMp: null,
+            selectedMode: CALENDAR_MODE.isWeeklyDefault ? 'weekly' : 'daily',
             selectedDate: null,
             currentBriefing: null,
             watchlistIds: loadInitialWatchlist()
@@ -442,9 +481,11 @@
 
         const els = {
             topMasthead: document.getElementById('topMasthead'),
+            mastheadSubtitle: document.getElementById('mastheadSubtitle'),
             resetToHomeBtn: document.getElementById('resetToHomeBtn'),
             mainCanvas: document.getElementById('mainCanvas'),
             landingHero: document.getElementById('landingHero'),
+            landingSubtitle: document.getElementById('landingSubtitle'),
             landingCaption: document.getElementById('landingCaption'),
             watchlistContainer: document.getElementById('watchlistContainer'),
             watchlistCountLabel: document.getElementById('watchlistCountLabel'),
@@ -474,9 +515,11 @@
             saveMpIcon: document.getElementById('saveMpIcon'),
             saveMpText: document.getElementById('saveMpText'),
             summaryPara1: document.getElementById('summaryPara1'),
+            contextHeading: document.getElementById('contextHeading'),
             summaryPara2: document.getElementById('summaryPara2'),
             openHansardBtn: document.getElementById('openHansardBtn'),
             hansardRefTag: document.getElementById('hansardRefTag'),
+            votingSectionTitle: document.getElementById('votingSectionTitle'),
             voteCountBadge: document.getElementById('voteCountBadge'),
             votingRecordsList: document.getElementById('votingRecordsList'),
             toastBanner: document.getElementById('toastBanner'),
@@ -489,7 +532,29 @@
             closeHansardFooterBtn: document.getElementById('closeHansardFooterBtn')
         };
 
+        // Apply weekend / Monday / weekday subtitle immediately
+        els.mastheadSubtitle.textContent = CALENDAR_MODE.subtitle;
+        els.landingSubtitle.textContent = `${CALENDAR_MODE.subtitle}.`;
+
         const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+        function getMondayOfWeek(isoDate) {
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            const day = d.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+            const diffToMonday = day === 0 ? -6 : 1 - day;
+            d.setUTCDate(d.getUTCDate() + diffToMonday);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function formatWeekRangeLabel(dates) {
+            if (!dates || dates.length === 0) return '';
+            const sorted = [...dates].sort();
+            const first = new Date(`${sorted[0]}T12:00:00Z`);
+            const last = new Date(`${sorted[sorted.length - 1]}T12:00:00Z`);
+            const startStr = first.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+            const endStr = last.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+            return sorted.length === 1 ? endStr : `${startStr} – ${endStr}`;
+        }
 
         function persistWatchlist() {
             localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(state.watchlistIds));
@@ -728,13 +793,30 @@
                 return;
             }
 
-            els.dayToggleGroup.innerHTML = state.availableDates.map(dateStr => {
-                const isActive = dateStr === state.selectedDate;
+            const weeklyPillHtml = state.weeklyDates.length > 0
+                ? `
+                    <button
+                        type="button"
+                        data-mode="weekly"
+                        class="period-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                            state.selectedMode === 'weekly'
+                                ? 'bg-white text-ink shadow-2xs'
+                                : 'text-inkSecondary hover:text-ink'
+                        }"
+                    >
+                        ${CALENDAR_MODE.weeklyPillLabel}
+                    </button>
+                `
+                : '';
+
+            const dailyPillsHtml = state.availableDates.slice(0, 3).map(dateStr => {
+                const isActive = state.selectedMode === 'daily' && dateStr === state.selectedDate;
                 return `
                     <button
                         type="button"
+                        data-mode="daily"
                         data-date="${dateStr}"
-                        class="day-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                        class="period-toggle-btn px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
                             isActive
                                 ? 'bg-white text-ink shadow-2xs'
                                 : 'text-inkSecondary hover:text-ink'
@@ -745,10 +827,19 @@
                 `;
             }).join('');
 
-            els.dayToggleGroup.querySelectorAll('.day-toggle-btn').forEach(btn => {
+            els.dayToggleGroup.innerHTML = weeklyPillHtml + dailyPillsHtml;
+
+            els.dayToggleGroup.querySelectorAll('.period-toggle-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
+                    const mode = btn.getAttribute('data-mode');
                     const newDate = btn.getAttribute('data-date');
-                    if (newDate && newDate !== state.selectedDate) {
+
+                    if (mode === 'weekly' && state.selectedMode !== 'weekly') {
+                        state.selectedMode = 'weekly';
+                        renderDayToggles();
+                        loadBriefingForCurrentSelection();
+                    } else if (mode === 'daily' && (state.selectedMode !== 'daily' || newDate !== state.selectedDate)) {
+                        state.selectedMode = 'daily';
                         state.selectedDate = newDate;
                         renderDayToggles();
                         loadBriefingForCurrentSelection();
@@ -764,7 +855,7 @@
             if (list.length === 0) {
                 els.votingRecordsList.innerHTML = `
                     <div class="py-6 text-sm text-inkTertiary">
-                        No House of Commons division votes were recorded for this date.
+                        No House of Commons division votes were recorded for this period.
                     </div>
                 `;
                 return;
@@ -775,12 +866,13 @@
                 let badgeClass = 'bg-surface text-inkSecondary border-hairline';
                 if (vote === 'Aye') badgeClass = 'bg-emerald-50 text-emerald-900 border-emerald-200';
                 if (vote === 'No') badgeClass = 'bg-rose-50 text-rose-900 border-rose-200';
+                const dateNote = v.sittingDateLabel ? ` • ${v.sittingDateLabel}` : '';
 
                 return `
                     <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div class="min-w-0 pr-4">
                             <p class="text-sm font-medium text-ink leading-snug">${v.title || 'Commons Division'}</p>
-                            <p class="text-xs text-inkTertiary mt-1">${v.houseResult || v.subtitle || ''}</p>
+                            <p class="text-xs text-inkTertiary mt-1">${(v.houseResult || v.subtitle || '') + dateNote}</p>
                         </div>
                         <span class="self-start sm:self-center shrink-0 px-3 py-1 rounded-full text-xs font-medium border ${badgeClass}">
                             ${vote === 'Abstained' ? 'No vote recorded' : `Voted ${vote}`}
@@ -788,6 +880,97 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        /**
+         * Synthesizes a weekly roundup ("This week in Parliament" on Sat/Sun,
+         * "Last week in Parliament" on Mon–Fri) from the week's daily_briefings rows.
+         */
+        function compileWeeklyBriefing(mp, weekDates, rows) {
+            const sortedDates = [...weekDates].sort();
+            const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
+
+            const activeDayEntries = sortedDates
+                .map(d => ({ date: d, row: rowByDate.get(d) }))
+                .filter(entry => entry.row && entry.row.activity_tag !== 'Non-Sitting Day');
+
+            const substantiveEntries = activeDayEntries.filter(entry =>
+                entry.row.activity_tag !== 'Constituency & Parliamentary Work' &&
+                entry.row.activity_tag !== 'No Vote Recorded'
+            );
+
+            // Combine division votes across the week
+            const combinedVotes = [];
+            for (const { date, row } of activeDayEntries) {
+                const dayVotes = Array.isArray(row.votes) ? row.votes : [];
+                for (const v of dayVotes) {
+                    combinedVotes.push({
+                        ...v,
+                        sittingDateLabel: formatShortPillDate(date)
+                    });
+                }
+            }
+
+            // Combine glossary terms & verbatim excerpts across the week
+            const glossaryMap = new Map();
+            const excerpts = [];
+            for (const { date, row } of activeDayEntries) {
+                if (row.verbatim_excerpt) {
+                    excerpts.push(`${formatShortPillDate(date)}: “${row.verbatim_excerpt}”`);
+                }
+                if (Array.isArray(row.glossary)) {
+                    for (const g of row.glossary) {
+                        if (g?.term && !glossaryMap.has(g.term)) {
+                            glossaryMap.set(g.term, g);
+                        }
+                    }
+                }
+            }
+
+            const rangeLabel = formatWeekRangeLabel(sortedDates);
+            const activeVoteCount = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No').length;
+
+            if (substantiveEntries.length === 0) {
+                const missedVotesNote = combinedVotes.length > 0
+                    ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded (which can reflect pairing arrangements, committee travel, or constituency duties).`
+                    : `MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.`;
+
+                return {
+                    activity_tag: `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`,
+                    hansard_ref: `Week of ${rangeLabel}`,
+                    summary_para_1: `${mp.short_name} had no recorded spoken interventions in the Commons Chamber, Westminster Hall, or Bill Committees during the week of ${rangeLabel}.`,
+                    summary_para_2: missedVotesNote,
+                    verbatim_excerpt: null,
+                    glossary: Array.from(glossaryMap.values()),
+                    votes: combinedVotes
+                };
+            }
+
+            // Build concise day-by-day weekly synthesis
+            const dayHighlights = substantiveEntries
+                .map(({ date, row }) => `${formatShortPillDate(date)}: ${row.summary_para_1}`)
+                .join(' ');
+
+            const contextHighlights = substantiveEntries
+                .slice(0, 2)
+                .map(({ row }) => row.summary_para_2)
+                .filter(Boolean)
+                .join(' ');
+
+            const tagParts = [];
+            const hasSpeechOrCommittee = substantiveEntries.some(e => !e.row.activity_tag.includes('Division Vote'));
+            if (hasSpeechOrCommittee) tagParts.push(`${substantiveEntries.length} Active ${substantiveEntries.length === 1 ? 'Day' : 'Days'}`);
+            if (activeVoteCount > 0) tagParts.push(`${activeVoteCount} ${activeVoteCount === 1 ? 'Vote' : 'Votes'}`);
+
+            return {
+                activity_tag: tagParts.join(' & ') || 'Weekly Roundup',
+                hansard_ref: `Week of ${rangeLabel}`,
+                summary_para_1: dayHighlights,
+                summary_para_2: contextHighlights || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`,
+                verbatim_excerpt: excerpts.length > 0 ? excerpts.join('\n\n') : null,
+                glossary: Array.from(glossaryMap.values()),
+                votes: combinedVotes
+            };
         }
 
         async function loadBriefingForCurrentSelection() {
@@ -812,10 +995,10 @@
             els.mpRole.textContent = displayRole;
             updateWatchlistButton();
 
-            if (!state.selectedDate) {
+            if (!state.selectedDate && state.weeklyDates.length === 0) {
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
                 els.activityBadge.textContent = 'Awaiting next sitting';
-                els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Daily briefings appear automatically at 7:00 AM following each sitting day.`;
+                els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
                 els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
                 els.hansardRefTag.textContent = 'parliament.uk';
                 renderVotingRecords([]);
@@ -824,29 +1007,52 @@
                 return;
             }
 
-            els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
-
             try {
-                const rows = await supabaseGet(
-                    'daily_briefings',
-                    `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
-                );
-                const briefing = Array.isArray(rows) ? rows[0] : null;
+                if (state.selectedMode === 'weekly' && state.weeklyDates.length > 0) {
+                    const rangeLabel = formatWeekRangeLabel(state.weeklyDates);
+                    els.sittingDateDisplay.textContent = `${CALENDAR_MODE.weeklyHeadingPrefix} (${rangeLabel})`;
+                    els.contextHeading.textContent = 'Key Context';
+                    els.votingSectionTitle.textContent = 'Weekly voting record';
 
-                if (!briefing) {
-                    state.currentBriefing = null;
-                    els.activityBadge.textContent = 'Constituency & Parliamentary Work';
-                    els.summaryPara1.textContent = `No Chamber speech or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
-                    els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
-                    els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
-                    renderVotingRecords([]);
+                    const inList = state.weeklyDates.join(',');
+                    const rows = await supabaseGet(
+                        'daily_briefings',
+                        `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=in.(${inList})&order=sitting_date.asc`
+                    );
+
+                    const weekly = compileWeeklyBriefing(mp, state.weeklyDates, rows);
+                    state.currentBriefing = weekly;
+                    els.activityBadge.textContent = weekly.activity_tag;
+                    els.summaryPara1.textContent = weekly.summary_para_1;
+                    els.summaryPara2.textContent = weekly.summary_para_2;
+                    els.hansardRefTag.textContent = weekly.hansard_ref;
+                    renderVotingRecords(weekly.votes);
                 } else {
-                    state.currentBriefing = briefing;
-                    els.activityBadge.textContent = briefing.activity_tag || 'Parliamentary Business';
-                    els.summaryPara1.textContent = briefing.summary_para_1;
-                    els.summaryPara2.textContent = briefing.summary_para_2;
-                    els.hansardRefTag.textContent = briefing.hansard_ref || `HC Deb ${formatShortPillDate(state.selectedDate)}`;
-                    renderVotingRecords(briefing.votes);
+                    els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
+                    els.contextHeading.textContent = 'Context';
+                    els.votingSectionTitle.textContent = 'Voting record';
+
+                    const rows = await supabaseGet(
+                        'daily_briefings',
+                        `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
+                    );
+                    const briefing = Array.isArray(rows) ? rows[0] : null;
+
+                    if (!briefing) {
+                        state.currentBriefing = null;
+                        els.activityBadge.textContent = 'Constituency & Parliamentary Work';
+                        els.summaryPara1.textContent = `No Chamber speech or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
+                        els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
+                        els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                        renderVotingRecords([]);
+                    } else {
+                        state.currentBriefing = briefing;
+                        els.activityBadge.textContent = briefing.activity_tag || 'Parliamentary Business';
+                        els.summaryPara1.textContent = briefing.summary_para_1;
+                        els.summaryPara2.textContent = briefing.summary_para_2;
+                        els.hansardRefTag.textContent = briefing.hansard_ref || `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                        renderVotingRecords(briefing.votes);
+                    }
                 }
             } catch (err) {
                 els.summaryPara1.textContent = `Unable to load briefing: ${err.message}`;
@@ -909,8 +1115,8 @@
 
             els.modalHansardCitation.textContent = b?.hansard_ref || formatLongDate(state.selectedDate);
             els.modalVerbatimText.textContent = b?.verbatim_excerpt
-                ? `“${b.verbatim_excerpt}”`
-                : `No direct Chamber speech excerpt was recorded for ${mp.short_name} on this date. Full daily Commons proceedings are archived on hansard.parliament.uk.`;
+                ? (state.selectedMode === 'weekly' ? b.verbatim_excerpt : `“${b.verbatim_excerpt}”`)
+                : `No direct Chamber speech excerpt was recorded for ${mp.short_name} during this period. Full daily Commons proceedings are archived on hansard.parliament.uk.`;
 
             const glossary = Array.isArray(b?.glossary) ? b.glossary : [];
             if (glossary.length === 0) {
@@ -949,14 +1155,15 @@
                     return;
                 }
 
-                const [mps, recentDates] = await Promise.all([
+                // Fetch MPs and distinct recent sitting dates (filtered by 1 MP ID so only ~10 rows transfer)
+                const [mps, recentDateRows] = await Promise.all([
                     supabaseGet(
                         'mps',
                         'select=parliament_member_id,full_name,short_name,party,party_color,role_title,constituencies(name,gss_code)&is_current_member=eq.true&order=short_name.asc&limit=1000'
                     ),
                     supabaseGet(
                         'daily_briefings',
-                        'select=sitting_date&order=sitting_date.desc&limit=30'
+                        'select=sitting_date,activity_tag&parliament_member_id=eq.4514&order=sitting_date.desc&limit=14'
                     )
                 ]);
 
@@ -969,9 +1176,19 @@
                 renderDropdownList(els.searchInput.value);
                 renderWatchlist();
 
-                if (Array.isArray(recentDates) && recentDates.length > 0) {
-                    state.availableDates = [...new Set(recentDates.map(r => r.sitting_date))].slice(0, 3);
-                    state.selectedDate = state.availableDates[0];
+                if (Array.isArray(recentDateRows) && recentDateRows.length > 0) {
+                    // Prefer active sitting days; fall back to all recent dates if needed
+                    const activeRows = recentDateRows.filter(r => r.activity_tag !== 'Non-Sitting Day');
+                    const sourceRows = activeRows.length > 0 ? activeRows : recentDateRows;
+                    const uniqueDates = [...new Set(sourceRows.map(r => r.sitting_date))];
+
+                    state.availableDates = uniqueDates;
+                    state.selectedDate = uniqueDates[0];
+
+                    // Group the most recent active sitting week (Mon–Fri)
+                    const latestMonday = getMondayOfWeek(uniqueDates[0]);
+                    state.weeklyDates = uniqueDates.filter(d => getMondayOfWeek(d) === latestMonday);
+
                     renderDayToggles();
                 }
             } catch (err) {

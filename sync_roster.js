@@ -1,16 +1,15 @@
 /**
- * Whip — Step 1: 6:00 AM Daily MP Roster Sync
+ * Whip — Step 1: Active House of Commons Members & Constituencies Sync (`sync_roster.js`)
  *
- * Fetches all currently sitting House of Commons MPs from the official UK Parliament
- * Members API and upserts them into Supabase (`constituencies`, `mps`, `system_status`).
+ * Fetches all sitting MPs from the UK Parliament Members API, updates `constituencies`
+ * and `mps` (including `member_since` tenure start dates), marks departed MPs inactive,
+ * and updates `system_status` dissolution state.
  */
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
-const PARLIAMENT_MEMBERS_API = 'https://members-api.parliament.uk/api/Members/Search';
-const PARLIAMENT_CONSTITUENCY_API = 'https://members-api.parliament.uk/api/Location/Constituency';
-const PAGE_SIZE = 20;
+const MEMBERS_SEARCH_API = 'https://members-api.parliament.uk/api/Members/Search';
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -26,193 +25,129 @@ const supabaseUrl = /^https?:\/\//i.test(envUrl) ? envUrl : DEFAULT_SUPABASE_URL
 const supabaseKey = cleanEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
 
 if (!supabaseKey) {
-    console.error('Missing SUPABASE_SERVICE_ROLE_KEY in GitHub Repository Secrets.');
+    console.error('Missing SUPABASE_SERVICE_ROLE_KEY.');
     process.exit(1);
 }
 
-console.log(`Connecting to Supabase at: ${supabaseUrl}`);
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-async function fetchAllSittingMPs() {
-    const allMembers = [];
-    let skip = 0;
-    let totalResults = null;
-
-    while (totalResults === null || skip < totalResults) {
-        const url = new URL(PARLIAMENT_MEMBERS_API);
-        url.searchParams.set('House', '1');              // 1 = House of Commons
-        url.searchParams.set('IsCurrentMember', 'true'); // Only active MPs
-        url.searchParams.set('skip', String(skip));
-        url.searchParams.set('take', String(PAGE_SIZE));
-
-        const response = await fetch(url.toString(), {
-            headers: { 'Accept': 'application/json' }
-        });
-
-        if (!response.ok) {
-            throw new Error(`Parliament Members API error (${response.status}): ${response.statusText}`);
-        }
-
-        const payload = await response.json();
-        totalResults = payload.totalResults ?? 0;
-
-        if (!Array.isArray(payload.items) || payload.items.length === 0) {
-            break;
-        }
-
-        allMembers.push(...payload.items);
-        skip += payload.items.length;
-    }
-
-    return allMembers;
-}
-
-async function fetchConstituencyMetadata(constituencyId) {
-    try {
-        const response = await fetch(`${PARLIAMENT_CONSTITUENCY_API}/${constituencyId}`, {
-            headers: { 'Accept': 'application/json' }
-        });
-        if (!response.ok) return { gssCode: null, region: null };
-
-        const payload = await response.json();
-        const val = payload?.value;
-        return {
-            gssCode: val?.gssCode || null,
-            region: val?.regionName || null
-        };
-    } catch {
-        return { gssCode: null, region: null };
-    }
-}
-
 export async function syncRoster() {
-    console.log(`[${new Date().toISOString()}] Starting Whip 6:00 AM MP roster sync...`);
+    console.log(`[${new Date().toISOString()}] Syncing active Commons roster...`);
+    let skip = 0;
+    const take = 20;
+    const allItems = [];
 
-    try {
-        const rawMembers = await fetchAllSittingMPs();
-        console.log(`Fetched ${rawMembers.length} active House of Commons MPs from Parliament API.`);
+    while (true) {
+        const url = new URL(MEMBERS_SEARCH_API);
+        url.searchParams.set('House', '1');
+        url.searchParams.set('IsCurrentMember', 'true');
+        url.searchParams.set('skip', String(skip));
+        url.searchParams.set('take', String(take));
 
-        // 1. Detect General Election Dissolution
-        if (rawMembers.length === 0) {
-            console.warn('0 active MPs returned — Parliament appears dissolved for a General Election.');
+        const res = await fetch(url.toString(), {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!res.ok) throw new Error(`Members API HTTP ${res.status}`);
 
-            await supabase
-                .from('mps')
-                .update({ is_current_member: false, updated_at: new Date().toISOString() })
-                .eq('is_current_member', true);
+        const data = await res.json();
+        const items = data?.items || [];
+        if (items.length === 0) break;
 
-            await supabase
-                .from('system_status')
-                .upsert({
-                    id: 1,
-                    is_parliament_dissolved: true,
-                    active_mp_count: 0,
-                    last_roster_sync: new Date().toISOString()
-                });
+        allItems.push(...items);
+        skip += items.length;
+        if (skip >= (data?.totalResults || 0)) break;
+    }
 
-            console.log('Dissolution Mode enabled in system_status.');
-            return;
-        }
-
-        // 2. Build Constituency & MP records matching exact schema columns
-        const constituencyMap = new Map();
-        const mpRecords = [];
-        const activeMpIds = [];
-
-        for (const item of rawMembers) {
-            const v = item?.value;
-            if (!v || !v.id) continue;
-
-            const membership = v.latestHouseMembership || {};
-            const constituencyId = membership.membershipFromId || null;
-            const constituencyName = membership.membershipFrom || 'Unknown Constituency';
-
-            if (constituencyId && !constituencyMap.has(constituencyId)) {
-                const meta = await fetchConstituencyMetadata(constituencyId);
-                constituencyMap.set(constituencyId, {
-                    parliament_constituency_id: constituencyId,
-                    name: constituencyName,
-                    gss_code: meta.gssCode,
-                    region: meta.region,
-                    updated_at: new Date().toISOString()
-                });
-            }
-
-            const fullName = v.nameFullTitle || v.nameDisplayAs || `MP #${v.id}`;
-            const shortName = v.nameDisplayAs || fullName;
-
-            activeMpIds.push(v.id);
-            mpRecords.push({
-                parliament_member_id: v.id,
-                full_name: fullName,
-                short_name: shortName,
-                party: v.latestParty?.name || 'Independent',
-                party_color: v.latestParty?.backgroundColour
-                    ? `#${v.latestParty.backgroundColour.replace(/^#/, '')}`
-                    : '#64748b',
-                role_title: `MP for ${constituencyName}`,
-                constituency_id: constituencyId,
-                thumbnail_url: v.thumbnailUrl || `https://members-api.parliament.uk/api/Members/${v.id}/Thumbnail`,
-                is_current_member: true,
-                updated_at: new Date().toISOString()
-            });
-        }
-
-        // 3. Upsert Constituencies first (foreign key dependency)
-        const constituencies = Array.from(constituencyMap.values());
-        if (constituencies.length > 0) {
-            const { error: constError } = await supabase
-                .from('constituencies')
-                .upsert(constituencies, { onConflict: 'parliament_constituency_id' });
-
-            if (constError) {
-                throw new Error(`Failed upserting constituencies: ${constError.message}`);
-            }
-            console.log(`Upserted ${constituencies.length} constituencies.`);
-        }
-
-        // 4. Upsert Active MPs in batches of 100
-        const BATCH_SIZE = 100;
-        for (let i = 0; i < mpRecords.length; i += BATCH_SIZE) {
-            const batch = mpRecords.slice(i, i + BATCH_SIZE);
-            const { error: mpError } = await supabase
-                .from('mps')
-                .upsert(batch, { onConflict: 'parliament_member_id' });
-
-            if (mpError) {
-                throw new Error(`Failed upserting MP batch ${i}: ${mpError.message}`);
-            }
-        }
-        console.log(`Upserted ${mpRecords.length} active MPs.`);
-
-        // 5. Mark any departed MPs (resignations / by-elections) as inactive
-        if (activeMpIds.length > 0) {
-            const { error: deactivateError } = await supabase
-                .from('mps')
-                .update({ is_current_member: false, updated_at: new Date().toISOString() })
-                .eq('is_current_member', true)
-                .not('parliament_member_id', 'in', `(${activeMpIds.join(',')})`);
-
-            if (deactivateError) {
-                console.warn(`Warning marking departed MPs inactive: ${deactivateError.message}`);
-            }
-        }
-
-        // 6. Update system_status
+    // Detect General Election dissolution (0 active Commons members)
+    if (allItems.length === 0) {
+        console.warn('0 active MPs returned — enabling Dissolution Mode.');
         await supabase
             .from('system_status')
-            .upsert({
-                id: 1,
-                is_parliament_dissolved: false,
-                active_mp_count: mpRecords.length,
-                last_roster_sync: new Date().toISOString()
-            });
-
-        console.log(`[${new Date().toISOString()}] Roster sync completed successfully!`);
-    } catch (err) {
-        console.error('Fatal error during roster sync:', err);
-        process.exit(1);
+            .upsert({ id: 1, is_parliament_dissolved: true, last_roster_sync: new Date().toISOString() });
+        return;
     }
+
+    const constituencyMap = new Map();
+    const mpRecords = [];
+    const activeIds = new Set();
+
+    for (const entry of allItems) {
+        const val = entry.value;
+        if (!val?.id) continue;
+
+        activeIds.add(val.id);
+        const membership = val.latestHouseMembership || {};
+        const seatName = membership.membershipFrom;
+        const gssCode = membership.membershipFromId ? String(membership.membershipFromId) : null;
+        const memberSince = membership.membershipStartDate
+            ? String(membership.membershipStartDate).slice(0, 10)
+            : null;
+
+        if (seatName && !constituencyMap.has(seatName)) {
+            constituencyMap.set(seatName, {
+                name: seatName,
+                gss_code: gssCode
+            });
+        }
+
+        mpRecords.push({
+            parliament_member_id: val.id,
+            full_name: val.nameDisplayAs || val.nameListAs,
+            short_name: val.nameDisplayAs || val.nameListAs,
+            party: val.latestParty?.name || 'Independent',
+            party_color: val.latestParty?.backgroundColour ? `#${val.latestParty.backgroundColour}` : '#006548',
+            role_title: `MP for ${seatName || 'UK Constituency'}`,
+            seat_name: seatName,
+            member_since: memberSince,
+            is_current_member: true
+        });
+    }
+
+    const constituencyRows = Array.from(constituencyMap.values());
+    if (constituencyRows.length > 0) {
+        const { error: constErr } = await supabase
+            .from('constituencies')
+            .upsert(constituencyRows, { onConflict: 'name' });
+        if (constErr) throw new Error(`Constituency upsert error: ${constErr.message}`);
+    }
+
+    const { data: dbConstituencies } = await supabase.from('constituencies').select('id, name');
+    const constIdByName = new Map((dbConstituencies || []).map(c => [c.name, c.id]));
+
+    const finalMps = mpRecords.map(({ seat_name, ...rest }) => ({
+        ...rest,
+        constituency_id: constIdByName.get(seat_name) || null
+    }));
+
+    const { error: mpErr } = await supabase
+        .from('mps')
+        .upsert(finalMps, { onConflict: 'parliament_member_id' });
+    if (mpErr) throw new Error(`MPs upsert error: ${mpErr.message}`);
+
+    // Mark any former MPs (by-election/resignation) as no longer current
+    const { data: existingCurrent } = await supabase
+        .from('mps')
+        .select('parliament_member_id')
+        .eq('is_current_member', true);
+
+    const departedIds = (existingCurrent || [])
+        .map(r => r.parliament_member_id)
+        .filter(id => !activeIds.has(id));
+
+    if (departedIds.length > 0) {
+        await supabase
+            .from('mps')
+            .update({ is_current_member: false })
+            .in('parliament_member_id', departedIds);
+        console.log(`Marked ${departedIds.length} departed MP(s) inactive.`);
+    }
+
+    await supabase
+        .from('system_status')
+        .upsert({ id: 1, is_parliament_dissolved: false, last_roster_sync: new Date().toISOString() });
+
+    console.log(`[${new Date().toISOString()}] Roster sync complete: ${finalMps.length} active MPs synced.`);
 }
 
 syncRoster();

@@ -409,27 +409,40 @@ async function fetchCommitteeAppearances(dateStr) {
         const eventId = ev?.id ?? ev?.Id;
         if (!eventId) return;
 
-        const committeeName =
-            ev?.committees?.[0]?.name ??
-            ev?.committee?.name ??
-            ev?.title ??
-            'Select Committee';
-        const title = stripHtml(ev?.title ?? ev?.Title ?? committeeName);
-        const topic = stripHtml(ev?.description ?? ev?.Description ?? title);
-        const sessionUrl = `https://committees.parliament.uk/event/${eventId}/`;
-
-        const [attendanceData, activitiesData] = await Promise.all([
+        const [detailData, attendanceData, activitiesData] = await Promise.all([
+            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}`, 12000).catch(() => null),
             fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Attendance`, 12000).catch(() => null),
             fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Activities`, 12000).catch(() => null)
         ]);
 
-        // 1. Committee members attending (/api/Events/{id}/Attendance)
-        const attendees = Array.isArray(attendanceData)
-            ? attendanceData
-            : (attendanceData?.attendees || attendanceData?.members || attendanceData?.items || []);
+        const detail = detailData?.value || detailData || ev;
+        const committeeName =
+            detail?.committees?.[0]?.name ??
+            detail?.committee?.name ??
+            ev?.committees?.[0]?.name ??
+            detail?.title ??
+            'Select Committee';
+        const title = stripHtml(detail?.title ?? ev?.title ?? committeeName);
+        const topic = stripHtml(detail?.description ?? ev?.description ?? title);
+        const sessionUrl = `https://committees.parliament.uk/event/${eventId}/`;
 
-        for (const person of attendees) {
-            const mId = Number(person?.memberId ?? person?.member?.id ?? person?.id);
+        const extractMemberId = (obj) => Number(
+            obj?.memberId ??
+            obj?.MemberId ??
+            obj?.member?.id ??
+            obj?.member?.memberId ??
+            obj?.id
+        );
+
+        // 1. Committee members attending
+        const rawAttendees = [
+            ...(Array.isArray(attendanceData) ? attendanceData : (attendanceData?.attendees || attendanceData?.members || attendanceData?.committeeMembers || attendanceData?.items || [])),
+            ...(Array.isArray(detail?.attendees) ? detail.attendees : []),
+            ...(Array.isArray(detail?.committeeMembers) ? detail.committeeMembers : [])
+        ];
+
+        for (const person of rawAttendees) {
+            const mId = extractMemberId(person);
             if (!mId) continue;
             addCommitteeRecord(byMember, mId, {
                 eventId,
@@ -441,16 +454,20 @@ async function fetchCommitteeAppearances(dateStr) {
             });
         }
 
-        // 2. Oral evidence witnesses (/api/Events/{id}/Activities)
-        const activities = Array.isArray(activitiesData)
-            ? activitiesData
-            : (activitiesData?.activities || activitiesData?.items || []);
+        // 2. Oral evidence witnesses
+        const rawActivities = [
+            ...(Array.isArray(activitiesData) ? activitiesData : (activitiesData?.activities || activitiesData?.items || [])),
+            ...(Array.isArray(detail?.activities) ? detail.activities : [])
+        ];
 
-        for (const act of activities) {
+        for (const act of rawActivities) {
             const actTitle = stripHtml(act?.title || act?.name || title) || title;
-            const witnesses = Array.isArray(act?.witnesses) ? act.witnesses : [];
+            const witnesses = [
+                ...(Array.isArray(act?.witnesses) ? act.witnesses : []),
+                ...(Array.isArray(act?.oralEvidenceWitnesses) ? act.oralEvidenceWitnesses : [])
+            ];
             for (const w of witnesses) {
-                const mId = Number(w?.memberId ?? w?.member?.id ?? w?.id);
+                const mId = extractMemberId(w);
                 if (!mId) continue;
                 addCommitteeRecord(byMember, mId, {
                     eventId,
@@ -464,6 +481,7 @@ async function fetchCommitteeAppearances(dateStr) {
         }
     });
 
+    console.log(`Committees API scanned ${events.length} events on ${dateStr} -> matched ${byMember.size} MPs.`);
     return byMember;
 }
 
@@ -833,7 +851,7 @@ export async function generateBriefings() {
             sitting_date: dateStr,
             activity_tag: 'Constituency & Parliamentary Work',
             hansard_ref: `HC Deb ${dateStr}`,
-            summary_para_1: `${mp.short_name} had no recorded spoken contributions, written questions, or division votes in the House of Commons on ${readableDate}.`,
+            summary_para_1: `${mp.short_name} had no recorded spoken contributions, committee sessions, written questions, or division votes in the House of Commons on ${readableDate}.`,
             summary_para_2: `MPs divide their week between main Chamber debates, private bill committees, ministerial correspondence, and constituency casework.`,
             verbatim_excerpt: null,
             glossary: [],

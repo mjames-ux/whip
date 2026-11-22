@@ -799,6 +799,7 @@
         const state = {
             allMps: [],
             availableDates: [],
+            nonSittingFridayDates: new Set(),
             latestWeekDates: [],
             priorWeekDates: [],
             selectedMp: null,
@@ -1074,7 +1075,6 @@
             const bio = bioPayload?.value || bioPayload || {};
             const memberVal = memberPayload?.value || memberPayload || {};
 
-            // 1. Parse Commons houseMemberships (house === 1) using startDate & endDate
             const rawMemberships = Array.isArray(bio.houseMemberships) ? bio.houseMemberships : [];
             const commonsTerms = rawMemberships
                 .filter(m => Number(m?.house) === 1 && (m?.startDate || m?.membershipStartDate))
@@ -1086,7 +1086,6 @@
                 }))
                 .sort((a, b) => a.start.localeCompare(b.start));
 
-            // Merge adjacent Commons terms separated by <= 45 days (e.g. boundary changes)
             const continuousSpans = [];
             for (const term of commonsTerms) {
                 const prev = continuousSpans[continuousSpans.length - 1];
@@ -1113,7 +1112,6 @@
                 if (d) totalMonths += d.totalMonths;
             }
 
-            // 2. Parse won constituencies, IDs & win counts from `representations` (house === 1)
             const rawReps = Array.isArray(bio.representations) ? bio.representations : [];
             const commonsReps = rawReps
                 .filter(r => Number(r?.house) === 1 && (r?.startDate || r?.name))
@@ -1550,6 +1548,12 @@
             return d.toISOString().slice(0, 10);
         }
 
+        function getFridayForWeekMonday(mondayIso) {
+            const d = new Date(`${mondayIso}T12:00:00Z`);
+            d.setUTCDate(d.getUTCDate() + 4);
+            return d.toISOString().slice(0, 10);
+        }
+
         function formatWeekRangeLabel(dates) {
             if (!dates || dates.length === 0) return '';
             const sorted = [...dates].sort();
@@ -1829,7 +1833,7 @@
                 `
                 : '';
 
-            const dailyPillsHtml = state.availableDates.slice(0, 4).map(dateStr => {
+            const dailyPillsHtml = state.availableDates.slice(0, 5).map(dateStr => {
                 const isActive = state.selectedMode === 'daily' && dateStr === state.selectedDate;
                 return `
                     <button
@@ -2130,6 +2134,29 @@
             };
         }
 
+        function buildNonSittingFridayBriefing(mp, dateStr) {
+            const longDate = formatLongDate(dateStr);
+            return {
+                activity_tag: 'Constituency Friday',
+                hansard_ref: 'Constituency Day • Non-Sitting Friday',
+                summary_para_1: `The House of Commons did not sit on ${longDate}. On non-sitting Fridays, MPs typically return to their constituencies rather than debating in the Westminster Chamber.`,
+                summary_para_2: `Constituency Fridays are typically used for holding local advice surgeries with residents, visiting schools, hospitals, and local businesses, meeting council and community leaders, and progressing urgent constituent casework.`,
+                verbatim_excerpt: null,
+                glossary: [
+                    {
+                        term: 'Constituency Friday',
+                        plain: 'Most Fridays in the parliamentary calendar are reserved for MPs to return to their local seats for surgeries and community visits, except on roughly 13 Fridays each session set aside for Private Members’ Bills.'
+                    },
+                    {
+                        term: 'MP Surgery',
+                        plain: 'Drop-in or appointment sessions where local constituents can raise personal issues or policy concerns directly with their MP.'
+                    }
+                ],
+                votes: [],
+                written_questions: []
+            };
+        }
+
         async function loadBriefingForCurrentSelection() {
             if (!state.selectedMp) return;
 
@@ -2200,24 +2227,54 @@
                     renderVotingRecords(weekly.votes);
                 } else {
                     els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
-                    els.contextHeading.textContent = 'Context';
                     els.votingSectionTitle.textContent = 'Voting record';
 
+                    if (state.nonSittingFridayDates.has(state.selectedDate)) {
+                        const fridayBriefing = buildNonSittingFridayBriefing(mp, state.selectedDate);
+                        state.currentBriefing = fridayBriefing;
+                        state.baseActivityBadge = fridayBriefing.activity_tag;
+                        syncActivityBadgeDisplay();
+                        els.contextHeading.textContent = 'What MPs Do on Non-Sitting Fridays';
+                        els.summaryPara1.textContent = fridayBriefing.summary_para_1;
+                        els.summaryPara2.textContent = fridayBriefing.summary_para_2;
+                        els.hansardRefTag.textContent = fridayBriefing.hansard_ref;
+                        renderWrittenQuestions([]);
+                        renderVotingRecords([]);
+                        els.briefingArticle.classList.remove('fade-out');
+                        els.briefingArticle.classList.add('fade-in');
+                        return;
+                    }
+
+                    els.contextHeading.textContent = 'Context';
                     const rows = await supabaseGet(
                         'daily_briefings',
                         `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
                     );
                     const briefing = Array.isArray(rows) ? rows[0] : null;
 
-                    if (!briefing) {
-                        state.currentBriefing = null;
-                        state.baseActivityBadge = 'Constituency & Parliamentary Work';
-                        syncActivityBadgeDisplay();
-                        els.summaryPara1.textContent = `No Chamber speech, written question, or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
-                        els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
-                        els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
-                        renderWrittenQuestions([]);
-                        renderVotingRecords([]);
+                    if (!briefing || briefing.activity_tag === 'Non-Sitting Day') {
+                        const isFriday = new Date(`${state.selectedDate}T12:00:00Z`).getUTCDay() === 5;
+                        if (isFriday) {
+                            const fridayBriefing = buildNonSittingFridayBriefing(mp, state.selectedDate);
+                            state.currentBriefing = fridayBriefing;
+                            state.baseActivityBadge = fridayBriefing.activity_tag;
+                            syncActivityBadgeDisplay();
+                            els.contextHeading.textContent = 'What MPs Do on Non-Sitting Fridays';
+                            els.summaryPara1.textContent = fridayBriefing.summary_para_1;
+                            els.summaryPara2.textContent = fridayBriefing.summary_para_2;
+                            els.hansardRefTag.textContent = fridayBriefing.hansard_ref;
+                            renderWrittenQuestions([]);
+                            renderVotingRecords([]);
+                        } else {
+                            state.currentBriefing = null;
+                            state.baseActivityBadge = 'Constituency & Parliamentary Work';
+                            syncActivityBadgeDisplay();
+                            els.summaryPara1.textContent = `No Chamber speech, written question, or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
+                            els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
+                            els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                            renderWrittenQuestions([]);
+                            renderVotingRecords([]);
+                        }
                     } else {
                         const rawPara2 = (briefing.summary_para_2 || '').trim();
                         const enrichedContext = rawPara2 === GENERIC_VOTING_BOILERPLATE
@@ -2378,18 +2435,38 @@
                 if (Array.isArray(recentDateRows) && recentDateRows.length > 0) {
                     const activeRows = recentDateRows.filter(r => r.activity_tag !== 'Non-Sitting Day');
                     const sourceRows = activeRows.length > 0 ? activeRows : recentDateRows;
-                    const uniqueDates = [...new Set(sourceRows.map(r => r.sitting_date))];
+                    const activeDates = [...new Set(sourceRows.map(r => r.sitting_date))];
 
-                    state.availableDates = uniqueDates;
-                    state.selectedDate = uniqueDates[0];
-
-                    const distinctMondays = [...new Set(uniqueDates.map(d => getMondayOfWeek(d)))];
+                    const distinctMondays = [...new Set(activeDates.map(d => getMondayOfWeek(d)))];
                     if (distinctMondays[0]) {
-                        state.latestWeekDates = uniqueDates.filter(d => getMondayOfWeek(d) === distinctMondays[0]);
+                        state.latestWeekDates = activeDates.filter(d => getMondayOfWeek(d) === distinctMondays[0]);
                     }
                     if (distinctMondays[1]) {
-                        state.priorWeekDates = uniqueDates.filter(d => getMondayOfWeek(d) === distinctMondays[1]);
+                        state.priorWeekDates = activeDates.filter(d => getMondayOfWeek(d) === distinctMondays[1]);
                     }
+
+                    // Always include the Friday of the most recent active week even if it was a non-sitting constituency Friday
+                    const combinedDatesSet = new Set(activeDates);
+                    const nonSittingFridays = new Set();
+                    if (distinctMondays[0]) {
+                        const latestFriday = getFridayForWeekMonday(distinctMondays[0]);
+                        const todayUkIso = new Intl.DateTimeFormat('en-CA', {
+                            timeZone: 'Europe/London',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                        }).format(new Date());
+
+                        if (latestFriday <= todayUkIso && !combinedDatesSet.has(latestFriday)) {
+                            combinedDatesSet.add(latestFriday);
+                            nonSittingFridays.add(latestFriday);
+                        }
+                    }
+
+                    const sortedCombinedDates = [...combinedDatesSet].sort((a, b) => b.localeCompare(a));
+                    state.availableDates = sortedCombinedDates;
+                    state.nonSittingFridayDates = nonSittingFridays;
+                    state.selectedDate = sortedCombinedDates[0];
 
                     renderDayToggles();
                 }

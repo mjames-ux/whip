@@ -256,7 +256,7 @@ async function fetchWrittenQuestionsForDate(dateStr) {
 
         let data;
         try {
-            data = await fetchJsonWithTimeout(url.toString(), 15000);
+            data = await fetchJsonWithTimeout(url.toString(), 30000);
         } catch (err) {
             console.warn(`Written Questions fetch warning at skip=${skip}: ${err.message}`);
             break;
@@ -318,7 +318,7 @@ async function fetchDivisionVotes(dateStr) {
         url.searchParams.set('startDate', dateStr);
         url.searchParams.set('endDate', dateStr);
         url.searchParams.set('take', '50');
-        divisions = await fetchJsonWithTimeout(url.toString(), 15000);
+        divisions = await fetchJsonWithTimeout(url.toString(), 20000);
     } catch (err) {
         console.warn(`Commons Votes search warning: ${err.message}`);
         return { divisions: [], votesByMember };
@@ -331,7 +331,7 @@ async function fetchDivisionVotes(dateStr) {
     const detailedDivisions = [];
     for (const div of divisions) {
         try {
-            const detail = await fetchJsonWithTimeout(`${COMMONS_DIVISION_DETAIL_API}/${div.DivisionId}.json`, 15000);
+            const detail = await fetchJsonWithTimeout(`${COMMONS_DIVISION_DETAIL_API}/${div.DivisionId}.json`, 20000);
             detailedDivisions.push(detail);
         } catch (err) {
             console.warn(`Division ${div.DivisionId} detail warning: ${err.message}`);
@@ -398,24 +398,36 @@ async function fetchCommitteeAppearances(dateStr) {
         url.searchParams.set('ExcludeCancelledEvents', 'true');
         url.searchParams.set('Take', '100');
 
-        const data = await fetchJsonWithTimeout(url.toString(), 15000);
+        const data = await fetchJsonWithTimeout(url.toString(), 20000);
         events = Array.isArray(data) ? data : (data?.items || data?.Items || []);
     } catch (err) {
         console.warn(`Committees Events list warning: ${err.message}`);
         return byMember;
     }
 
-    await mapWithConcurrency(events, 6, async (ev) => {
+    let sampleDiagnostic = null;
+
+    await mapWithConcurrency(events, 6, async (ev, idx) => {
         const eventId = ev?.id ?? ev?.Id;
         if (!eventId) return;
 
         const [detailData, attendanceData, activitiesData] = await Promise.all([
-            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}`, 12000).catch(() => null),
-            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Attendance`, 12000).catch(() => null),
-            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Activities`, 12000).catch(() => null)
+            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}`, 15000).catch(() => null),
+            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Attendance`, 15000).catch(() => null),
+            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Activities`, 15000).catch(() => null)
         ]);
 
         const detail = detailData?.value || detailData || ev;
+
+        if (idx === 0) {
+            sampleDiagnostic = {
+                eventId,
+                detailKeys: detail && typeof detail === 'object' ? Object.keys(detail) : typeof detail,
+                attendanceSample: JSON.stringify(attendanceData)?.slice(0, 300),
+                activitiesSample: JSON.stringify(activitiesData)?.slice(0, 300)
+            };
+        }
+
         const committeeName =
             detail?.committees?.[0]?.name ??
             detail?.committee?.name ??
@@ -482,10 +494,14 @@ async function fetchCommitteeAppearances(dateStr) {
     });
 
     console.log(`Committees API scanned ${events.length} events on ${dateStr} -> matched ${byMember.size} MPs.`);
+    if (events.length > 0 && byMember.size === 0 && sampleDiagnostic) {
+        console.log(`Committees API sample payload (event ${sampleDiagnostic.eventId}):`, JSON.stringify(sampleDiagnostic));
+    }
+
     return byMember;
 }
 
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
 let workingGeminiModel = null;
 
 async function callGeminiApi(prompt) {

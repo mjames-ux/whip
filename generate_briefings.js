@@ -387,7 +387,15 @@ function addCommitteeRecord(byMember, memberId, session) {
     }
 }
 
-function extractParliamentMemberIdFromCommitteePerson(obj) {
+function normalizePersonName(rawName) {
+    return stripHtml(rawName || '')
+        .replace(/\b(The Lord|Lord|Baroness|Dame|Sir|Dr|Mr|Mrs|Ms|Mx|Rt Hon|MP)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function extractParliamentMemberIdFromCommitteePerson(obj, memberIdByNormName) {
     if (!obj || typeof obj !== 'object') return null;
 
     // 1. Explicit memberId fields
@@ -406,10 +414,18 @@ function extractParliamentMemberIdFromCommitteePerson(obj) {
         return Number(photoMatch[1]);
     }
 
+    // 3. Fallback match by MP name when witness/attendee object only provides a name
+    if (memberIdByNormName) {
+        const normName = normalizePersonName(obj.name ?? obj.Name ?? obj.member?.name);
+        if (normName && memberIdByNormName.has(normName)) {
+            return memberIdByNormName.get(normName);
+        }
+    }
+
     return null;
 }
 
-async function fetchCommitteeAppearances(dateStr) {
+async function fetchCommitteeAppearances(dateStr, memberIdByNormName = null) {
     const byMember = new Map();
 
     let events = [];
@@ -464,7 +480,7 @@ async function fetchCommitteeAppearances(dateStr) {
 
         for (const person of rawAttendees) {
             if (person?.layMember) continue;
-            const mId = extractParliamentMemberIdFromCommitteePerson(person);
+            const mId = extractParliamentMemberIdFromCommitteePerson(person, memberIdByNormName);
             if (!mId) continue;
             addCommitteeRecord(byMember, mId, {
                 eventId,
@@ -490,7 +506,7 @@ async function fetchCommitteeAppearances(dateStr) {
                 ...(Array.isArray(act?.oralEvidenceWitnesses) ? act.oralEvidenceWitnesses : [])
             ];
             for (const w of witnesses) {
-                const mId = extractParliamentMemberIdFromCommitteePerson(w);
+                const mId = extractParliamentMemberIdFromCommitteePerson(w, memberIdByNormName);
                 if (!mId) continue;
                 addCommitteeRecord(byMember, mId, {
                     eventId,
@@ -709,10 +725,18 @@ export async function generateBriefings() {
         throw new Error(`Failed to fetch active MPs: ${mpError?.message || '0 rows'}`);
     }
 
+    const memberIdByNormName = new Map();
+    for (const mp of mps) {
+        const fullNorm = normalizePersonName(mp.full_name);
+        const shortNorm = normalizePersonName(mp.short_name);
+        if (fullNorm) memberIdByNormName.set(fullNorm, mp.parliament_member_id);
+        if (shortNorm) memberIdByNormName.set(shortNorm, mp.parliament_member_id);
+    }
+
     const [speechesByMember, { divisions, votesByMember }, committeesByMember, wqByMember] = await Promise.all([
         fetchHansardContributions(dateStr),
         fetchDivisionVotes(dateStr),
-        fetchCommitteeAppearances(dateStr),
+        fetchCommitteeAppearances(dateStr, memberIdByNormName),
         fetchWrittenQuestionsForDate(dateStr)
     ]);
 

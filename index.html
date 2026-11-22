@@ -377,14 +377,9 @@
 
                     <!-- Electoral History (Won General Elections & By-elections with Majority & Vote Share) -->
                     <div id="profileElectionsSection" class="hidden pt-8 border-t border-hairline">
-                        <div class="flex items-baseline justify-between gap-4 mb-2">
-                            <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">
-                                Election wins
-                            </h3>
-                            <span id="profileElectionsBadge" class="text-xs text-inkTertiary font-medium">
-                                —
-                            </span>
-                        </div>
+                        <h3 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight mb-2">
+                            Election wins
+                        </h3>
                         <p class="text-sm text-inkSecondary mb-5 leading-relaxed">
                             Parliamentary elections won by this Member, including majority and share of the vote.
                         </p>
@@ -840,7 +835,6 @@
             profileTenureSubtext: document.getElementById('profileTenureSubtext'),
             profileElectionsSummary: document.getElementById('profileElectionsSummary'),
             profileElectionsSection: document.getElementById('profileElectionsSection'),
-            profileElectionsBadge: document.getElementById('profileElectionsBadge'),
             profileElectionsList: document.getElementById('profileElectionsList'),
             profileInterestsBadge: document.getElementById('profileInterestsBadge'),
             profileInterestsContainer: document.getElementById('profileInterestsContainer'),
@@ -1044,10 +1038,9 @@
 
             let voteSharePct = null;
             if (matchedCand) {
-                if (typeof matchedCand.voteShare === 'number') {
-                    voteSharePct = matchedCand.voteShare <= 1
-                        ? matchedCand.voteShare * 100
-                        : matchedCand.voteShare;
+                const rawShare = matchedCand.voteShare ?? matchedCand.percentage ?? null;
+                if (typeof rawShare === 'number') {
+                    voteSharePct = rawShare <= 1 ? rawShare * 100 : rawShare;
                 } else if (typeof matchedCand.votes === 'number') {
                     const totalVotes = Number(val.turnout)
                         || candidates.reduce((sum, c) => sum + (Number(c?.votes) || 0), 0);
@@ -1320,7 +1313,6 @@
             }
 
             els.profileElectionsSection.classList.remove('hidden');
-            els.profileElectionsBadge.textContent = `${totalWinCount} ${totalWinCount === 1 ? 'win' : 'wins'}`;
 
             els.profileElectionsList.innerHTML = wins.map(w => {
                 const dateLabel = w.dateIso
@@ -1331,23 +1323,14 @@
                         timeZone: 'UTC'
                     })
                     : '';
-                const typeBadgeClass = w.isByElection
-                    ? 'bg-amber-50 text-amber-900 border-amber-200'
-                    : 'bg-surface text-inkSecondary border-hairline';
-                const typeLabel = w.isByElection ? 'By-election' : 'General Election';
 
                 const resultStats = [w.majorityLabel, w.voteShareLabel].filter(Boolean).join(' • ');
                 const metaLine = [w.seat, dateLabel, resultStats].filter(Boolean).join(' • ');
 
                 return `
-                    <div class="py-3.5 flex items-center justify-between gap-4">
-                        <div class="min-w-0 pr-3">
-                            <p class="text-sm font-medium text-ink truncate">${w.title}</p>
-                            <p class="text-xs text-inkTertiary mt-0.5">${metaLine}</p>
-                        </div>
-                        <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${typeBadgeClass}">
-                            ${typeLabel}
-                        </span>
+                    <div class="py-3.5">
+                        <p class="text-sm font-medium text-ink">${w.title}</p>
+                        <p class="text-xs text-inkTertiary mt-0.5">${metaLine}</p>
                     </div>
                 `;
             }).join('');

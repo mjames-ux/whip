@@ -1,10 +1,11 @@
 /**
  * Whip — Step 2: Daily Parliamentary Briefing Generator (`generate_briefings.js`)
  *
- * Fetches House of Commons Hansard speeches, Select/Bill Committee appearances,
- * Written Parliamentary Questions, and Commons Division votes for a target sitting date,
- * generates plain-English neutral summaries via Gemini, enriches voting-only context
- * with UK Parliament Bills API details, and upserts into `daily_briefings`.
+ * Fetches House of Commons Hansard speeches, Select/Bill Committee appearances
+ * (via Events, Attendance, and Activities endpoints), Written Parliamentary Questions,
+ * and Commons Division votes for a target sitting date, generates plain-English
+ * neutral summaries via Gemini, enriches voting-only context with UK Parliament
+ * Bills API details, and upserts into `daily_briefings`.
  */
 
 import 'dotenv/config';
@@ -16,7 +17,6 @@ const HANSARD_DEBATE_API = 'https://hansard-api.parliament.uk/debates/debate';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Events';
-const COMMITTEES_BROADCAST_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
 const WRITTEN_QUESTIONS_API = 'https://writtenquestions-api.parliament.uk/api/writtenquestions/questions';
 const BILLS_SEARCH_API = 'https://bills-api.parliament.uk/api/v1/Bills';
 
@@ -390,6 +390,7 @@ function addCommitteeRecord(byMember, memberId, session) {
 async function fetchCommitteeAppearances(dateStr) {
     const byMember = new Map();
 
+    let events = [];
     try {
         const url = new URL(COMMITTEES_EVENTS_API);
         url.searchParams.set('StartDateFrom', dateStr);
@@ -398,93 +399,70 @@ async function fetchCommitteeAppearances(dateStr) {
         url.searchParams.set('Take', '100');
 
         const data = await fetchJsonWithTimeout(url.toString(), 15000);
-        const items = Array.isArray(data) ? data : (data?.items || data?.Items || []);
+        events = Array.isArray(data) ? data : (data?.items || data?.Items || []);
+    } catch (err) {
+        console.warn(`Committees Events list warning: ${err.message}`);
+        return byMember;
+    }
 
-        for (const ev of items) {
-            const eventId = ev?.id ?? ev?.Id ?? null;
-            const committeeName =
-                ev?.committees?.[0]?.name ??
-                ev?.committee?.name ??
-                ev?.title ??
-                'Select Committee';
-            const title = stripHtml(ev?.title ?? ev?.Title ?? committeeName);
-            const topic = stripHtml(ev?.description ?? ev?.Description ?? title);
-            const sessionUrl = eventId
-                ? `https://committees.parliament.uk/event/${eventId}/`
-                : 'https://committees.parliament.uk/';
+    await mapWithConcurrency(events, 6, async (ev) => {
+        const eventId = ev?.id ?? ev?.Id;
+        if (!eventId) return;
 
-            // Committee members / attendees
-            const membersList = [
-                ...(Array.isArray(ev?.attendees) ? ev.attendees : []),
-                ...(Array.isArray(ev?.members) ? ev.members : [])
-            ];
-            for (const person of membersList) {
-                const mId = Number(person?.memberId ?? person?.member?.id ?? person?.id);
+        const committeeName =
+            ev?.committees?.[0]?.name ??
+            ev?.committee?.name ??
+            ev?.title ??
+            'Select Committee';
+        const title = stripHtml(ev?.title ?? ev?.Title ?? committeeName);
+        const topic = stripHtml(ev?.description ?? ev?.Description ?? title);
+        const sessionUrl = `https://committees.parliament.uk/event/${eventId}/`;
+
+        const [attendanceData, activitiesData] = await Promise.all([
+            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Attendance`, 12000).catch(() => null),
+            fetchJsonWithTimeout(`${COMMITTEES_EVENTS_API}/${eventId}/Activities`, 12000).catch(() => null)
+        ]);
+
+        // 1. Committee members attending (/api/Events/{id}/Attendance)
+        const attendees = Array.isArray(attendanceData)
+            ? attendanceData
+            : (attendanceData?.attendees || attendanceData?.members || attendanceData?.items || []);
+
+        for (const person of attendees) {
+            const mId = Number(person?.memberId ?? person?.member?.id ?? person?.id);
+            if (!mId) continue;
+            addCommitteeRecord(byMember, mId, {
+                eventId,
+                committeeName,
+                title,
+                topic: extractCleanExcerpt(topic, 260) || topic,
+                role: 'Committee Member',
+                url: sessionUrl
+            });
+        }
+
+        // 2. Oral evidence witnesses (/api/Events/{id}/Activities)
+        const activities = Array.isArray(activitiesData)
+            ? activitiesData
+            : (activitiesData?.activities || activitiesData?.items || []);
+
+        for (const act of activities) {
+            const actTitle = stripHtml(act?.title || act?.name || title) || title;
+            const witnesses = Array.isArray(act?.witnesses) ? act.witnesses : [];
+            for (const w of witnesses) {
+                const mId = Number(w?.memberId ?? w?.member?.id ?? w?.id);
+                if (!mId) continue;
                 addCommitteeRecord(byMember, mId, {
                     eventId,
                     committeeName,
-                    title,
+                    title: actTitle,
                     topic: extractCleanExcerpt(topic, 260) || topic,
-                    role: 'Committee Member',
+                    role: 'Oral Evidence Witness',
                     url: sessionUrl
                 });
             }
-
-            // Oral evidence witnesses (e.g. ministers or MPs giving evidence)
-            const activities = Array.isArray(ev?.activities) ? ev.activities : [];
-            for (const act of activities) {
-                const witnesses = Array.isArray(act?.witnesses) ? act.witnesses : [];
-                for (const w of witnesses) {
-                    const mId = Number(w?.memberId ?? w?.member?.id ?? w?.id);
-                    addCommitteeRecord(byMember, mId, {
-                        eventId,
-                        committeeName,
-                        title,
-                        topic: extractCleanExcerpt(topic, 260) || topic,
-                        role: 'Oral Evidence Witness',
-                        url: sessionUrl
-                    });
-                }
-            }
         }
-    } catch (err) {
-        console.warn(`Committees Events fetch warning: ${err.message}`);
-    }
-
-    if (byMember.size === 0) {
-        try {
-            const url = new URL(COMMITTEES_BROADCAST_API);
-            url.searchParams.set('StartDate', dateStr);
-            url.searchParams.set('EndDate', dateStr);
-            const data = await fetchJsonWithTimeout(url.toString(), 15000);
-            const items = Array.isArray(data) ? data : (data?.items || []);
-
-            for (const meeting of items) {
-                const eventId = meeting?.id ?? meeting?.Id ?? null;
-                const committeeName = meeting?.committees?.[0]?.name || meeting?.title || 'Select Committee';
-                const title = stripHtml(meeting?.title || committeeName);
-                const topic = stripHtml(meeting?.description || meeting?.title || 'Committee evidence session');
-                const sessionUrl = eventId
-                    ? `https://committees.parliament.uk/event/${eventId}/`
-                    : 'https://committees.parliament.uk/';
-                const attendees = meeting?.attendees || meeting?.members || [];
-
-                for (const person of attendees) {
-                    const mId = Number(person?.memberId || person?.id);
-                    addCommitteeRecord(byMember, mId, {
-                        eventId,
-                        committeeName,
-                        title,
-                        topic: extractCleanExcerpt(topic, 260) || topic,
-                        role: 'Committee Session',
-                        url: sessionUrl
-                    });
-                }
-            }
-        } catch (err) {
-            console.warn(`Committees Broadcast fallback warning: ${err.message}`);
-        }
-    }
+    });
 
     return byMember;
 }

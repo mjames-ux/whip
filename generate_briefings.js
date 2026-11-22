@@ -387,6 +387,28 @@ function addCommitteeRecord(byMember, memberId, session) {
     }
 }
 
+function extractParliamentMemberIdFromCommitteePerson(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+
+    // 1. Explicit memberId fields
+    const directId = Number(
+        obj.memberId ??
+        obj.MemberId ??
+        obj.member?.id ??
+        obj.member?.memberId
+    );
+    if (directId > 0) return directId;
+
+    // 2. Parse from photoUrl e.g. "https://members-api.parliament.uk/api/Members/1241/Thumbnail"
+    const photoUrl = String(obj.photoUrl ?? obj.PhotoUrl ?? obj.member?.photoUrl ?? '');
+    const photoMatch = photoUrl.match(/\/Members\/(\d+)\//i);
+    if (photoMatch) {
+        return Number(photoMatch[1]);
+    }
+
+    return null;
+}
+
 async function fetchCommitteeAppearances(dateStr) {
     const byMember = new Map();
 
@@ -405,9 +427,7 @@ async function fetchCommitteeAppearances(dateStr) {
         return byMember;
     }
 
-    let sampleDiagnostic = null;
-
-    await mapWithConcurrency(events, 6, async (ev, idx) => {
+    await mapWithConcurrency(events, 6, async (ev) => {
         const eventId = ev?.id ?? ev?.Id;
         if (!eventId) return;
 
@@ -418,43 +438,33 @@ async function fetchCommitteeAppearances(dateStr) {
         ]);
 
         const detail = detailData?.value || detailData || ev;
-
-        if (idx === 0) {
-            sampleDiagnostic = {
-                eventId,
-                detailKeys: detail && typeof detail === 'object' ? Object.keys(detail) : typeof detail,
-                attendanceSample: JSON.stringify(attendanceData)?.slice(0, 300),
-                activitiesSample: JSON.stringify(activitiesData)?.slice(0, 300)
-            };
-        }
-
         const committeeName =
             detail?.committees?.[0]?.name ??
             detail?.committee?.name ??
             ev?.committees?.[0]?.name ??
-            detail?.title ??
+            detail?.name ??
             'Select Committee';
-        const title = stripHtml(detail?.title ?? ev?.title ?? committeeName);
-        const topic = stripHtml(detail?.description ?? ev?.description ?? title);
+        const title = stripHtml(detail?.name ?? detail?.title ?? ev?.name ?? ev?.title ?? committeeName);
+        const topic = stripHtml(
+            detail?.primaryDescription ??
+            detail?.secondaryDescription ??
+            detail?.description ??
+            ev?.description ??
+            title
+        );
         const sessionUrl = `https://committees.parliament.uk/event/${eventId}/`;
 
-        const extractMemberId = (obj) => Number(
-            obj?.memberId ??
-            obj?.MemberId ??
-            obj?.member?.id ??
-            obj?.member?.memberId ??
-            obj?.id
-        );
-
-        // 1. Committee members attending
+        // 1. Committee members attending (/api/Events/{id}/Attendance -> membersAttended)
         const rawAttendees = [
-            ...(Array.isArray(attendanceData) ? attendanceData : (attendanceData?.attendees || attendanceData?.members || attendanceData?.committeeMembers || attendanceData?.items || [])),
-            ...(Array.isArray(detail?.attendees) ? detail.attendees : []),
-            ...(Array.isArray(detail?.committeeMembers) ? detail.committeeMembers : [])
+            ...(Array.isArray(attendanceData?.membersAttended) ? attendanceData.membersAttended : []),
+            ...(Array.isArray(attendanceData) ? attendanceData : []),
+            ...(Array.isArray(detail?.membersAttended) ? detail.membersAttended : []),
+            ...(Array.isArray(detail?.attendees) ? detail.attendees : [])
         ];
 
         for (const person of rawAttendees) {
-            const mId = extractMemberId(person);
+            if (person?.layMember) continue;
+            const mId = extractParliamentMemberIdFromCommitteePerson(person);
             if (!mId) continue;
             addCommitteeRecord(byMember, mId, {
                 eventId,
@@ -466,20 +476,21 @@ async function fetchCommitteeAppearances(dateStr) {
             });
         }
 
-        // 2. Oral evidence witnesses
+        // 2. Oral evidence witnesses (/api/Events/{id}/Activities + detail.activities + detail.nextActivity)
         const rawActivities = [
             ...(Array.isArray(activitiesData) ? activitiesData : (activitiesData?.activities || activitiesData?.items || [])),
-            ...(Array.isArray(detail?.activities) ? detail.activities : [])
+            ...(Array.isArray(detail?.activities) ? detail.activities : []),
+            ...(detail?.nextActivity ? [detail.nextActivity] : [])
         ];
 
         for (const act of rawActivities) {
-            const actTitle = stripHtml(act?.title || act?.name || title) || title;
+            const actTitle = stripHtml(act?.name || act?.title || title) || title;
             const witnesses = [
                 ...(Array.isArray(act?.witnesses) ? act.witnesses : []),
                 ...(Array.isArray(act?.oralEvidenceWitnesses) ? act.oralEvidenceWitnesses : [])
             ];
             for (const w of witnesses) {
-                const mId = extractMemberId(w);
+                const mId = extractParliamentMemberIdFromCommitteePerson(w);
                 if (!mId) continue;
                 addCommitteeRecord(byMember, mId, {
                     eventId,
@@ -494,22 +505,16 @@ async function fetchCommitteeAppearances(dateStr) {
     });
 
     console.log(`Committees API scanned ${events.length} events on ${dateStr} -> matched ${byMember.size} MPs.`);
-    if (events.length > 0 && byMember.size === 0 && sampleDiagnostic) {
-        console.log(`Committees API sample payload (event ${sampleDiagnostic.eventId}):`, JSON.stringify(sampleDiagnostic));
-    }
-
     return byMember;
 }
 
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-let workingGeminiModel = null;
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 async function callGeminiApi(prompt) {
-    const candidates = workingGeminiModel ? [workingGeminiModel] : GEMINI_MODELS;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
     let lastError = null;
 
-    for (const model of candidates) {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
         const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -524,18 +529,20 @@ async function callGeminiApi(prompt) {
         });
 
         if (res.ok) {
-            workingGeminiModel = model;
             return res.json();
         }
 
         const errBody = await res.text().catch(() => '');
-        lastError = new Error(`Gemini (${model}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
-        if (res.status !== 404) {
-            throw lastError;
+        lastError = new Error(`Gemini (${GEMINI_MODEL}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
+
+        if (res.status === 429 && attempt === 0) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
         }
+        throw lastError;
     }
 
-    throw lastError || new Error('No working Gemini model found');
+    throw lastError;
 }
 
 async function summarizeWithGemini(mp, dateStr, speeches, committees, writtenQuestions, votes) {
@@ -735,7 +742,7 @@ export async function generateBriefings() {
 
     const readableDate = formatReadableDate(dateStr);
 
-    const rowsToUpsert = await mapWithConcurrency(mps, 8, async (mp) => {
+    const rowsToUpsert = await mapWithConcurrency(mps, 4, async (mp) => {
         const memberId = mp.parliament_member_id;
         const speeches = speechesByMember.get(memberId) || [];
         const committees = committeesByMember.get(memberId) || [];
@@ -888,9 +895,7 @@ export async function generateBriefings() {
         }
     }
 
-    if (workingGeminiModel) {
-        console.log(`Gemini model used: ${workingGeminiModel}`);
-    }
+    console.log(`Gemini model used: ${GEMINI_MODEL}`);
     console.log(`[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${dateStr}.`);
 }
 

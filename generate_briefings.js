@@ -4,8 +4,8 @@
  * Fetches House of Commons Hansard speeches, Select/Bill Committee appearances
  * (via Events, Attendance, and Activities endpoints), Written Parliamentary Questions,
  * and Commons Division votes for a target sitting date, generates plain-English
- * neutral summaries via Gemini, enriches voting-only context with UK Parliament
- * Bills API details, and upserts into `daily_briefings`.
+ * neutral summaries and per-division explainers via Gemini, enriches voting-only
+ * context with UK Parliament Bills API details, and upserts into `daily_briefings`.
  */
 
 import 'dotenv/config';
@@ -309,7 +309,230 @@ async function fetchWrittenQuestionsForDate(dateStr) {
     return byMember;
 }
 
-async function fetchDivisionVotes(dateStr) {
+const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+let workingGeminiModel = null;
+
+async function callGeminiApi(prompt) {
+    const candidates = workingGeminiModel ? [workingGeminiModel] : GEMINI_MODELS;
+    let lastError = null;
+
+    for (const model of candidates) {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.2,
+                        responseMimeType: 'application/json'
+                    }
+                }),
+                signal: AbortSignal.timeout(25000)
+            });
+
+            if (res.ok) {
+                workingGeminiModel = model;
+                return res.json();
+            }
+
+            const errBody = await res.text().catch(() => '');
+            lastError = new Error(`Gemini (${model}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
+
+            if (res.status === 429 && attempt === 0) {
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+            }
+            break;
+        }
+    }
+
+    throw lastError || new Error('No working Gemini model found');
+}
+
+function buildFallbackDivisionExplainer(divisionTitle, divisionId, readableDate) {
+    const title = (divisionTitle || 'House of Commons Division').trim();
+    const lower = title.toLowerCase();
+    const parliamentUrl = divisionId
+        ? `https://votes.parliament.uk/votes/commons/division/${divisionId}`
+        : 'https://votes.parliament.uk/';
+
+    const billBase = title
+        .replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '')
+        .trim();
+
+    const newClauseMatch = title.match(/\b(New Clause|New Schedule|Amendment)\s+([A-Z0-9]+)/i);
+    if (newClauseMatch) {
+        const clauseLabel = `${newClauseMatch[1]} ${newClauseMatch[2]}`;
+        return {
+            whatItDoes: `${clauseLabel} was a proposed addition or change to ${billBase} debated during its ${title.includes('Report Stage') ? 'Report Stage' : 'Commons scrutiny'} on ${readableDate}.`,
+            whatAyeMeans: `Supported adding ${clauseLabel} into ${billBase}.`,
+            whatNoMeans: `Voted against adding ${clauseLabel} to the Bill.`,
+            parliamentUrl
+        };
+    }
+
+    if (lower.includes('second reading')) {
+        return {
+            whatItDoes: `Second Reading is the first major Commons vote on the main principles of ${billBase}.`,
+            whatAyeMeans: `Supported the general principles of ${billBase} and allowed it to advance to detailed line-by-line committee scrutiny.`,
+            whatNoMeans: `Opposed ${billBase} progressing further in the House of Commons.`,
+            parliamentUrl
+        };
+    }
+
+    if (lower.includes('third reading')) {
+        return {
+            whatItDoes: `Third Reading is the final House of Commons vote on the amended text of ${billBase} before it moves to the House of Lords (or Royal Assent).`,
+            whatAyeMeans: `Approved the final Commons version of ${billBase}.`,
+            whatNoMeans: `Voted to reject the final Commons version of ${billBase}.`,
+            parliamentUrl
+        };
+    }
+
+    if (lower.includes('opposition day')) {
+        const topic = title.replace(/^Opposition [Dd]ay:\s*/i, '').replace(/:\s*Opposition motion$/i, '').trim();
+        return {
+            whatItDoes: `An Opposition Day motion putting forward a non-binding policy statement or call to action on ${topic || 'a chosen policy topic'}.`,
+            whatAyeMeans: `Backed the Opposition motion on ${topic || 'the debate topic'}.`,
+            whatNoMeans: `Voted against the Opposition motion.`,
+            parliamentUrl
+        };
+    }
+
+    if (lower.includes('regulations') || lower.includes('order')) {
+        return {
+            whatItDoes: `${title} is secondary legislation (a Statutory Instrument) brought forward by ministers under powers granted by an existing Act of Parliament.`,
+            whatAyeMeans: `Approved the regulations/order so they can take or remain in legal effect.`,
+            whatNoMeans: `Voted to reject the regulations/order.`,
+            parliamentUrl
+        };
+    }
+
+    return {
+        whatItDoes: `${title} was put to a formal House of Commons division on ${readableDate} to determine whether MPs supported the measure or motion.`,
+        whatAyeMeans: `Supported the motion or legislative proposal.`,
+        whatNoMeans: `Opposed the motion or legislative proposal.`,
+        parliamentUrl
+    };
+}
+
+async function fetchOfficialEvidenceForDivision(divisionTitle, speechesByMember) {
+    const evidenceParts = [];
+    const title = (divisionTitle || '').trim();
+
+    // 1. Check Bills API if title references a Bill
+    const billBase = title
+        .replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '')
+        .trim();
+
+    if (/\bbill\b/i.test(billBase)) {
+        try {
+            const url = new URL(BILLS_SEARCH_API);
+            url.searchParams.set('SearchTerm', billBase);
+            url.searchParams.set('Take', '1');
+            const data = await fetchJsonWithTimeout(url.toString(), 8000);
+            const bill = data?.items?.[0];
+            if (bill?.billId) {
+                if (bill.longTitle) {
+                    evidenceParts.push(`Bill Long Title: ${stripHtml(bill.longTitle)}`);
+                }
+                const newClauseMatch = title.match(/\b(?:New Clause|New Schedule|Amendment)\s+([A-Z0-9]+)/i);
+                if (newClauseMatch) {
+                    const clauseNum = newClauseMatch[1];
+                    const stagesData = await fetchJsonWithTimeout(`${BILLS_SEARCH_API}/${bill.billId}/Stages`, 8000).catch(() => null);
+                    const stages = stagesData?.items || [];
+                    const reportOrLatest = stages.find(s => /report/i.test(s.description || '')) || stages[stages.length - 1];
+                    if (reportOrLatest?.id) {
+                        const amendUrl = new URL(`${BILLS_SEARCH_API}/${bill.billId}/Stages/${reportOrLatest.id}/Amendments`);
+                        amendUrl.searchParams.set('SearchTerm', clauseNum);
+                        amendUrl.searchParams.set('Take', '3');
+                        const amendData = await fetchJsonWithTimeout(amendUrl.toString(), 8000).catch(() => null);
+                        const matchedAmend = (amendData?.items || []).find(a =>
+                            String(a.amendmentNumber || '').toLowerCase() === `nc${clauseNum.toLowerCase()}` ||
+                            String(a.amendmentNumber || '').toLowerCase() === clauseNum.toLowerCase()
+                        ) || amendData?.items?.[0];
+                        if (matchedAmend) {
+                            const amendSummary = stripHtml(matchedAmend.explanatoryStatement || matchedAmend.summaryText || '');
+                            if (amendSummary) {
+                                evidenceParts.push(`Amendment/Clause Explanatory Note: ${amendSummary.slice(0, 600)}`);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    // 2. Pull matching debate excerpts from the day's Hansard speeches (great for New Clauses, Opposition Days, SIs)
+    if (speechesByMember && speechesByMember.size > 0) {
+        const keywords = title
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 3 && !['bill', 'report', 'stage', 'second', 'third', 'reading', 'opposition', 'motion', 'draft', 'regulations', '2025', '2026'].includes(w));
+
+        const matchedSnippets = [];
+        for (const speeches of speechesByMember.values()) {
+            for (const s of speeches) {
+                const hay = `${s.debateTitle} ${s.text}`.toLowerCase();
+                if (keywords.some(k => hay.includes(k))) {
+                    matchedSnippets.push(`${s.debateTitle}: ${s.text.slice(0, 450)}`);
+                    break;
+                }
+            }
+            if (matchedSnippets.length >= 3) break;
+        }
+        if (matchedSnippets.length > 0) {
+            evidenceParts.push(`Commons Debate Excerpts:\n${matchedSnippets.join('\n')}`);
+        }
+    }
+
+    return evidenceParts.join('\n\n');
+}
+
+async function generateDivisionExplainer(detail, dateStr, speechesByMember) {
+    const divisionId = detail.DivisionId;
+    const title = detail.Title || 'House of Commons Division';
+    const readableDate = formatReadableDate(dateStr);
+    const fallback = buildFallbackDivisionExplainer(title, divisionId, readableDate);
+
+    try {
+        const officialEvidence = await fetchOfficialEvidenceForDivision(title, speechesByMember);
+        const prompt = `You are a strictly neutral, non-partisan UK parliamentary editor writing for Whip (whipdaily.uk).
+Explain in plain British English what the following House of Commons division was actually about so an everyday voter understands what MPs were voting on.
+
+Division Title: "${title}"
+Sitting Date: ${readableDate}
+${officialEvidence ? `\nOfficial Parliament Context:\n${officialEvidence}\n` : ''}
+
+Rules:
+- Be strictly factual, concise, and non-partisan. Never take a political side.
+- If it is a New Clause, Amendment, Opposition Day motion, or Statutory Instrument, explain specifically what policy change or proposal it sought to introduce.
+- Return valid JSON only with keys: "whatItDoes", "whatAyeMeans", "whatNoMeans".
+- "whatItDoes": 2 clear sentences explaining what the bill, clause, motion, or regulation actually does in plain English.
+- "whatAyeMeans": 1 concise sentence starting with a verb (e.g., "Supported...").
+- "whatNoMeans": 1 concise sentence starting with a verb (e.g., "Opposed...").`;
+
+        const payload = await callGeminiApi(prompt);
+        const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        const parsed = JSON.parse(rawText);
+
+        return {
+            whatItDoes: parsed.whatItDoes || fallback.whatItDoes,
+            whatAyeMeans: parsed.whatAyeMeans || fallback.whatAyeMeans,
+            whatNoMeans: parsed.whatNoMeans || fallback.whatNoMeans,
+            parliamentUrl: fallback.parliamentUrl
+        };
+    } catch (err) {
+        console.warn(`Division explainer fallback for "${title}": ${err.message}`);
+        return fallback;
+    }
+}
+
+async function fetchDivisionVotes(dateStr, speechesByMember = null) {
     const votesByMember = new Map();
     let divisions = [];
 
@@ -338,6 +561,11 @@ async function fetchDivisionVotes(dateStr) {
         }
     }
 
+    // Generate one plain-English explainer per unique division (shared across all MPs)
+    await mapWithConcurrency(detailedDivisions, 3, async (detail) => {
+        detail._explainer = await generateDivisionExplainer(detail, dateStr, speechesByMember);
+    });
+
     for (const detail of detailedDivisions) {
         const ayes = new Set([
             ...(detail.Ayes || []).map(m => Number(m.MemberId)),
@@ -357,7 +585,8 @@ async function fetchDivisionVotes(dateStr) {
         const baseRecord = {
             divisionId: detail.DivisionId,
             title: detail.Title || 'House of Commons Division',
-            houseResult
+            houseResult,
+            explainer: detail._explainer || null
         };
 
         const allVoterIds = new Set([...ayes, ...noes]);
@@ -519,49 +748,6 @@ async function fetchCommitteeAppearances(dateStr, memberIdByNormName = null) {
 
     console.log(`Committees API scanned ${events.length} events on ${dateStr} -> matched ${byMember.size} MPs.`);
     return byMember;
-}
-
-const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
-let workingGeminiModel = null;
-
-async function callGeminiApi(prompt) {
-    const candidates = workingGeminiModel ? [workingGeminiModel] : GEMINI_MODELS;
-    let lastError = null;
-
-    for (const model of candidates) {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-
-        for (let attempt = 0; attempt < 2; attempt++) {
-            const res = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.2,
-                        responseMimeType: 'application/json'
-                    }
-                }),
-                signal: AbortSignal.timeout(25000)
-            });
-
-            if (res.ok) {
-                workingGeminiModel = model;
-                return res.json();
-            }
-
-            const errBody = await res.text().catch(() => '');
-            lastError = new Error(`Gemini (${model}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
-
-            if (res.status === 429 && attempt === 0) {
-                await new Promise(r => setTimeout(r, 2000));
-                continue;
-            }
-            break;
-        }
-    }
-
-    throw lastError || new Error('No working Gemini model found');
 }
 
 async function summarizeWithGemini(mp, dateStr, speeches, committees, writtenQuestions, votes) {
@@ -736,12 +922,13 @@ export async function generateBriefings() {
         if (shortNorm) memberIdByNormName.set(shortNorm, mp.parliament_member_id);
     }
 
-    const [speechesByMember, { divisions, votesByMember }, committeesByMember, wqByMember] = await Promise.all([
+    const [speechesByMember, committeesByMember, wqByMember] = await Promise.all([
         fetchHansardContributions(dateStr),
-        fetchDivisionVotes(dateStr),
         fetchCommitteeAppearances(dateStr, memberIdByNormName),
         fetchWrittenQuestionsForDate(dateStr)
     ]);
+
+    const { divisions, votesByMember } = await fetchDivisionVotes(dateStr, speechesByMember);
 
     const isNonSittingDay =
         speechesByMember.size === 0 &&
@@ -763,7 +950,8 @@ export async function generateBriefings() {
             title: d.Title || 'House of Commons Division',
             houseResult: ayeCount > noCount
                 ? `Passed (${ayeCount} Ayes to ${noCount} Noes)`
-                : `Rejected (${ayeCount} Ayes to ${noCount} Noes)`
+                : `Rejected (${ayeCount} Ayes to ${noCount} Noes)`,
+            explainer: d._explainer || null
         };
     });
 

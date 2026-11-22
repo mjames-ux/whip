@@ -2046,7 +2046,7 @@
                 entry.row.activity_tag !== 'No Vote Recorded'
             );
 
-            const spokenEntries = substantiveEntries.filter(entry =>
+            const spokenOrCommitteeEntries = substantiveEntries.filter(entry =>
                 !/^\d+\s+Division Votes?$/i.test(entry.row.activity_tag || '') &&
                 !/^\d+\s+Written Questions?$/i.test(entry.row.activity_tag || '') &&
                 !/^Written Questions/i.test(entry.row.activity_tag || '')
@@ -2113,7 +2113,7 @@
                 };
             }
 
-            if (spokenEntries.length === 0) {
+            if (spokenOrCommitteeEntries.length === 0) {
                 const sentences = [];
                 if (combinedWrittenQuestions.length > 0) {
                     const depts = [...new Set(combinedWrittenQuestions.map(q => q.department))];
@@ -2173,8 +2173,13 @@
                 };
             }
 
-            const dayHighlights = spokenEntries
-                .map(({ date, row }) => `${formatShortPillDate(date)}: ${row.summary_para_1}`)
+            const dayHighlights = spokenOrCommitteeEntries
+                .map(({ date, row }) => {
+                    const cleanedDaily = (row.summary_para_1 || '')
+                        .replace(/\s+and cast \d+ recorded division votes?\./i, '.')
+                        .trim();
+                    return `${formatShortPillDate(date)}: ${cleanedDaily}`;
+                })
                 .join(' ');
 
             const extras = [];
@@ -2192,7 +2197,7 @@
                 ? uniqueContexts.slice(0, 2).join(' ')
                 : (billContext || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`);
 
-            const tagParts = [`${spokenEntries.length} Active ${spokenEntries.length === 1 ? 'Day' : 'Days'}`];
+            const tagParts = [`${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`];
             if (combinedCommittees.length > 0) {
                 tagParts.push(`${combinedCommittees.length} Committee ${combinedCommittees.length === 1 ? 'Session' : 'Sessions'}`);
             }

@@ -398,7 +398,6 @@ function normalizePersonName(rawName) {
 function extractParliamentMemberIdFromCommitteePerson(obj, memberIdByNormName) {
     if (!obj || typeof obj !== 'object') return null;
 
-    // 1. Explicit memberId fields
     const directId = Number(
         obj.memberId ??
         obj.MemberId ??
@@ -407,14 +406,12 @@ function extractParliamentMemberIdFromCommitteePerson(obj, memberIdByNormName) {
     );
     if (directId > 0) return directId;
 
-    // 2. Parse from photoUrl e.g. "https://members-api.parliament.uk/api/Members/1241/Thumbnail"
     const photoUrl = String(obj.photoUrl ?? obj.PhotoUrl ?? obj.member?.photoUrl ?? '');
     const photoMatch = photoUrl.match(/\/Members\/(\d+)\//i);
     if (photoMatch) {
         return Number(photoMatch[1]);
     }
 
-    // 3. Fallback match by MP name when witness/attendee object only provides a name
     if (memberIdByNormName) {
         const normName = normalizePersonName(obj.name ?? obj.Name ?? obj.member?.name);
         if (normName && memberIdByNormName.has(normName)) {
@@ -524,41 +521,47 @@ async function fetchCommitteeAppearances(dateStr, memberIdByNormName = null) {
     return byMember;
 }
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+let workingGeminiModel = null;
 
 async function callGeminiApi(prompt) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+    const candidates = workingGeminiModel ? [workingGeminiModel] : GEMINI_MODELS;
     let lastError = null;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.2,
-                    responseMimeType: 'application/json'
-                }
-            }),
-            signal: AbortSignal.timeout(25000)
-        });
+    for (const model of candidates) {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
 
-        if (res.ok) {
-            return res.json();
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.2,
+                        responseMimeType: 'application/json'
+                    }
+                }),
+                signal: AbortSignal.timeout(25000)
+            });
+
+            if (res.ok) {
+                workingGeminiModel = model;
+                return res.json();
+            }
+
+            const errBody = await res.text().catch(() => '');
+            lastError = new Error(`Gemini (${model}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
+
+            if (res.status === 429 && attempt === 0) {
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+            }
+            break;
         }
-
-        const errBody = await res.text().catch(() => '');
-        lastError = new Error(`Gemini (${GEMINI_MODEL}) HTTP ${res.status}: ${errBody.slice(0, 120)}`);
-
-        if (res.status === 429 && attempt === 0) {
-            await new Promise(r => setTimeout(r, 2000));
-            continue;
-        }
-        throw lastError;
     }
 
-    throw lastError;
+    throw lastError || new Error('No working Gemini model found');
 }
 
 async function summarizeWithGemini(mp, dateStr, speeches, committees, writtenQuestions, votes) {
@@ -825,9 +828,17 @@ export async function generateBriefings() {
                 if (speeches.length > 0 || committees.length > 0) {
                     const uniqueDebates = [...new Set(speeches.map(s => s.debateTitle))].filter(Boolean);
                     const debateList = uniqueDebates.slice(0, 3).join(', ');
+                    const committeeNames = [...new Set(committees.map(c => c.committeeName).filter(Boolean))];
+                    const committeeClause = committeeNames.length > 0
+                        ? ` and participated in ${committeeNames.join(', ')}`
+                        : '';
                     const voteClause = mpVotes.length > 0
                         ? ` and cast ${mpVotes.length} recorded division ${mpVotes.length === 1 ? 'vote' : 'votes'}`
                         : '';
+
+                    const summaryPara1 = speeches.length > 0
+                        ? `${mp.short_name} spoke in the House of Commons on ${readableDate} during ${debateList}${committeeClause}${voteClause}.`
+                        : `${mp.short_name} took part in ${committeeNames.join(', ') || 'Select Committee'} proceedings on ${readableDate}${voteClause}.`;
 
                     return {
                         parliament_member_id: memberId,
@@ -836,10 +847,8 @@ export async function generateBriefings() {
                         hansard_ref: speeches[0]?.debateTitle
                             ? `HC Deb ${dateStr} — ${speeches[0].debateTitle}`
                             : `Commons Committees ${dateStr}`,
-                        summary_para_1: speeches.length > 0
-                            ? `${mp.short_name} spoke in the House of Commons on ${readableDate} during ${debateList}${voteClause}.`
-                            : `${mp.short_name} took part in ${committees[0]?.committeeName || 'Select Committee'} proceedings on ${readableDate}${voteClause}.`,
-                        summary_para_2: (await getBillContextForDivisions(mpVotes, readableDate)) || `Full verbatim contributions from ${debateList || 'this session'} are recorded in Hansard on parliament.uk.`,
+                        summary_para_1: summaryPara1,
+                        summary_para_2: (await getBillContextForDivisions(mpVotes, readableDate)) || `Full verbatim contributions from ${debateList || committeeNames.join(', ') || 'this session'} are recorded in Hansard and parliament.uk.`,
                         verbatim_excerpt: extractCleanExcerpt(speeches[0]?.text, 600),
                         glossary: [],
                         committee_sessions: committees,
@@ -919,7 +928,9 @@ export async function generateBriefings() {
         }
     }
 
-    console.log(`Gemini model used: ${GEMINI_MODEL}`);
+    if (workingGeminiModel) {
+        console.log(`Gemini model used: ${workingGeminiModel}`);
+    }
     console.log(`[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${dateStr}.`);
 }
 

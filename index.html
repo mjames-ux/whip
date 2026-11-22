@@ -671,7 +671,7 @@
                 return 'The Visitor Levy (England) Bill would allow mayors and strategic authorities in England to introduce a local overnight accommodation levy, raising funds for local transport, infrastructure, and tourism services.';
             }
             if (lower.includes('immigration and asylum')) {
-                return 'The Immigration and Asylum Bill reforms asylum claims, human rights Article 8 assessments, modern slavery referrals, and creates a new Independent Immigration Appeals Authority.';
+                return 'The Immigration and Asylum Bill reforms asylum claims, human rights assessments, modern slavery referrals, and immigration appeals.';
             }
             if (lower.includes('rosebank')) {
                 return 'The Rosebank oil field debate examined North Sea oil and gas licensing, energy security, and UK climate commitments.';
@@ -2033,6 +2033,25 @@
             }).join('');
         }
 
+        function formatWeeklyCommitteeSummary(sessions) {
+            const list = Array.isArray(sessions) ? sessions : [];
+            if (list.length === 0) return '';
+
+            const labels = list.map(s => {
+                const name = s.committeeName || 'Select Committee';
+                return s.sittingDateLabel ? `${name} (${s.sittingDateLabel})` : name;
+            });
+            const uniqueLabels = [...new Set(labels)];
+
+            if (uniqueLabels.length === 1) {
+                return `They also took part in ${list.length} committee ${list.length === 1 ? 'session' : 'sessions'}: ${uniqueLabels[0]}.`;
+            }
+            if (uniqueLabels.length === 2) {
+                return `They also took part in ${list.length} committee sessions: ${uniqueLabels[0]} and ${uniqueLabels[1]}.`;
+            }
+            return `They also took part in ${list.length} committee sessions: ${uniqueLabels[0]}, ${uniqueLabels[1]}, and ${uniqueLabels.length - 2} other ${uniqueLabels.length - 2 === 1 ? 'session' : 'sessions'}.`;
+        }
+
         function compileWeeklyBriefing(mp, weekDates, rows) {
             const sortedDates = [...weekDates].sort();
             const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
@@ -2089,6 +2108,7 @@
             const rangeLabel = formatWeekRangeLabel(sortedDates);
             const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
             const billContext = buildVoteContextFromList(combinedVotes);
+            const committeeWeeklySentence = formatWeeklyCommitteeSummary(combinedCommittees);
 
             const rawContexts = substantiveEntries
                 .map(({ row }) => (row.summary_para_2 || '').trim())
@@ -2115,6 +2135,9 @@
 
             if (spokenOrCommitteeEntries.length === 0) {
                 const sentences = [];
+                if (combinedCommittees.length > 0) {
+                    sentences.push(committeeWeeklySentence);
+                }
                 if (combinedWrittenQuestions.length > 0) {
                     const depts = [...new Set(combinedWrittenQuestions.map(q => q.department))];
                     const topics = [...new Set(combinedWrittenQuestions.map(q => q.heading))].slice(0, 2);
@@ -2183,6 +2206,9 @@
                 .join(' ');
 
             const extras = [];
+            if (committeeWeeklySentence) {
+                extras.push(committeeWeeklySentence.replace(/^They also\s+/i, ''));
+            }
             if (combinedWrittenQuestions.length > 0) {
                 extras.push(`tabled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'}`);
             }
@@ -2190,7 +2216,7 @@
                 extras.push(`cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}`);
             }
             const extraSentence = extras.length > 0
-                ? ` Across the week, ${mp.short_name} also ${extras.join(' and ')}.`
+                ? ` Across the week, ${mp.short_name} also ${extras.join(', ')}.`
                 : '';
 
             const contextHighlights = uniqueContexts.length > 0

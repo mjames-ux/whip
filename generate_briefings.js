@@ -64,6 +64,10 @@ const DEPARTMENT_MAP = [
     { match: /\bleader of the house of commons\b/i, slug: 'office-of-the-leader-of-the-house-of-commons', name: 'Office of the Leader of the House of Commons' }
 ];
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function isSinnFeinMp(mp) {
     return /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
 }
@@ -145,14 +149,14 @@ function stripHtml(html) {
 
 /**
  * Splits text into complete grammatical sentences without ever cutting mid-word or mid-sentence.
+ * Protects common parliamentary honorifics/abbreviations case-insensitively (e.g. "hon.", "right hon.", "Mr.").
  */
 function splitCompleteSentences(text) {
     const clean = stripHtml(text);
     if (!clean) return [];
 
-    // Protect common parliamentary titles/abbreviations from splitting
     const protectedText = clean
-        .replace(/\b(Mr|Mrs|Ms|Mx|Dr|Prof|Hon|Rt Hon|St|No|Nos|Vol|Col|Cols|Fig|v)\./g, '$1\u0000');
+        .replace(/\b(Mr|Mrs|Ms|Mx|Dr|Prof|Hon|Rt Hon|St|No|Nos|Vol|Col|Cols|Fig|v)\./gi, '$1\u0000');
 
     const rawParts = protectedText.match(/[^.!?]+[.!?]+(?:["”'’)\]]+)?/g) || [];
     return rawParts
@@ -161,22 +165,25 @@ function splitCompleteSentences(text) {
 }
 
 /**
- * Extracts 1 to 2 complete verbatim sentences from Hansard speech text.
- * Never truncates mid-word or mid-sentence.
+ * Extracts 1 to 2 complete substantive verbatim sentences from Hansard speech text.
+ * Skips procedural openings/interventions and never truncates mid-word or mid-sentence.
  */
 function extractCompleteVerbatimSentences(text, maxChars = 360) {
     const sentences = splitCompleteSentences(text);
     if (sentences.length === 0) return '';
 
-    // Prefer substantive sentences (skip very short procedural formalities like "I beg to move.")
-    const substantiveStartIdx = sentences.findIndex(
-        s => s.length >= 45 && !/^(I beg to move|I thank my|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker)[,.!]?$/i.test(s)
-    );
+    const isProceduralLine = (s) =>
+        s.length < 45 ||
+        /^(I beg to move|I thank my|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker|Order|Will the (right )?hon\.|On a point of order)/i.test(s) ||
+        /\bcatch (his|her|your) eye\b/i.test(s);
+
+    const substantiveStartIdx = sentences.findIndex(s => !isProceduralLine(s));
     const startIdx = substantiveStartIdx >= 0 ? substantiveStartIdx : 0;
 
     let selected = sentences[startIdx];
     if (
         sentences[startIdx + 1] &&
+        !isProceduralLine(sentences[startIdx + 1]) &&
         selected.length < 180 &&
         selected.length + 1 + sentences[startIdx + 1].length <= maxChars
     ) {
@@ -218,7 +225,6 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
             return cleanNarrative;
         }
 
-        // Remove any paraphrased or truncated quote and append the verified verbatim sentence cleanly
         const withoutBadQuotes = cleanNarrative
             .replace(/\s*[“"][^”"]+[”"]\s*/g, ' ')
             .replace(/\s+\./g, '.')
@@ -230,7 +236,6 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
             : withoutBadQuotes;
     }
 
-    // If Gemini omitted a quote altogether when speeches exist, weave the verified verbatim sentence in
     return fallbackQuote
         ? `${cleanNarrative}\n\nDuring the debate, they told the House: “${fallbackQuote}”`
         : cleanNarrative;
@@ -615,15 +620,20 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
     }
 }
 
+let geminiWarnCount = 0;
+
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
     if (!geminiApiKey) return null;
 
     const askedQuestions = writtenQuestions.filter(q => q.direction !== 'answered');
     const answeredQuestions = writtenQuestions.filter(q => q.direction === 'answered');
 
-    const speechDigest = speeches
-        .slice(0, 5)
-        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 700)}"`)
+    // Sort longest speeches first so main debate contributions appear ahead of brief interventions
+    const rankedSpeeches = [...speeches].sort((a, b) => b.text.length - a.text.length);
+
+    const speechDigest = rankedSpeeches
+        .slice(0, 4)
+        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 900)}"`)
         .join('\n');
 
     const committeeDigest = committees
@@ -652,14 +662,15 @@ Audience & Tone Rules:
 - Never guess or assume specific topics of constituency work—if mentioning local work, refer only to "handling urgent constituent casework".
 
 Verbatim Hansard Quote Rules (CRITICAL):
-- If Chamber Speeches are provided below, weave ONE exact, word-for-word complete sentence (or two consecutive complete sentences) from the speech transcript into "summary_para_1", enclosed in double quotation marks ("...").
+- If Chamber Speeches are provided below, weave ONE exact, word-for-word complete substantive sentence (or two consecutive complete sentences) from the speech transcript into "summary_para_1", enclosed in double quotation marks ("...").
+- Choose a substantive policy point rather than a procedural pleasantry or point of order.
 - NEVER paraphrase, alter, or shorten words inside the quotation marks, and NEVER cut off a quote mid-word or mid-sentence.
 - Introduce the quote naturally so it flows smoothly within the surrounding sentences.
 
 Return ONLY valid JSON with keys: "activity_tag", "summary_para_1", "summary_para_2", "glossary".
-- "activity_tag": short 2–4 word badge (e.g., "Transport Debate", "Answered 4 Written Questions", "Select Committee Evidence", "3 Division Votes").
+- "activity_tag": short 2–4 word badge (e.g., "AI Risk Debate", "Answered 4 Written Questions", "Select Committee Evidence", "3 Division Votes").
 - "summary_para_1": 2 to 3 short, well-paced paragraphs separated by \\n\\n covering speeches (with the exact verbatim quote), committee work, written questions tabled or answered as a minister, and/or division votes.
-- "summary_para_2": 1 short paragraph (2–3 clear sentences) titled conceptually as "Why this matters"—explaining in everyday language how the bill, policy issue, or parliamentary step affects ordinary people or how Parliament works.
+- "summary_para_2": 1 short paragraph (2–3 clear sentences) explaining "Why this matters"—specifically explaining in everyday language the bill, debate topic (e.g. AI risks, transport, local services), or policy issue the MP engaged with.
 - "glossary": array of 1–2 objects {"term": "...", "plain": "..."} explaining any parliamentary term mentioned (or [] if none).
 
 Data for ${readableDate}:
@@ -669,46 +680,67 @@ ${committeeDigest ? `Committee Sessions:\n${committeeDigest}` : 'Committee Sessi
 ${wqDigest ? `Written Parliamentary Questions:\n${wqDigest}` : 'Written Parliamentary Questions: None'}
 ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Votes: None'}`;
 
-    try {
-        const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.2,
-                        responseMimeType: 'application/json'
-                    }
-                }),
-                signal: AbortSignal.timeout(25000)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            // Gentle pacing (~350ms) to stay well within Gemini API rate limits across ~200 active MPs
+            await sleep(attempt === 1 ? 350 : 2500);
+
+            const res = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            temperature: 0.2,
+                            responseMimeType: 'application/json'
+                        }
+                    }),
+                    signal: AbortSignal.timeout(30000)
+                }
+            );
+
+            if (res.status === 429 && attempt === 1) {
+                continue;
             }
-        );
 
-        if (!res.ok) return null;
-        const payload = await res.json();
-        const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!rawText) return null;
+            if (!res.ok) {
+                if (geminiWarnCount < 3) {
+                    geminiWarnCount += 1;
+                    console.warn(`Gemini HTTP ${res.status} for ${mp.short_name}`);
+                }
+                return null;
+            }
 
-        const parsed = JSON.parse(rawText);
-        if (!parsed?.summary_para_1 || !parsed?.summary_para_2) return null;
+            const payload = await res.json();
+            const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!rawText) return null;
 
-        const verifiedNarrative = ensureVerbatimQuoteIntegrity(
-            parsed.summary_para_1,
-            speeches,
-            verbatimExcerpt
-        );
+            const parsed = JSON.parse(rawText);
+            if (!parsed?.summary_para_1 || !parsed?.summary_para_2) return null;
 
-        return {
-            activity_tag: String(parsed.activity_tag || 'Parliamentary Business').slice(0, 60),
-            summary_para_1: verifiedNarrative,
-            summary_para_2: String(parsed.summary_para_2).trim(),
-            glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 3) : []
-        };
-    } catch {
-        return null;
+            const verifiedNarrative = ensureVerbatimQuoteIntegrity(
+                parsed.summary_para_1,
+                rankedSpeeches,
+                verbatimExcerpt
+            );
+
+            return {
+                activity_tag: String(parsed.activity_tag || 'Parliamentary Business').slice(0, 60),
+                summary_para_1: verifiedNarrative,
+                summary_para_2: String(parsed.summary_para_2).trim(),
+                glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 3) : []
+            };
+        } catch (err) {
+            if (attempt === 2 && geminiWarnCount < 3) {
+                geminiWarnCount += 1;
+                console.warn(`Gemini error for ${mp.short_name}: ${err.message}`);
+            }
+        }
     }
+
+    return null;
 }
 
 export async function generateBriefings() {
@@ -761,6 +793,7 @@ export async function generateBriefings() {
     );
 
     const rowsToUpsert = [];
+    let aiSuccessCount = 0;
 
     for (const mp of mps) {
         const memberId = Number(mp.parliament_member_id);
@@ -872,10 +905,14 @@ export async function generateBriefings() {
                 summaryPara2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
             }
         } else {
-            if (speeches.length > 0) {
-                verbatimExcerpt = extractCompleteVerbatimSentences(speeches[0].text, 360);
-                if (speeches[0].hrsRef) {
-                    hansardRef = `HC Deb ${shortRefDate} • ${speeches[0].hrsRef}`;
+            const primarySpeech = speeches.length > 0
+                ? [...speeches].sort((a, b) => b.text.length - a.text.length)[0]
+                : null;
+
+            if (primarySpeech) {
+                verbatimExcerpt = extractCompleteVerbatimSentences(primarySpeech.text, 360);
+                if (primarySpeech.hrsRef) {
+                    hansardRef = `HC Deb ${shortRefDate} • ${primarySpeech.hrsRef}`;
                 }
             }
 
@@ -891,6 +928,7 @@ export async function generateBriefings() {
             });
 
             if (aiSummary) {
+                aiSuccessCount += 1;
                 activityTag = aiSummary.activity_tag;
                 summaryPara1 = aiSummary.summary_para_1;
                 summaryPara2 = aiSummary.summary_para_2;
@@ -975,7 +1013,10 @@ export async function generateBriefings() {
         }
     }
 
-    console.log(`[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${targetDate}.`);
+    console.log(
+        `[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${targetDate} ` +
+        `(${aiSuccessCount} Gemini narrative summaries).`
+    );
 }
 
 generateBriefings();

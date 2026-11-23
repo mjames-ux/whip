@@ -217,7 +217,6 @@ function extractBestVerbatimQuote(speeches, maxChars = 360) {
         }
     }
 
-    // Fallback to any complete sentence from the longest speech if all were brief interventions
     const fallbackQuote = extractCompleteVerbatimSentences(ranked[0].text, maxChars, true);
     return { quote: fallbackQuote, hrsRef: ranked[0].hrsRef || '' };
 }
@@ -563,8 +562,8 @@ async function fetchWrittenQuestionsForDate(dateStr) {
 async function fetchCommitteeSessionsForDate(dateStr) {
     const byMember = new Map();
     const url = new URL(COMMITTEES_EVENTS_API);
-    url.searchParams.set('StartDate', `${dateStr}T00:00:00Z`);
-    url.searchParams.set('EndDate', `${dateStr}T23:59:59Z`);
+    url.searchParams.set('StartDate', dateStr);
+    url.searchParams.set('EndDate', dateStr);
 
     let meetings = [];
     try {
@@ -650,7 +649,7 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
 }
 
 let geminiWarnCount = 0;
-let activeGeminiModel = 'gemini-2.5-flash';
+let activeGeminiModel = 'gemini-3.8-flash';
 
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
     if (!geminiApiKey) return null;
@@ -711,7 +710,7 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
 
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            await sleep(attempt === 1 ? 350 : 2500);
+            await sleep(attempt === 1 ? 250 : 2000);
 
             const res = await fetch(
                 `https://generativelanguage.googleapis.com/v1beta/models/${activeGeminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
@@ -733,9 +732,9 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                 const errPreview = await res.text().catch(() => '');
                 if (geminiWarnCount < 3) {
                     geminiWarnCount += 1;
-                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status}, switching to gemini-2.0-flash: ${errPreview.slice(0, 180)}`);
+                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status}, switching to gemini-3.6-flash: ${errPreview.slice(0, 180)}`);
                 }
-                activeGeminiModel = 'gemini-2.0-flash';
+                activeGeminiModel = 'gemini-3.6-flash';
                 continue;
             }
 

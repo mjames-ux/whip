@@ -195,6 +195,17 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
 
     const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
 
+    // Prioritize "Why this matters" context from days the MP spoke or sat on a committee
+    const spokenContexts = spokenOrCommitteeEntries
+        .map(e => (e.row.summary_para_2 || '').trim())
+        .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
+
+    const allContexts = substantiveEntries
+        .map(e => (e.row.summary_para_2 || '').trim())
+        .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
+
+    const uniqueContexts = [...new Set(spokenContexts.length > 0 ? spokenContexts : allContexts)];
+
     let para1 = '';
     let para2 = '';
     let contextHeading = 'Why this matters';
@@ -257,19 +268,26 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
             paragraphs.push(`In the voting lobbies, ${mp.short_name} took part in ${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'division' : 'divisions'}, ${voteParts.join(' and ')}.`);
         }
         para1 = paragraphs.join('\n\n');
-        const contexts = [...new Set(substantiveEntries.map(e => (e.row.summary_para_2 || '').trim()).filter(Boolean))];
-        para2 = contexts[0] || `Much of an MP's parliamentary work takes place in committees, written scrutiny, and division votes outside main Chamber speeches.`;
+        para2 = uniqueContexts[0] || `Much of an MP's parliamentary work takes place in committees, written scrutiny, and division votes outside main Chamber speeches.`;
         activityTag = activeVoteRows.length > 0
             ? `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`
             : `${combinedWqs.length} Written ${combinedWqs.length === 1 ? 'Question' : 'Questions'}`;
     } else {
         const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
             const body = (row.summary_para_1 || '').trim();
-            return `On ${formatShortPillDate(date)}, ${body.charAt(0).toLowerCase()}${body.slice(1)}`;
-        });
+            const subParas = body.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+            if (subParas.length === 0) return '';
+
+            const cleanedFirst = subParas[0]
+                .replace(/^On\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},\s*/i, '')
+                .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '');
+
+            subParas[0] = `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
+            return subParas.join('\n\n');
+        }).filter(Boolean);
+
         para1 = dayParagraphs.join('\n\n');
-        const contexts = [...new Set(substantiveEntries.map(e => (e.row.summary_para_2 || '').trim()).filter(Boolean))];
-        para2 = contexts[0] || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
+        para2 = uniqueContexts[0] || `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
         activityTag = `${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`;
     }
 

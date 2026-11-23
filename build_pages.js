@@ -42,6 +42,23 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
+function renderNarrativeParagraphsHtml(text) {
+    const paragraphs = String(text || '')
+        .split(/\n{2,}/)
+        .map(p => p.trim())
+        .filter(Boolean);
+
+    if (paragraphs.length === 0) return '';
+
+    return paragraphs.map(p => {
+        const escaped = escapeHtml(p).replace(
+            /(&ldquo;|&quot;)([\s\S]*?)(&rdquo;|&quot;)/g,
+            '<em class="font-editorial italic text-ink">$1$2$3</em>'
+        );
+        return `<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${escaped}</p>`;
+    }).join('\n                        ');
+}
+
 function slugify(str) {
     return String(str || '')
         .normalize('NFKD')
@@ -125,6 +142,7 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
     const rangeLabel = formatWeekRangeLabel(sortedDates);
 
     const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
+    const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
     const isMinister = Boolean(mp.role_title && mp.role_title.includes('• MP for '));
     const postTitle = isMinister ? mp.role_title.split('• MP for ')[0].trim() : null;
 
@@ -147,6 +165,7 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
         e.row.activity_tag !== 'Constituency & Parliamentary Work' &&
         e.row.activity_tag !== 'Ministerial & Departmental Work' &&
         e.row.activity_tag !== 'Abstentionist MP' &&
+        e.row.activity_tag !== 'Chairing the House' &&
         e.row.activity_tag !== 'No Vote Recorded'
     );
 
@@ -178,27 +197,41 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
 
     let para1 = '';
     let para2 = '';
+    let contextHeading = 'Why this matters';
     let activityTag = 'Weekly Roundup';
 
     if (substantiveEntries.length === 0 && combinedWqs.length === 0 && combinedCommittees.length === 0) {
         if (isSinnFein) {
             activityTag = 'Abstentionist MP';
-            para1 = `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.`;
-            para2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.`;
+            contextHeading = 'Why Sinn Féin MPs do not sit at Westminster';
+            para1 = `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.\n\nInstead of taking a seat in Westminster, Sinn Féin MPs represent constituents locally in Northern Ireland.`;
+            para2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary.`;
+        } else if (isSpeakerOrDeputy) {
+            activityTag = 'Chairing the House';
+            contextHeading = 'Role of the Speaker’s Chair';
+            para1 = `${mp.short_name} did not speak in debates or vote in Commons divisions during the week of ${rangeLabel} due to the strict impartiality required of the Speaker’s Chair.`;
+            para2 = `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, keep order, and select amendments—voting only to break a tied result.`;
         } else if (isMinister) {
             activityTag = deptInfo?.deptName || 'Ministerial Duty';
+            contextHeading = 'What ministers do outside the Chamber';
             para1 = `${mp.short_name} had no spoken Commons Chamber contributions or recorded division votes during the week of ${rangeLabel}.`;
-            para2 = `Ministers do not table written questions or sit on select committees, and typically speak in the Chamber only during their department's question rota or legislation.`;
+            para2 = `Ministers do not table written questions or sit on select committees, focusing on running their department and speaking in the Chamber during their department's question rota or legislation.`;
         } else {
             activityTag = `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`;
-            para1 = `${mp.short_name} did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes during the week of ${rangeLabel}.`;
-            para2 = `MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.`;
+            contextHeading = 'What MPs do behind the scenes';
+            const missedLine = combinedVotes.length > 0
+                ? `\n\nAcross ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'vote' : 'votes'} held last week, no vote was recorded for ${mp.short_name}—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.`
+                : '';
+            para1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of ${rangeLabel}.\n\nHaving a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.${missedLine}`;
+            para2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
         }
     } else if (spokenOrCommitteeEntries.length === 0) {
-        const sentences = [];
+        const paragraphs = [];
+        paragraphs.push(`${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
+
         if (combinedCommittees.length > 0) {
             const labels = [...new Set(combinedCommittees.map(c => `${c.committeeName} (${c.sittingDateLabel})`))];
-            sentences.push(`They took part in ${combinedCommittees.length} committee ${combinedCommittees.length === 1 ? 'session' : 'sessions'}: ${labels.join(', ')}.`);
+            paragraphs.push(`They took part in ${combinedCommittees.length} select committee ${combinedCommittees.length === 1 ? 'session' : 'sessions'}: ${labels.join(', ')}.`);
         }
         if (combinedWqs.length > 0) {
             const askedWqs = combinedWqs.filter(q => q.direction !== 'answered');
@@ -206,12 +239,12 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
             if (answeredWqs.length > 0) {
                 const depts = [...new Set(answeredWqs.map(q => q.department))];
                 const topics = [...new Set(answeredWqs.map(q => q.heading))].slice(0, 2);
-                sentences.push(`${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} for ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
+                paragraphs.push(`On behalf of ${depts.slice(0, 2).join(' and ')}, ${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} on ${topics.join(' and ')}.`);
             }
             if (askedWqs.length > 0) {
                 const depts = [...new Set(askedWqs.map(q => q.department))];
                 const topics = [...new Set(askedWqs.map(q => q.heading))].slice(0, 2);
-                sentences.push(`${mp.short_name} tabled ${askedWqs.length} written ${askedWqs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
+                paragraphs.push(`They tabled ${askedWqs.length} written parliamentary ${askedWqs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
             }
         }
         if (activeVoteRows.length > 0) {
@@ -221,28 +254,22 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
             if (ayeTitles.length > 0) voteParts.push(`voting Aye on ${formatCleanSubjectList(ayeTitles)}`);
             if (noTitles.length > 0) voteParts.push(`voting No on ${formatCleanSubjectList(noTitles)}`);
 
-            if (sentences.length === 0) {
-                sentences.push(`${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, but cast ${activeVoteRows.length} recorded ${activeVoteRows.length === 1 ? 'vote' : 'votes'}, ${voteParts.join(' and ')}.`);
-            } else {
-                sentences.push(`They also cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}, ${voteParts.join(' and ')}.`);
-            }
+            paragraphs.push(`In the voting lobbies, ${mp.short_name} took part in ${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'division' : 'divisions'}, ${voteParts.join(' and ')}.`);
         }
-        para1 = sentences.join(' ');
+        para1 = paragraphs.join('\n\n');
         const contexts = [...new Set(substantiveEntries.map(e => (e.row.summary_para_2 || '').trim()).filter(Boolean))];
-        para2 = contexts.slice(0, 2).join(' ') || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
+        para2 = contexts[0] || `Much of an MP's parliamentary work takes place in committees, written scrutiny, and division votes outside main Chamber speeches.`;
         activityTag = activeVoteRows.length > 0
             ? `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`
             : `${combinedWqs.length} Written ${combinedWqs.length === 1 ? 'Question' : 'Questions'}`;
     } else {
-        const dayHighlights = spokenOrCommitteeEntries
-            .map(({ date, row }) => {
-                const cleaned = (row.summary_para_1 || '').replace(/\s+and cast \d+ recorded division votes?\./i, '.').trim();
-                return `${formatShortPillDate(date)}: ${cleaned}`;
-            })
-            .join(' ');
-        para1 = dayHighlights;
+        const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
+            const body = (row.summary_para_1 || '').trim();
+            return `On ${formatShortPillDate(date)}, ${body.charAt(0).toLowerCase()}${body.slice(1)}`;
+        });
+        para1 = dayParagraphs.join('\n\n');
         const contexts = [...new Set(substantiveEntries.map(e => (e.row.summary_para_2 || '').trim()).filter(Boolean))];
-        para2 = contexts.slice(0, 2).join(' ') || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
+        para2 = contexts[0] || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
         activityTag = `${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`;
     }
 
@@ -250,6 +277,7 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
     return {
         rangeLabel,
         activityTag,
+        contextHeading,
         para1,
         para2,
         postTitle,
@@ -267,7 +295,8 @@ function renderStaticMpPage(templateHtml, mp, slug, weekly) {
     const roleDisplay = mp.role_title || `MP for ${seatName}`;
     const canonicalUrl = `${SITE_ORIGIN}/mp/${slug}/`;
     const pageTitle = `${mp.full_name} (${seatName}) — Parliament Briefing | Whip`;
-    const metaDesc = `${mp.full_name} (${mp.party}, ${roleDisplay}): ${weekly.para1}`.slice(0, 160);
+    const flatSummary = weekly.para1.replace(/\n+/g, ' ');
+    const metaDesc = `${mp.full_name} (${mp.party}, ${roleDisplay}): ${flatSummary}`.slice(0, 160);
 
     const jsonLd = JSON.stringify({
         '@context': 'https://schema.org',
@@ -312,6 +341,8 @@ function renderStaticMpPage(templateHtml, mp, slug, weekly) {
         .replace('id="landingCaption" class="', 'id="landingCaption" class="hidden ')
         .replace('id="briefingWorkspace" class="hidden ', 'id="briefingWorkspace" class="');
 
+    const narrativeHtml = renderNarrativeParagraphsHtml(weekly.para1);
+
     html = html
         .replace('id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight mb-6">\n                Loading parliamentary record...', `id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight mb-6">\n                Week in Parliament (${escapeHtml(weekly.rangeLabel)})`)
         .replace('id="mpPartyName" class="text-ink">—</span>', `id="mpPartyName" class="text-ink">${escapeHtml(mp.party)}</span>`)
@@ -319,7 +350,8 @@ function renderStaticMpPage(templateHtml, mp, slug, weekly) {
         .replace('id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">\n                            Loading MP...', `id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">\n                            ${escapeHtml(mp.full_name)}`)
         .replace('id="mpRole">—</span>', `id="mpRole">${escapeHtml(roleDisplay)}</span>`)
         .replace('id="activityBadge" class="text-inkTertiary">—</span>', `id="activityBadge" class="text-inkTertiary">${escapeHtml(weekly.activityTag)}</span>`)
-        .replace('id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">\n                            Fetching parliamentary record...', `id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">\n                            ${escapeHtml(weekly.para1)}`)
+        .replace('<div id="summaryNarrativeBody" class="space-y-4">\n                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Fetching parliamentary record...</p>\n                        </div>', `<div id="summaryNarrativeBody" class="space-y-4">\n                            ${narrativeHtml}\n                        </div>`)
+        .replace('id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">\n                                Why this matters', `id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">\n                                ${escapeHtml(weekly.contextHeading)}`)
         .replace('id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">\n                                Loading background context...', `id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">\n                                ${escapeHtml(weekly.para2)}`)
         .replace('id="hansardRefTag" class="text-xs text-inkTertiary font-mono">\n                                —', `id="hansardRefTag" class="text-xs text-inkTertiary font-mono">\n                                Week of ${escapeHtml(weekly.rangeLabel)}`);
 

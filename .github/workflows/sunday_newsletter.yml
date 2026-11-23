@@ -1,0 +1,31 @@
+name: Sunday Weekly MP Newsletter
+
+on:
+  schedule:
+    # Runs every Sunday at 08:00 UTC (08:00 GMT / 09:00 BST)
+    - cron: '0 8 * * 0'
+  workflow_dispatch:
+
+jobs:
+  send-sunday-briefings:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Send Sunday weekly MP briefings
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          NEWSLETTER_FROM_EMAIL: ${{ secrets.NEWSLETTER_FROM_EMAIL }}
+        run: node send_weekly_digest.js

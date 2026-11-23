@@ -164,26 +164,32 @@ function splitCompleteSentences(text) {
         .filter(s => s.length > 0 && /[.!?]["”'’)\]]*$/.test(s));
 }
 
+function isProceduralSentence(s) {
+    return (
+        s.length < 45 ||
+        /^(I beg to move|I thank my|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker|Order|Will the (right )?hon\.|On a point of order)/i.test(s) ||
+        /\b(catch (his|her|your) eye|point of order|give way to (my|the) (right )?hon\.)\b/i.test(s)
+    );
+}
+
 /**
  * Extracts 1 to 2 complete substantive verbatim sentences from Hansard speech text.
  * Skips procedural openings/interventions and never truncates mid-word or mid-sentence.
  */
-function extractCompleteVerbatimSentences(text, maxChars = 360) {
+function extractCompleteVerbatimSentences(text, maxChars = 360, allowProceduralFallback = true) {
     const sentences = splitCompleteSentences(text);
     if (sentences.length === 0) return '';
 
-    const isProceduralLine = (s) =>
-        s.length < 45 ||
-        /^(I beg to move|I thank my|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker|Order|Will the (right )?hon\.|On a point of order)/i.test(s) ||
-        /\bcatch (his|her|your) eye\b/i.test(s);
-
-    const substantiveStartIdx = sentences.findIndex(s => !isProceduralLine(s));
+    const substantiveStartIdx = sentences.findIndex(s => !isProceduralSentence(s));
+    if (substantiveStartIdx < 0 && !allowProceduralFallback) {
+        return '';
+    }
     const startIdx = substantiveStartIdx >= 0 ? substantiveStartIdx : 0;
 
     let selected = sentences[startIdx];
     if (
         sentences[startIdx + 1] &&
-        !isProceduralLine(sentences[startIdx + 1]) &&
+        !isProceduralSentence(sentences[startIdx + 1]) &&
         selected.length < 180 &&
         selected.length + 1 + sentences[startIdx + 1].length <= maxChars
     ) {
@@ -191,6 +197,29 @@ function extractCompleteVerbatimSentences(text, maxChars = 360) {
     }
 
     return selected;
+}
+
+/**
+ * Searches across all speeches by the MP (longest first) to find the best
+ * substantive verbatim quote and matching Hansard reference.
+ */
+function extractBestVerbatimQuote(speeches, maxChars = 360) {
+    if (!Array.isArray(speeches) || speeches.length === 0) {
+        return { quote: '', hrsRef: '' };
+    }
+
+    const ranked = [...speeches].sort((a, b) => b.text.length - a.text.length);
+
+    for (const sp of ranked) {
+        const substantive = extractCompleteVerbatimSentences(sp.text, maxChars, false);
+        if (substantive) {
+            return { quote: substantive, hrsRef: sp.hrsRef || '' };
+        }
+    }
+
+    // Fallback to any complete sentence from the longest speech if all were brief interventions
+    const fallbackQuote = extractCompleteVerbatimSentences(ranked[0].text, maxChars, true);
+    return { quote: fallbackQuote, hrsRef: ranked[0].hrsRef || '' };
 }
 
 function normalizeForQuoteMatch(str) {
@@ -621,6 +650,7 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
 }
 
 let geminiWarnCount = 0;
+let activeGeminiModel = 'gemini-2.5-flash';
 
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
     if (!geminiApiKey) return null;
@@ -628,12 +658,11 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
     const askedQuestions = writtenQuestions.filter(q => q.direction !== 'answered');
     const answeredQuestions = writtenQuestions.filter(q => q.direction === 'answered');
 
-    // Sort longest speeches first so main debate contributions appear ahead of brief interventions
     const rankedSpeeches = [...speeches].sort((a, b) => b.text.length - a.text.length);
 
     const speechDigest = rankedSpeeches
         .slice(0, 4)
-        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 900)}"`)
+        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 1200)}"`)
         .join('\n');
 
     const committeeDigest = committees
@@ -663,7 +692,7 @@ Audience & Tone Rules:
 
 Verbatim Hansard Quote Rules (CRITICAL):
 - If Chamber Speeches are provided below, weave ONE exact, word-for-word complete substantive sentence (or two consecutive complete sentences) from the speech transcript into "summary_para_1", enclosed in double quotation marks ("...").
-- Choose a substantive policy point rather than a procedural pleasantry or point of order.
+- Choose a substantive policy point rather than a procedural pleasantry, eye-catching remark, or point of order.
 - NEVER paraphrase, alter, or shorten words inside the quotation marks, and NEVER cut off a quote mid-word or mid-sentence.
 - Introduce the quote naturally so it flows smoothly within the surrounding sentences.
 
@@ -682,11 +711,10 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
 
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            // Gentle pacing (~350ms) to stay well within Gemini API rate limits across ~200 active MPs
             await sleep(attempt === 1 ? 350 : 2500);
 
             const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+                `https://generativelanguage.googleapis.com/v1beta/models/${activeGeminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -701,14 +729,21 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                 }
             );
 
-            if (res.status === 429 && attempt === 1) {
+            if ((res.status === 404 || res.status === 429) && attempt === 1) {
+                const errPreview = await res.text().catch(() => '');
+                if (geminiWarnCount < 3) {
+                    geminiWarnCount += 1;
+                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status}, switching to gemini-2.0-flash: ${errPreview.slice(0, 180)}`);
+                }
+                activeGeminiModel = 'gemini-2.0-flash';
                 continue;
             }
 
             if (!res.ok) {
-                if (geminiWarnCount < 3) {
+                const errPreview = await res.text().catch(() => '');
+                if (geminiWarnCount < 5) {
                     geminiWarnCount += 1;
-                    console.warn(`Gemini HTTP ${res.status} for ${mp.short_name}`);
+                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status} for ${mp.short_name}: ${errPreview.slice(0, 220)}`);
                 }
                 return null;
             }
@@ -733,7 +768,7 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                 glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 3) : []
             };
         } catch (err) {
-            if (attempt === 2 && geminiWarnCount < 3) {
+            if (attempt === 2 && geminiWarnCount < 5) {
                 geminiWarnCount += 1;
                 console.warn(`Gemini error for ${mp.short_name}: ${err.message}`);
             }
@@ -748,7 +783,10 @@ export async function generateBriefings() {
     const readableDate = formatReadableDate(targetDate);
     const shortRefDate = formatShortRefDate(targetDate);
 
-    console.log(`[${new Date().toISOString()}] Generating Whip briefings for ${targetDate} (${readableDate})...`);
+    console.log(
+        `[${new Date().toISOString()}] Generating Whip briefings for ${targetDate} (${readableDate})... ` +
+        `(GEMINI_API_KEY configured: ${geminiApiKey ? 'yes' : 'NO'})`
+    );
 
     const { data: mps, error: mpError } = await supabase
         .from('mps')
@@ -905,15 +943,12 @@ export async function generateBriefings() {
                 summaryPara2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
             }
         } else {
-            const primarySpeech = speeches.length > 0
-                ? [...speeches].sort((a, b) => b.text.length - a.text.length)[0]
-                : null;
-
-            if (primarySpeech) {
-                verbatimExcerpt = extractCompleteVerbatimSentences(primarySpeech.text, 360);
-                if (primarySpeech.hrsRef) {
-                    hansardRef = `HC Deb ${shortRefDate} • ${primarySpeech.hrsRef}`;
-                }
+            const { quote, hrsRef } = extractBestVerbatimQuote(speeches, 360);
+            if (quote) {
+                verbatimExcerpt = quote;
+            }
+            if (hrsRef) {
+                hansardRef = `HC Deb ${shortRefDate} • ${hrsRef}`;
             }
 
             const aiSummary = await summarizeWithGemini({

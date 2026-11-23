@@ -5,6 +5,9 @@
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-8B7K01L2MW"></script>
     <script>
+      if (localStorage.getItem('whip_ga_opt_out') === '1') {
+        window['ga-disable-G-8B7K01L2MW'] = true;
+      }
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
@@ -899,10 +902,26 @@
                 </div>
 
                 <div>
-                    <h4 class="font-semibold text-ink mb-1">4. Privacy &amp; Local Storage</h4>
-                    <p>
-                        Whip uses no advertising trackers, analytics cookies, or user accounts. Your 10-MP watchlist is stored exclusively on your own device in browser <span class="font-mono text-xs text-ink">localStorage</span> and is never transmitted to Whip’s servers.
+                    <h4 class="font-semibold text-ink mb-1">4. Privacy, Local Storage &amp; Analytics</h4>
+                    <p class="mb-3">
+                        Whip uses no user accounts, advertising trackers, or remarketing profiles. Your 10-MP watchlist is stored exclusively on your own device in browser <span class="font-mono text-xs text-ink">localStorage</span> and is never transmitted to Whip’s servers.
                     </p>
+                    <p class="mb-4">
+                        To understand overall readership and improve the site, Whip uses Google Analytics 4 (<span class="font-mono text-xs text-ink">G-8B7K01L2MW</span>) to collect aggregated statistical usage data (such as page views and MP search trends) without advertising features. You can opt out of analytics cookies at any time below:
+                    </p>
+                    <div class="p-4 rounded-xl bg-surface/80 border border-hairline flex items-center justify-between gap-4">
+                        <div>
+                            <p class="text-xs font-semibold text-ink">Statistical Analytics Cookies</p>
+                            <p id="analyticsOptOutStatus" class="text-xs text-inkTertiary mt-0.5">Enabled (aggregated site statistics only)</p>
+                        </div>
+                        <button
+                            id="toggleAnalyticsBtn"
+                            type="button"
+                            class="px-3.5 py-1.5 rounded-full text-xs font-medium border border-ink bg-white text-ink hover:bg-surface transition cursor-pointer shrink-0"
+                        >
+                            Opt out
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -3203,6 +3222,7 @@
         }
 
         function openTermsModal() {
+            syncAnalyticsOptOutUi();
             els.termsModal.classList.remove('hidden');
             els.termsModal.classList.add('flex');
         }
@@ -3210,6 +3230,21 @@
         function closeTermsModal() {
             els.termsModal.classList.add('hidden');
             els.termsModal.classList.remove('flex');
+        }
+
+        function syncAnalyticsOptOutUi() {
+            const isOptedOut = localStorage.getItem('whip_ga_opt_out') === '1';
+            window['ga-disable-G-8B7K01L2MW'] = isOptedOut;
+            const statusEl = document.getElementById('analyticsOptOutStatus');
+            const btnEl = document.getElementById('toggleAnalyticsBtn');
+            if (!statusEl || !btnEl) return;
+            if (isOptedOut) {
+                statusEl.textContent = 'Opted out — analytics cookies are disabled';
+                btnEl.textContent = 'Re-enable';
+            } else {
+                statusEl.textContent = 'Enabled (aggregated site statistics only)';
+                btnEl.textContent = 'Opt out';
+            }
         }
 
         async function initApp() {
@@ -3318,6 +3353,29 @@
         els.termsModal.addEventListener('click', (e) => {
             if (e.target === els.termsModal) closeTermsModal();
         });
+
+        document.getElementById('toggleAnalyticsBtn')?.addEventListener('click', () => {
+            const nextOptOut = localStorage.getItem('whip_ga_opt_out') !== '1';
+            if (nextOptOut) {
+                localStorage.setItem('whip_ga_opt_out', '1');
+                window['ga-disable-G-8B7K01L2MW'] = true;
+                document.cookie.split(';').forEach(c => {
+                    const name = c.split('=')[0].trim();
+                    if (name.startsWith('_ga')) {
+                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.whipdaily.uk`;
+                        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+                    }
+                });
+                showToast('Analytics cookies disabled');
+            } else {
+                localStorage.removeItem('whip_ga_opt_out');
+                window['ga-disable-G-8B7K01L2MW'] = false;
+                showToast('Analytics cookies enabled');
+            }
+            syncAnalyticsOptOutUi();
+        });
+
+        syncAnalyticsOptOutUi();
 
         els.searchInput.addEventListener('focus', () => {
             if (els.searchInput.value.trim().length > 0) {

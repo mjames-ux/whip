@@ -52,8 +52,8 @@ function renderNarrativeParagraphsHtml(text) {
 
     return paragraphs.map(p => {
         const escaped = escapeHtml(p).replace(
-            /(&ldquo;|&quot;)([\s\S]*?)(&rdquo;|&quot;)/g,
-            '<em class="font-editorial italic text-ink">$1$2$3</em>'
+            /(“[^”]+”|&quot;[^&]+&quot;)/g,
+            '<em class="font-editorial italic text-ink">$1</em>'
         );
         return `<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${escaped}</p>`;
     }).join('\n                        ');
@@ -195,7 +195,6 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
 
     const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
 
-    // Prioritize "Why this matters" context from days the MP spoke or sat on a committee
     const spokenContexts = spokenOrCommitteeEntries
         .map(e => (e.row.summary_para_2 || '').trim())
         .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
@@ -275,7 +274,14 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
     } else {
         const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
             const body = (row.summary_para_1 || '').trim();
-            const subParas = body.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+            const subParas = body
+                .split(/\n{2,}/)
+                .map(s => s.trim())
+                .filter(s =>
+                    s &&
+                    !/^In the voting lobbies,/i.test(s) &&
+                    !/routinely spend time handling urgent constituent casework/i.test(s)
+                );
             if (subParas.length === 0) return '';
 
             const cleanedFirst = subParas[0]
@@ -285,6 +291,10 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
             subParas[0] = `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
             return subParas.join('\n\n');
         }).filter(Boolean);
+
+        if (activeVoteRows.length > 0) {
+            dayParagraphs.push(`Across the week, ${mp.short_name} also cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}.`);
+        }
 
         para1 = dayParagraphs.join('\n\n');
         para2 = uniqueContexts[0] || `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;

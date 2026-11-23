@@ -309,6 +309,26 @@
                         </div>
                     </section>
 
+                    <!-- 2b. Departmental Activity (Shown for Government Ministers on Weekly Tabs or when GOV.UK updates exist) -->
+                    <section id="departmentActivitySection" aria-label="Departmental Activity" class="hidden mt-16 pt-10 border-t border-hairline">
+                        <div class="flex items-baseline justify-between gap-4 mb-4">
+                            <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
+                                Departmental activity
+                            </h3>
+                            <span id="departmentNameBadge" class="text-xs text-inkTertiary font-medium">
+                                GOV.UK
+                            </span>
+                        </div>
+
+                        <p id="departmentSummaryText" class="text-sm sm:text-base text-inkSecondary leading-relaxed mb-6">
+                            —
+                        </p>
+
+                        <div id="departmentItemsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </section>
+
                     <!-- 3. Select Committees (Shown when MP attended or gave oral evidence) -->
                     <section id="committeeSessionsSection" aria-label="Select Committee Work" class="hidden mt-16 pt-10 border-t border-hairline">
                         <div class="flex items-baseline justify-between gap-4 mb-6">
@@ -503,14 +523,14 @@
             <!-- Quiet Editorial Colophon -->
             <footer class="mt-20 pt-8 border-t border-hairline text-xs text-inkTertiary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 leading-relaxed">
                 <p class="max-w-lg">
-                    Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts, Committee proceedings, Written Questions, and Commons Votes. Party whips and pairing arrangements may affect division attendance.
+                    Whip is an independent civic app and is not affiliated with the UK Government or UK Parliament. Summaries are generated from official Hansard transcripts, Committee proceedings, Written Questions, Departmental announcements, and Commons Votes. Party whips and pairing arrangements may affect division attendance.
                 </p>
                 <div class="shrink-0 flex items-center gap-3 text-inkSecondary font-medium">
                     <button type="button" class="open-terms-btn underline decoration-hairline hover:decoration-ink underline-offset-4 transition cursor-pointer">
                         Terms &amp; Privacy
                     </button>
                     <span class="text-hairline">&bull;</span>
-                    <span>Source: parliament.uk</span>
+                    <span>Source: parliament.uk &amp; gov.uk</span>
                 </div>
             </footer>
         </div>
@@ -721,14 +741,14 @@
                 <div>
                     <h4 class="font-semibold text-ink mb-1">2. Automated Summaries &amp; Accuracy</h4>
                     <p>
-                        Daily and weekly briefings are generated automatically from official Hansard debates, Committee proceedings, Written Questions, and Commons Votes data. While designed to remain strictly neutral and factual, automated summaries may occasionally omit procedural nuance. Always consult the linked verbatim <span class="text-ink font-medium">parliament.uk</span> transcript before relying on information for journalistic, legal, or campaign purposes.
+                        Daily and weekly briefings are generated automatically from official Hansard debates, Committee proceedings, Written Questions, GOV.UK announcements, and Commons Votes data. While designed to remain strictly neutral and factual, automated summaries may occasionally omit procedural nuance. Always consult the linked verbatim <span class="text-ink font-medium">parliament.uk</span> transcript before relying on information for journalistic, legal, or campaign purposes.
                     </p>
                 </div>
 
                 <div>
-                    <h4 class="font-semibold text-ink mb-1">3. Parliamentary Data Licence</h4>
+                    <h4 class="font-semibold text-ink mb-1">3. Parliamentary &amp; Open Government Licences</h4>
                     <p>
-                        Contains Parliamentary information licensed under the <a href="https://www.parliament.uk/site-information/copyright-parliament/open-parliament-licence/" target="_blank" rel="noopener noreferrer" class="text-ink underline underline-offset-4">Open Parliament Licence v3.0</a>. Postcode lookups use open boundary data via Postcodes.io.
+                        Contains Parliamentary information licensed under the <a href="https://www.parliament.uk/site-information/copyright-parliament/open-parliament-licence/" target="_blank" rel="noopener noreferrer" class="text-ink underline underline-offset-4">Open Parliament Licence v3.0</a> and public sector information licensed under the Open Government Licence v3.0. Postcode lookups use open boundary data via Postcodes.io.
                     </p>
                 </div>
 
@@ -761,30 +781,6 @@
 
         const GENERIC_VOTING_BOILERPLATE = 'Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions, alongside their committee and constituency responsibilities.';
 
-        function describeDivisionSubject(title) {
-            const t = (title || '').trim();
-            if (!t) return null;
-            const lower = t.toLowerCase();
-
-            if (lower.includes('visitor levy')) {
-                return 'The Visitor Levy (England) Bill would allow mayors and strategic authorities in England to introduce a local overnight accommodation levy, raising funds for local transport, infrastructure, and tourism services.';
-            }
-            if (lower.includes('immigration and asylum')) {
-                return 'The Immigration and Asylum Bill reforms asylum claims, human rights assessments, modern slavery referrals, and immigration appeals.';
-            }
-            if (lower.includes('rosebank')) {
-                return 'The Rosebank oil field debate examined North Sea oil and gas licensing, energy security, and UK climate commitments.';
-            }
-            if (lower.includes('bill')) {
-                const cleanBill = t.replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '').trim();
-                return `${cleanBill} is primary legislation progressing through House of Commons scrutiny and amendment stages.`;
-            }
-            if (lower.includes('opposition day')) {
-                return 'Opposition Day debates allow opposition parties to choose the topic for Commons debate and put forward motions testing government policy.';
-            }
-            return null;
-        }
-
         function buildVoteContextFromList(votes) {
             const list = Array.isArray(votes) ? votes : [];
             const activeVotes = list.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
@@ -793,7 +789,7 @@
             const notes = [];
             const seen = new Set();
             for (const v of sourceVotes) {
-                const desc = describeDivisionSubject(v.title);
+                const desc = v.explainer?.whatItDoes || null;
                 if (desc && !seen.has(desc)) {
                     seen.add(desc);
                     notes.push(desc);
@@ -817,13 +813,12 @@
             const billBase = title
                 .replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '')
                 .trim();
-            const billContext = describeDivisionSubject(title) || '';
 
             const newClauseMatch = title.match(/\b(New Clause|New Schedule|Amendment)\s+([A-Z0-9]+)/i);
             if (newClauseMatch) {
                 const clauseLabel = `${newClauseMatch[1]} ${newClauseMatch[2]}`;
                 return {
-                    whatItDoes: `${clauseLabel} was a proposed addition or amendment to ${billBase} debated during its Report Stage scrutiny in the House of Commons. ${billContext}`.trim(),
+                    whatItDoes: `${clauseLabel} was a proposed addition or amendment to ${billBase} debated during its Commons scrutiny.`,
                     whatAyeMeans: `Supported adding ${clauseLabel} into ${billBase}.`,
                     whatNoMeans: `Voted against adding ${clauseLabel} to the Bill.`,
                     parliamentUrl
@@ -832,7 +827,7 @@
 
             if (lower.includes('second reading')) {
                 return {
-                    whatItDoes: `Second Reading is the first major Commons vote on the core principles of ${billBase}. ${billContext}`.trim(),
+                    whatItDoes: `Second Reading is the first major Commons vote on the core principles of ${billBase}.`,
                     whatAyeMeans: `Supported the general principles of ${billBase} so it could advance to detailed line-by-line scrutiny.`,
                     whatNoMeans: `Opposed ${billBase} progressing further in the House of Commons.`,
                     parliamentUrl
@@ -841,7 +836,7 @@
 
             if (lower.includes('third reading')) {
                 return {
-                    whatItDoes: `Third Reading is the final Commons vote on the amended text of ${billBase} before it moves to the House of Lords. ${billContext}`.trim(),
+                    whatItDoes: `Third Reading is the final Commons vote on the amended text of ${billBase} before it moves to the House of Lords.`,
                     whatAyeMeans: `Approved the final Commons version of ${billBase}.`,
                     whatNoMeans: `Voted to reject the final Commons version of ${billBase}.`,
                     parliamentUrl
@@ -851,7 +846,7 @@
             if (lower.includes('opposition day')) {
                 const topic = title.replace(/^Opposition [Dd]ay:\s*/i, '').replace(/:\s*Opposition motion$/i, '').trim();
                 return {
-                    whatItDoes: `An Opposition Day motion putting forward a policy position or call to action on ${topic || 'a chosen policy topic'}. ${billContext}`.trim(),
+                    whatItDoes: `An Opposition Day motion putting forward a policy position or call to action on ${topic || 'a chosen policy topic'}.`,
                     whatAyeMeans: `Backed the Opposition motion on ${topic || 'the debate topic'}.`,
                     whatNoMeans: `Voted against the Opposition motion.`,
                     parliamentUrl
@@ -868,11 +863,45 @@
             }
 
             return {
-                whatItDoes: billContext || `${title} was put to a formal House of Commons division to test MPs' support for the proposed measure or motion.`,
+                whatItDoes: `${title} was put to a formal House of Commons division to test MPs' support for the proposed measure or motion.`,
                 whatAyeMeans: `Supported the motion or legislative proposal.`,
                 whatNoMeans: `Opposed the motion or legislative proposal.`,
                 parliamentUrl
             };
+        }
+
+        function extractMinisterialFromMpAndRows(mp, rows = []) {
+            const list = Array.isArray(rows) ? rows : [rows];
+            let meta = null;
+            const deptUpdates = [];
+
+            for (const row of list) {
+                if (!row || !Array.isArray(row.glossary)) continue;
+                const found = row.glossary.find(g => g?._type === 'ministerial_meta');
+                if (found) {
+                    if (!meta) meta = found;
+                    if (found.deptDigest) {
+                        deptUpdates.push({
+                            sittingDate: row.sitting_date,
+                            ...found.deptDigest
+                        });
+                    }
+                }
+            }
+
+            if (!meta && mp?.role_title && mp.role_title.includes('• MP for ')) {
+                const postTitle = mp.role_title.split('• MP for ')[0].trim();
+                if (postTitle) {
+                    meta = { postTitle, deptName: null, isWhip: false };
+                }
+            }
+
+            return { meta, deptUpdates };
+        }
+
+        function getCleanGlossaryItems(glossary) {
+            if (!Array.isArray(glossary)) return [];
+            return glossary.filter(g => g && g._type !== 'ministerial_meta' && g.term);
         }
 
         function formatCleanSubjectList(titles) {
@@ -1059,6 +1088,10 @@
             summaryPara2: document.getElementById('summaryPara2'),
             openHansardBtn: document.getElementById('openHansardBtn'),
             hansardRefTag: document.getElementById('hansardRefTag'),
+            departmentActivitySection: document.getElementById('departmentActivitySection'),
+            departmentNameBadge: document.getElementById('departmentNameBadge'),
+            departmentSummaryText: document.getElementById('departmentSummaryText'),
+            departmentItemsList: document.getElementById('departmentItemsList'),
             committeeSessionsSection: document.getElementById('committeeSessionsSection'),
             committeeCountBadge: document.getElementById('committeeCountBadge'),
             committeeSessionsList: document.getElementById('committeeSessionsList'),
@@ -1099,8 +1132,8 @@
 
         function getMpConstituencyName(mp) {
             if (mp?.constituencies?.name) return mp.constituencies.name;
-            if (mp?.role_title && mp.role_title.startsWith('MP for ')) {
-                return mp.role_title.replace(/^MP for\s+/i, '').trim();
+            if (mp?.role_title && mp.role_title.includes('MP for ')) {
+                return mp.role_title.split('MP for ').pop().trim();
             }
             return 'UK Constituency';
         }
@@ -1213,7 +1246,6 @@
             }
         }
 
-        // Known UK General Election polling dates (1979–2024+)
         const UK_GENERAL_ELECTION_DATES = new Set([
             '2024-07-04',
             '2019-12-12',
@@ -2078,6 +2110,42 @@
             });
         }
 
+        function renderDepartmentActivity(deptName, summaryText, items = []) {
+            if (!summaryText && items.length === 0) {
+                els.departmentActivitySection.classList.add('hidden');
+                els.departmentItemsList.innerHTML = '';
+                return;
+            }
+
+            els.departmentActivitySection.classList.remove('hidden');
+            els.departmentNameBadge.textContent = deptName || 'GOV.UK';
+            els.departmentSummaryText.textContent = summaryText || '';
+
+            if (items.length === 0) {
+                els.departmentItemsList.classList.add('hidden');
+                els.departmentItemsList.innerHTML = '';
+                return;
+            }
+
+            els.departmentItemsList.classList.remove('hidden');
+            els.departmentItemsList.innerHTML = items.map(item => `
+                <a
+                    href="${item.url || 'https://www.gov.uk/'}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="py-4 flex items-center justify-between gap-4 group"
+                >
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-ink group-hover:underline underline-offset-4 leading-snug">
+                            ${item.title}
+                        </p>
+                        ${item.dateLabel ? `<p class="text-xs text-inkTertiary mt-0.5">${item.dateLabel}</p>` : ''}
+                    </div>
+                    <span aria-hidden="true" class="text-sm text-inkTertiary group-hover:text-ink transition shrink-0">&rarr;</span>
+                </a>
+            `).join('');
+        }
+
         function renderCommitteeSessions(sessions) {
             const list = Array.isArray(sessions) ? sessions : [];
             if (list.length === 0) {
@@ -2294,6 +2362,7 @@
         function compileWeeklyBriefing(mp, weekDates, rows) {
             const sortedDates = [...weekDates].sort();
             const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
+            const { meta: ministerialMeta, deptUpdates } = extractMinisterialFromMpAndRows(mp, rows);
 
             const activeDayEntries = sortedDates
                 .map(d => ({ date: d, row: rowByDate.get(d) }))
@@ -2301,6 +2370,7 @@
 
             const substantiveEntries = activeDayEntries.filter(entry =>
                 entry.row.activity_tag !== 'Constituency & Parliamentary Work' &&
+                entry.row.activity_tag !== 'Ministerial & Departmental Work' &&
                 entry.row.activity_tag !== 'No Vote Recorded'
             );
 
@@ -2335,12 +2405,34 @@
                 if (row.verbatim_excerpt) {
                     excerpts.push(`${formatShortPillDate(date)}: “${row.verbatim_excerpt}”`);
                 }
-                if (Array.isArray(row.glossary)) {
-                    for (const g of row.glossary) {
-                        if (g?.term && !glossaryMap.has(g.term)) {
-                            glossaryMap.set(g.term, g);
-                        }
+                for (const g of getCleanGlossaryItems(row.glossary)) {
+                    if (g?.term && !glossaryMap.has(g.term)) {
+                        glossaryMap.set(g.term, g);
                     }
+                }
+            }
+
+            // Flatten GOV.UK department announcements across the week
+            const deptName = ministerialMeta?.deptName || deptUpdates[0]?.deptName || null;
+            const weeklyDeptItems = [];
+            const seenDeptUrls = new Set();
+            for (const upd of deptUpdates) {
+                const dateLabel = upd.sittingDate ? formatShortPillDate(upd.sittingDate) : '';
+                for (const item of (upd.items || [])) {
+                    if (item.url && seenDeptUrls.has(item.url)) continue;
+                    if (item.url) seenDeptUrls.add(item.url);
+                    weeklyDeptItems.push({ ...item, dateLabel });
+                }
+            }
+
+            let weeklyDeptSummary = '';
+            if (ministerialMeta) {
+                if (deptUpdates.length > 0) {
+                    weeklyDeptSummary = deptUpdates.map(u => u.summary).filter(Boolean).slice(0, 2).join(' ');
+                } else if (deptName) {
+                    weeklyDeptSummary = `As ${ministerialMeta.postTitle}, ${mp.short_name} led ministerial and policy work at the ${deptName} during this week. Ministers do not table written questions or sit on select committees, and typically speak in the Chamber only during their department's scheduled question rota or legislation.`;
+                } else {
+                    weeklyDeptSummary = `As ${ministerialMeta.postTitle}, ${mp.short_name} carried out government ministerial duties alongside House of Commons business.`;
                 }
             }
 
@@ -2355,6 +2447,28 @@
             const uniqueContexts = [...new Set(rawContexts)];
 
             if (substantiveEntries.length === 0 && combinedWrittenQuestions.length === 0 && combinedCommittees.length === 0) {
+                if (ministerialMeta) {
+                    const roleIntro = `${mp.short_name} (${ministerialMeta.postTitle}) had no spoken Commons Chamber contributions or recorded division votes during the week of ${rangeLabel}.`;
+                    const deptNote = weeklyDeptSummary || `Ministers spend the bulk of the week running their government department and attending Cabinet or ministerial committees.`;
+
+                    return {
+                        activity_tag: ministerialMeta.deptName || 'Ministerial Duty',
+                        hansard_ref: `Week of ${rangeLabel}`,
+                        summary_para_1: `${roleIntro} ${deptNote}`,
+                        summary_para_2: billContext || `Cabinet and departmental ministers do not table written questions or sit on select committees, and often miss routine divisions due to official travel or pairing arrangements.`,
+                        verbatim_excerpt: null,
+                        glossary: Array.from(glossaryMap.values()),
+                        deptSection: {
+                            deptName,
+                            summary: weeklyDeptSummary,
+                            items: weeklyDeptItems.slice(0, 5)
+                        },
+                        committee_sessions: [],
+                        votes: combinedVotes,
+                        written_questions: []
+                    };
+                }
+
                 const missedVotesNote = combinedVotes.length > 0
                     ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded (which can reflect pairing arrangements, committee travel, or constituency duties).`
                     : `MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.`;
@@ -2366,6 +2480,7 @@
                     summary_para_2: billContext ? `${billContext} ${missedVotesNote}` : missedVotesNote,
                     verbatim_excerpt: null,
                     glossary: Array.from(glossaryMap.values()),
+                    deptSection: null,
                     committee_sessions: [],
                     votes: combinedVotes,
                     written_questions: []
@@ -2397,8 +2512,9 @@
                     if (noTitles.length > 0) voteParts.push(`voting No on ${formatCleanSubjectList(noTitles)}`);
 
                     if (sentences.length === 0) {
+                        const rolePrefix = ministerialMeta ? ` (${ministerialMeta.postTitle})` : '';
                         sentences.push(
-                            `${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, but cast ${activeVoteRows.length} recorded ${activeVoteRows.length === 1 ? 'vote' : 'votes'} across ${substantiveEntries.length} sitting ${substantiveEntries.length === 1 ? 'day' : 'days'}, ${voteParts.join(' and ')}.`
+                            `${mp.short_name}${rolePrefix} did not speak in the Commons Chamber during the week of ${rangeLabel}, but cast ${activeVoteRows.length} recorded ${activeVoteRows.length === 1 ? 'vote' : 'votes'} across ${substantiveEntries.length} sitting ${substantiveEntries.length === 1 ? 'day' : 'days'}, ${voteParts.join(' and ')}.`
                         );
                     } else {
                         sentences.push(
@@ -2408,6 +2524,9 @@
                 }
 
                 const tagParts = [];
+                if (ministerialMeta?.deptName) {
+                    tagParts.push(ministerialMeta.deptName);
+                }
                 if (combinedCommittees.length > 0) {
                     tagParts.push(`${combinedCommittees.length} Committee ${combinedCommittees.length === 1 ? 'Session' : 'Sessions'}`);
                 }
@@ -2429,6 +2548,11 @@
                     summary_para_2: contextText,
                     verbatim_excerpt: null,
                     glossary: Array.from(glossaryMap.values()),
+                    deptSection: ministerialMeta ? {
+                        deptName,
+                        summary: weeklyDeptSummary,
+                        items: weeklyDeptItems.slice(0, 5)
+                    } : null,
                     committee_sessions: combinedCommittees,
                     votes: combinedVotes,
                     written_questions: combinedWrittenQuestions
@@ -2484,6 +2608,11 @@
                 summary_para_2: contextHighlights,
                 verbatim_excerpt: excerpts.length > 0 ? excerpts.join('\n\n') : null,
                 glossary: Array.from(glossaryMap.values()),
+                deptSection: ministerialMeta ? {
+                    deptName,
+                    summary: weeklyDeptSummary,
+                    items: weeklyDeptItems.slice(0, 5)
+                } : null,
                 committee_sessions: combinedCommittees,
                 votes: combinedVotes,
                 written_questions: combinedWrittenQuestions
@@ -2492,6 +2621,23 @@
 
         function buildNonSittingFridayBriefing(mp, dateStr) {
             const longDate = formatLongDate(dateStr);
+            const { meta: ministerialMeta } = extractMinisterialFromMpAndRows(mp, []);
+            if (ministerialMeta) {
+                const deptLabel = ministerialMeta.deptName || 'their government department';
+                return {
+                    activity_tag: 'Ministerial & Constituency Friday',
+                    hansard_ref: 'Non-Sitting Friday • Ministerial & Constituency Work',
+                    summary_para_1: `The House of Commons did not sit on ${longDate}. As ${ministerialMeta.postTitle}, ${mp.short_name} divides non-sitting Fridays between ${deptLabel} duties and constituency work in ${getMpConstituencyName(mp)}.`,
+                    summary_para_2: `Check the This Week or Last Week tab for a roundup of ${deptLabel}'s official announcements and the week's parliamentary record.`,
+                    verbatim_excerpt: null,
+                    glossary: [],
+                    deptSection: null,
+                    committee_sessions: [],
+                    votes: [],
+                    written_questions: []
+                };
+            }
+
             return {
                 activity_tag: 'Constituency Friday',
                 hansard_ref: 'Constituency Day • Non-Sitting Friday',
@@ -2508,6 +2654,7 @@
                         plain: 'Drop-in or appointment sessions where local constituents can raise personal issues or policy concerns directly with their MP.'
                     }
                 ],
+                deptSection: null,
                 committee_sessions: [],
                 votes: [],
                 written_questions: []
@@ -2545,6 +2692,7 @@
                 els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
                 els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
                 els.hansardRefTag.textContent = 'parliament.uk';
+                renderDepartmentActivity(null, null, []);
                 renderCommitteeSessions([]);
                 renderWrittenQuestions([]);
                 renderVotingRecords([]);
@@ -2581,12 +2729,18 @@
                     els.summaryPara1.textContent = weekly.summary_para_1;
                     els.summaryPara2.textContent = weekly.summary_para_2;
                     els.hansardRefTag.textContent = weekly.hansard_ref;
+                    renderDepartmentActivity(
+                        weekly.deptSection?.deptName,
+                        weekly.deptSection?.summary,
+                        weekly.deptSection?.items || []
+                    );
                     renderCommitteeSessions(weekly.committee_sessions);
                     renderWrittenQuestions(weekly.written_questions);
                     renderVotingRecords(weekly.votes);
                 } else {
                     els.sittingDateDisplay.textContent = formatLongDate(state.selectedDate);
                     els.votingSectionTitle.textContent = 'Voting record';
+                    renderDepartmentActivity(null, null, []);
 
                     if (state.nonSittingFridayDates.has(state.selectedDate)) {
                         const fridayBriefing = buildNonSittingFridayBriefing(mp, state.selectedDate);
@@ -2643,7 +2797,11 @@
                             ? (buildVoteContextFromList(briefing.votes) || rawPara2)
                             : rawPara2;
 
-                        state.currentBriefing = { ...briefing, summary_para_2: enrichedContext };
+                        state.currentBriefing = {
+                            ...briefing,
+                            summary_para_2: enrichedContext,
+                            glossary: getCleanGlossaryItems(briefing.glossary)
+                        };
                         state.baseActivityBadge = briefing.activity_tag || 'Parliamentary Business';
                         syncActivityBadgeDisplay();
                         els.summaryPara1.textContent = briefing.summary_para_1;
@@ -2720,7 +2878,7 @@
                 ? formatCleanModalQuote(b.verbatim_excerpt, !isWeeklyView)
                 : `No direct Chamber speech excerpt was recorded for ${mp.short_name} during this period. Full daily Commons proceedings are archived on hansard.parliament.uk.`;
 
-            const glossary = Array.isArray(b?.glossary) ? b.glossary : [];
+            const glossary = getCleanGlossaryItems(b?.glossary);
             if (glossary.length === 0) {
                 els.modalJargonGlossary.innerHTML = `
                     <p class="text-sm text-inkSecondary leading-relaxed">
@@ -2808,7 +2966,6 @@
                         state.priorWeekDates = activeDates.filter(d => getMondayOfWeek(d) === distinctMondays[1]);
                     }
 
-                    // Always include the Friday of the most recent active week even if it was a non-sitting constituency Friday
                     const combinedDatesSet = new Set(activeDates);
                     const nonSittingFridays = new Set();
                     if (distinctMondays[0]) {

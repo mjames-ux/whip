@@ -282,7 +282,7 @@
                         <p class="text-sm text-inkSecondary mt-2.5">
                             <span id="mpRole">Minister of State (Department of Health and Social Care) &amp; Minister of State (Department for Business, Innovation, Science and Trade) • MP for Stockton North</span>
                             <span id="headerBadgeDivider" class="mx-2 text-hairline">•</span>
-                            <span id="activityBadge" class="text-inkTertiary">Ministerial Duty</span>
+                            <span id="activityBadge" class="text-inkTertiary">6 Written Questions</span>
                         </p>
                     </div>
 
@@ -305,15 +305,16 @@
                     <!-- 2. Multi-Paragraph Narrative Summary + Why This Matters -->
                     <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
                         <div id="summaryNarrativeBody" class="space-y-4">
-                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Chris McDonald had no spoken Commons Chamber contributions or recorded division votes during the week of 16 Nov – 19 Nov 2026.</p>
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Chris McDonald did not speak in the main Commons Chamber during the week of 16 Nov – 19 Nov 2026, focusing on other parliamentary duties.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On behalf of Department for Business, Innovation, Science and Trade , Chris McDonald answered 6 written parliamentary questions on ME/CFS: Research and Air Pollution.</p>
                         </div>
 
                         <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
                             <p id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
-                                What ministers do outside the Chamber
+                                Why this matters
                             </p>
                             <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                                Ministers do not table written questions or sit on select committees, focusing on running their department and speaking in the Chamber during their department&#39;s question rota or legislation.
+                                Ministers provide formal written replies to MPs&#39; parliamentary questions on behalf of their department, placing policy details and official figures on the public record.
                             </p>
                         </div>
 
@@ -333,22 +334,50 @@
                     </section>
 
                     <!-- 2b. Departmental Activity (Shown for Government Ministers on Weekly Tabs) -->
-                    <section id="departmentActivitySection" aria-label="Departmental Activity" class="hidden mt-16 pt-10 border-t border-hairline">
+                    <section id="departmentActivitySection" aria-label="Departmental Activity" class="mt-16 pt-10 border-t border-hairline">
                         <div class="flex items-baseline justify-between gap-4 mb-4">
                             <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
                                 Departmental activity
                             </h3>
                             <span id="departmentNameBadge" class="text-xs text-inkTertiary font-medium">
-                                GOV.UK
+                                Department of Health and Social Care
                             </span>
                         </div>
 
                         <p id="departmentSummaryText" class="text-sm sm:text-base text-inkSecondary leading-relaxed mb-6">
-                            —
+                            Official GOV.UK announcements from Department of Health and Social Care included “UK-wide framework puts nurses and midwives at heart of prevention”, “UK Clinical Research Delivery key performance indicators: data to December 2026”, “UK Clinical Research Delivery key performance indicators: data to November 2026”.
                         </p>
 
                         <div id="departmentItemsList" class="divide-y divide-hairline border-t border-b border-hairline">
-                            <!-- Populated dynamically via JS -->
+                            
+            <a href="https://www.gov.uk/government/news/uk-wide-framework-puts-nurses-and-midwives-at-heart-of-prevention" target="_blank" rel="noopener noreferrer" class="py-4 flex items-center justify-between gap-4 group">
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">UK-wide framework puts nurses and midwives at heart of prevention</p>
+                </div>
+                <span aria-hidden="true" class="text-sm text-inkTertiary shrink-0">&rarr;</span>
+            </a>
+        
+            <a href="https://www.gov.uk/government/statistics/announcements/uk-clinical-research-delivery-key-performance-indicators-data-to-december-2026" target="_blank" rel="noopener noreferrer" class="py-4 flex items-center justify-between gap-4 group">
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">UK Clinical Research Delivery key performance indicators: data to December 2026</p>
+                </div>
+                <span aria-hidden="true" class="text-sm text-inkTertiary shrink-0">&rarr;</span>
+            </a>
+        
+            <a href="https://www.gov.uk/government/statistics/announcements/uk-clinical-research-delivery-key-performance-indicators-data-to-november-2026" target="_blank" rel="noopener noreferrer" class="py-4 flex items-center justify-between gap-4 group">
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">UK Clinical Research Delivery key performance indicators: data to November 2026</p>
+                </div>
+                <span aria-hidden="true" class="text-sm text-inkTertiary shrink-0">&rarr;</span>
+            </a>
+        
+            <a href="https://www.gov.uk/government/publications/technical-annex-cardiovascular-disease-modern-service-framework" target="_blank" rel="noopener noreferrer" class="py-4 flex items-center justify-between gap-4 group">
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-ink">Technical annex: cardiovascular disease modern service framework</p>
+                </div>
+                <span aria-hidden="true" class="text-sm text-inkTertiary shrink-0">&rarr;</span>
+            </a>
+        
                         </div>
                     </section>
 
@@ -369,18 +398,54 @@
                     </section>
 
                     <!-- 4. Written Parliamentary Questions (Tabled by MP or Answered by Minister) -->
-                    <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden mt-16 pt-10 border-t border-hairline">
+                    <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="mt-16 pt-10 border-t border-hairline">
                         <div class="flex items-baseline justify-between gap-4 mb-6">
                             <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
                                 Written questions
                             </h3>
                             <span id="wqCountBadge" class="text-xs text-inkTertiary font-medium">
-                                0 questions
+                                6 questions
                             </span>
                         </div>
 
                         <div id="writtenQuestionsList" class="divide-y divide-hairline border-t border-b border-hairline">
-                            <!-- Populated dynamically via JS -->
+                            
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">Department for Business, Innovation, Science and Trade  • Answered Mon 16 Nov</span>
+                    <p class="text-sm font-medium text-ink">ME/CFS: Research</p>
+                    <p class="text-xs text-inkSecondary">75m, announced in March 2026) forms part of a planned international effort that ultimately aims to analyse the genomes of 9,000 people with ME/CFS and 9,000 people with Long Covid.</p>
+                </div>
+            
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">Department for Business, Innovation, Science and Trade  • Answered Mon 16 Nov</span>
+                    <p class="text-sm font-medium text-ink">Air Pollution</p>
+                    <p class="text-xs text-inkSecondary">The Met Office has no formal mandate to issue air quality alerts; this is the role of Defra. The Met Office’s remit for air quality covers forecasting, rather than providing specific advice or recommendations on public warnings or actions.</p>
+                </div>
+            
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">Department for Business, Innovation, Science and Trade  • Answered Mon 16 Nov</span>
+                    <p class="text-sm font-medium text-ink">Small Businesses: Billing</p>
+                    <p class="text-xs text-inkSecondary">The government is taking decisive action to tackle late payments through the Commercial Payments Bill. The Bill will introduce maximum payment terms of 60 days, mandate interest on late payments and give the Small Business Commissioner stronger powers to ...</p>
+                </div>
+            
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">Department for Business, Innovation, Science and Trade  • Answered Mon 16 Nov</span>
+                    <p class="text-sm font-medium text-ink">Growth Guarantee Scheme</p>
+                    <p class="text-xs text-inkSecondary">Ministers and officials both maintain regular discussions with the British Business Bank to make sure the Growth Guarantee Scheme is fulfilling its objectives. The Bank also work closely with each accredited lender to make sure they are delivering their f...</p>
+                </div>
+            
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">Department for Business, Innovation, Science and Trade  • Answered Mon 16 Nov</span>
+                    <p class="text-sm font-medium text-ink">Growth Guarantee Scheme</p>
+                    <p class="text-xs text-inkSecondary">Ministers and officials both maintain regular discussions with the British Business Bank to make sure the Growth Guarantee Scheme is fulfilling its objectives. The Bank also work closely with each accredited lender to make sure they are delivering their f...</p>
+                </div>
+            
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">Department for Business, Innovation, Science and Trade  • Answered Mon 16 Nov</span>
+                    <p class="text-sm font-medium text-ink">Small Businesses: Logistics</p>
+                    <p class="text-xs text-inkSecondary">Ministers regularly hold meetings with the BBB to discuss their programmes, including the Growth Guarantee Scheme. The Growth Guarantee Scheme is not sector-specific, so provided logistics businesses meet the general eligibility requirements, lenders may ...</p>
+                </div>
+            
                         </div>
                     </section>
 
@@ -405,7 +470,7 @@
             <div class="py-4 flex items-center justify-between gap-3">
                 <div>
                     <p class="text-sm font-medium text-ink">Visitor Levy (England) Bill Second Reading</p>
-                    <p class="text-xs text-inkTertiary mt-1">Passed (296 Ayes to 96 Noes) • Mon 16 Nov</p>
+                    <p class="text-xs text-inkTertiary mt-1">Ayes 296 – Noes 96 • Mon 16 Nov</p>
                 </div>
                 <span class="px-3 py-1 rounded-full text-xs font-medium border border-hairline">No vote recorded</span>
             </div>

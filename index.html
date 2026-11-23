@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#FFFFFF">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="description" content="Whip — Plain-English summaries of what your MP did in the UK Parliament.">
+    <link rel="canonical" href="https://whipdaily.uk/">
     <title>Whip — Your MP, This Week in Parliament</title>
     <!-- Clean Inline SVG Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111111'/%3E%3Ctext x='14' y='46' font-family='Georgia,serif' font-weight='bold' font-size='38' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='43' r='4' fill='%23006548'/%3E%3C/svg%3E">
@@ -808,6 +809,24 @@
         function resolveDepartmentFromPost(postTitle) {
             if (!postTitle) return null;
             return CLIENT_DEPARTMENT_MAP.find(d => d.match.test(postTitle)) || null;
+        }
+
+        function getMpSlug(mp) {
+            const base = String(mp?.short_name || mp?.full_name || `member-${mp?.parliament_member_id}`)
+                .normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            return base || `member-${mp?.parliament_member_id}`;
+        }
+
+        function resolveMpBySlug(slug) {
+            if (!slug || !state.allMps.length) return null;
+            const clean = slug.toLowerCase().replace(/^\/+|\/+$/g, '');
+            return state.allMps.find(m => getMpSlug(m) === clean)
+                || state.allMps.find(m => `${getMpSlug(m)}-${m.parliament_member_id}` === clean)
+                || null;
         }
 
         function buildVoteContextFromList(votes) {
@@ -1982,6 +2001,12 @@
 
         function switchToCenteredLanding() {
             state.selectedMp = null;
+            if (window.location.pathname !== '/') {
+                try {
+                    window.history.pushState({}, '', '/');
+                } catch {}
+            }
+            document.title = 'Whip — Your MP, This Week in Parliament';
             els.briefingWorkspace.classList.add('hidden');
             els.topMasthead.classList.add('hidden');
             els.landingHero.classList.remove('hidden');
@@ -2941,8 +2966,16 @@
             els.briefingArticle.classList.add('fade-in');
         }
 
-        async function selectMp(mp) {
+        async function selectMp(mp, pushHistory = true) {
             state.selectedMp = mp;
+            const slug = getMpSlug(mp);
+            const targetPath = `/mp/${slug}/`;
+            if (pushHistory && window.location.pathname !== targetPath) {
+                try {
+                    window.history.pushState({ mpId: mp.parliament_member_id }, '', targetPath);
+                } catch {}
+            }
+            document.title = `${mp.full_name} (${getMpConstituencyName(mp)}) — Parliament Briefing | Whip`;
             await loadBriefingForCurrentSelection();
         }
 
@@ -3111,6 +3144,16 @@
 
                     renderDayToggles();
                 }
+
+                const pathMatch = window.location.pathname.match(/^\/mp\/([^/]+)\/?$/);
+                const initialSlug = window.__WHIP_INITIAL_MP_SLUG__ || (pathMatch ? pathMatch[1] : null);
+                if (initialSlug) {
+                    const preselectedMp = resolveMpBySlug(initialSlug);
+                    if (preselectedMp) {
+                        els.searchInput.value = getMpConstituencyName(preselectedMp);
+                        await selectMp(preselectedMp, false);
+                    }
+                }
             } catch (err) {
                 console.error('Whip initialization error:', err);
                 showPostcodeStatus(`Database notice: ${err.message}`, true);
@@ -3233,6 +3276,19 @@
                 closeHansardModal();
                 closeDivisionModal();
                 closeTermsModal();
+            }
+        });
+
+        window.addEventListener('popstate', () => {
+            const pathMatch = window.location.pathname.match(/^\/mp\/([^/]+)\/?$/);
+            if (pathMatch && state.allMps.length) {
+                const mp = resolveMpBySlug(pathMatch[1]);
+                if (mp) {
+                    els.searchInput.value = getMpConstituencyName(mp);
+                    selectMp(mp, false);
+                }
+            } else if (window.location.pathname === '/' && state.selectedMp) {
+                switchToCenteredLanding();
             }
         });
 

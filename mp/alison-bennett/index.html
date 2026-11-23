@@ -943,11 +943,11 @@
         function buildVoteContextFromList(votes) {
             const list = Array.isArray(votes) ? votes : [];
             const activeVotes = list.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
-            const sourceVotes = activeVotes.length > 0 ? activeVotes : list;
+            if (activeVotes.length === 0) return '';
 
             const notes = [];
             const seen = new Set();
-            for (const v of sourceVotes) {
+            for (const v of activeVotes) {
                 const desc = v.explainer?.whatItDoes || null;
                 if (desc && !seen.has(desc)) {
                     seen.add(desc);
@@ -2745,9 +2745,38 @@
                     };
                 }
 
+              const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(mp.role_title || '');
+                if (isSpeakerOrDeputy) {
+                    return {
+                        activity_tag: 'Chairing the House',
+                        hansard_ref: `Week of ${rangeLabel} • Speaker’s Chair`,
+                        summary_para_1: `${mp.short_name} did not speak in debates or vote in Commons divisions during the week of ${rangeLabel} due to the strict impartiality required of the Speaker’s Chair.`,
+                        summary_para_2: `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, maintain order, and select amendments, voting only to break a tied division.`,
+                        verbatim_excerpt: null,
+                        glossary: [],
+                        deptSection: null,
+                        committee_sessions: [],
+                        votes: combinedVotes,
+                        written_questions: []
+                    };
+                }
+
                 const missedVotesNote = combinedVotes.length > 0
-                    ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded (which can reflect pairing arrangements, committee travel, or constituency duties).`
-                    : `MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.`;
+                    ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded—which can reflect pairing arrangements with an opposing MP, select committee travel, or constituency duties. MPs divide their working week between bill scrutiny, committee work, ministerial correspondence, and local casework.`
+                    : `MPs divide their working week between select committees, bill scrutiny, All-Party Parliamentary Groups, ministerial correspondence, and constituency casework.`;
+
+                return {
+                    activity_tag: `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`,
+                    hansard_ref: `Week of ${rangeLabel}`,
+                    summary_para_1: `${mp.short_name} did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes during the week of ${rangeLabel}.`,
+                    summary_para_2: missedVotesNote,
+                    verbatim_excerpt: null,
+                    glossary: Array.from(glossaryMap.values()),
+                    deptSection: null,
+                    committee_sessions: [],
+                    votes: combinedVotes,
+                    written_questions: []
+                };
 
                 return {
                     activity_tag: `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`,

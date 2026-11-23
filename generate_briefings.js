@@ -18,6 +18,8 @@ const WRITTEN_QUESTIONS_API = 'https://writtenquestions-api.parliament.uk/api/wr
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
 const GOVUK_SEARCH_API = 'https://www.gov.uk/api/search.json';
 
+const GEMINI_CONCURRENCY = 5;
+
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
     return String(val)
@@ -147,10 +149,6 @@ function stripHtml(html) {
         .trim();
 }
 
-/**
- * Splits text into complete grammatical sentences without ever cutting mid-word or mid-sentence.
- * Protects common parliamentary honorifics/abbreviations case-insensitively (e.g. "hon.", "right hon.", "Mr.").
- */
 function splitCompleteSentences(text) {
     const clean = stripHtml(text);
     if (!clean) return [];
@@ -172,10 +170,6 @@ function isProceduralSentence(s) {
     );
 }
 
-/**
- * Extracts 1 to 2 complete substantive verbatim sentences from Hansard speech text.
- * Skips procedural openings/interventions and never truncates mid-word or mid-sentence.
- */
 function extractCompleteVerbatimSentences(text, maxChars = 360, allowProceduralFallback = true) {
     const sentences = splitCompleteSentences(text);
     if (sentences.length === 0) return '';
@@ -199,10 +193,6 @@ function extractCompleteVerbatimSentences(text, maxChars = 360, allowProceduralF
     return selected;
 }
 
-/**
- * Searches across all speeches by the MP (longest first) to find the best
- * substantive verbatim quote and matching Hansard reference.
- */
 function extractBestVerbatimQuote(speeches, maxChars = 360) {
     if (!Array.isArray(speeches) || speeches.length === 0) {
         return { quote: '', hrsRef: '' };
@@ -230,10 +220,6 @@ function normalizeForQuoteMatch(str) {
         .toLowerCase();
 }
 
-/**
- * Verifies that any quoted passage in the generated narrative appears verbatim
- * in the source Hansard speeches and ends as a complete sentence.
- */
 function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
     const cleanNarrative = String(narrative || '').trim();
     if (!speeches || speeches.length === 0) return cleanNarrative;
@@ -710,7 +696,9 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
 
     for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-            await sleep(attempt === 1 ? 250 : 2000);
+            if (attempt > 1) {
+                await sleep(800);
+            }
 
             const res = await fetch(
                 `https://generativelanguage.googleapis.com/v1beta/models/${activeGeminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
@@ -724,11 +712,11 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                             responseMimeType: 'application/json'
                         }
                     }),
-                    signal: AbortSignal.timeout(30000)
+                    signal: AbortSignal.timeout(12000)
                 }
             );
 
-            if ((res.status === 404 || res.status === 429) && attempt === 1) {
+            if ((res.status === 404 || res.status === 429 || res.status === 503) && attempt === 1) {
                 const errPreview = await res.text().catch(() => '');
                 if (geminiWarnCount < 3) {
                     geminiWarnCount += 1;
@@ -767,7 +755,9 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                 glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 3) : []
             };
         } catch (err) {
-            if (attempt === 2 && geminiWarnCount < 5) {
+            if (attempt === 1) {
+                activeGeminiModel = 'gemini-3.6-flash';
+            } else if (geminiWarnCount < 5) {
                 geminiWarnCount += 1;
                 console.warn(`Gemini error for ${mp.short_name}: ${err.message}`);
             }
@@ -830,6 +820,7 @@ export async function generateBriefings() {
     );
 
     const rowsToUpsert = [];
+    const activeTasks = [];
     let aiSuccessCount = 0;
 
     for (const mp of mps) {
@@ -904,14 +895,13 @@ export async function generateBriefings() {
             writtenQuestions.length > 0 ||
             activeVotes.length > 0;
 
-        let activityTag = '';
-        let summaryPara1 = '';
-        let summaryPara2 = '';
-        let glossary = [];
-        let verbatimExcerpt = null;
-        let hansardRef = `HC Deb ${shortRefDate}`;
-
         if (!hasSubstantiveActivity) {
+            let activityTag = '';
+            let summaryPara1 = '';
+            let summaryPara2 = '';
+            let glossary = [];
+            let hansardRef = `HC Deb ${shortRefDate}`;
+
             if (sinnFein) {
                 activityTag = 'Abstentionist MP';
                 hansardRef = `Abstentionist Policy • ${shortRefDate}`;
@@ -941,100 +931,150 @@ export async function generateBriefings() {
                 summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote on ${readableDate}.\n\nHaving a quiet day on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.`;
                 summaryPara2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
             }
-        } else {
-            const { quote, hrsRef } = extractBestVerbatimQuote(speeches, 360);
-            if (quote) {
-                verbatimExcerpt = quote;
-            }
-            if (hrsRef) {
-                hansardRef = `HC Deb ${shortRefDate} • ${hrsRef}`;
+
+            if (govRole) {
+                glossary = [
+                    {
+                        _type: 'ministerial_meta',
+                        postTitle: govRole.postTitle,
+                        deptSlug: govRole.deptSlug,
+                        deptName: govRole.deptName,
+                        isWhip: govRole.isWhip,
+                        deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
+                    },
+                    ...glossary
+                ];
             }
 
-            const aiSummary = await summarizeWithGemini({
+            rowsToUpsert.push({
+                parliament_member_id: memberId,
+                sitting_date: targetDate,
+                activity_tag: activityTag,
+                hansard_ref: hansardRef,
+                summary_para_1: summaryPara1,
+                summary_para_2: summaryPara2,
+                verbatim_excerpt: null,
+                glossary,
+                votes: mpVotes,
+                written_questions: writtenQuestions,
+                committee_sessions: committees
+            });
+        } else {
+            activeTasks.push({
                 mp,
-                readableDate,
+                memberId,
+                govRole,
                 speeches,
                 committees,
                 writtenQuestions,
-                mpVotes: activeVotes,
-                govRole,
-                verbatimExcerpt
+                mpVotes,
+                activeVotes
             });
+        }
+    }
 
-            if (aiSummary) {
-                aiSuccessCount += 1;
-                activityTag = aiSummary.activity_tag;
-                summaryPara1 = aiSummary.summary_para_1;
-                summaryPara2 = aiSummary.summary_para_2;
-                glossary = aiSummary.glossary;
-            } else {
-                const askedQs = writtenQuestions.filter(q => q.direction !== 'answered');
-                const answeredQs = writtenQuestions.filter(q => q.direction === 'answered');
-                const votePara = activeVotes.length > 0
-                    ? `\n\nIn the voting lobbies, ${mp.short_name} cast ${activeVotes.length} recorded division ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${activeVotes[0].mpVote} on ${activeVotes[0].title}.`
-                    : '';
+    // Process active MPs in concurrent batches of GEMINI_CONCURRENCY
+    for (let i = 0; i < activeTasks.length; i += GEMINI_CONCURRENCY) {
+        const batch = activeTasks.slice(i, i + GEMINI_CONCURRENCY);
+        const batchResults = await Promise.all(
+            batch.map(async (task) => {
+                const { mp, memberId, govRole, speeches, committees, writtenQuestions, mpVotes, activeVotes } = task;
+                const { quote, hrsRef } = extractBestVerbatimQuote(speeches, 360);
+                const verbatimExcerpt = quote || null;
+                const hansardRef = hrsRef ? `HC Deb ${shortRefDate} • ${hrsRef}` : `HC Deb ${shortRefDate}`;
 
-                if (speeches.length > 0) {
-                    const topics = [...new Set(speeches.map(s => s.debateTitle))].slice(0, 2);
-                    activityTag = topics[0].slice(0, 42);
-                    const quotePara = verbatimExcerpt
-                        ? `\n\nDuring the debate, ${mp.short_name} told the House: “${verbatimExcerpt}”`
-                        : '';
-                    summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber during proceedings on ${topics.join(' and ')}.${quotePara}${votePara}`;
-                    summaryPara2 = `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
-                } else if (committees.length > 0) {
-                    const commName = committees[0].committeeName;
-                    activityTag = commName.slice(0, 42);
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, instead taking part in ${committees.length} select committee ${committees.length === 1 ? 'session' : 'sessions'} with the ${commName}.${votePara}`;
-                    summaryPara2 = `Select committees are cross-party groups of MPs that investigate government departments and public bodies, questioning ministers and expert witnesses on the public record.`;
-                } else if (answeredQs.length > 0) {
-                    const dept = answeredQs[0].department;
-                    const topics = [...new Set(answeredQs.map(q => q.heading))].slice(0, 3);
-                    activityTag = answeredQs.length === 1 ? 'Answered 1 Written Question' : `Answered ${answeredQs.length} Written Questions`;
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}.${votePara}`;
-                    summaryPara2 = `Ministers provide formal written replies to MPs' parliamentary questions on behalf of their department, placing policy details and official figures on the public record.`;
-                } else if (askedQs.length > 0) {
-                    const depts = [...new Set(askedQs.map(q => q.department))];
-                    const topics = [...new Set(askedQs.map(q => q.heading))].slice(0, 3);
-                    activityTag = askedQs.length === 1 ? '1 Written Question' : `${askedQs.length} Written Questions`;
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}.${votePara}`;
-                    summaryPara2 = `Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.`;
+                const aiSummary = await summarizeWithGemini({
+                    mp,
+                    readableDate,
+                    speeches,
+                    committees,
+                    writtenQuestions,
+                    mpVotes: activeVotes,
+                    govRole,
+                    verbatimExcerpt
+                });
+
+                let activityTag = '';
+                let summaryPara1 = '';
+                let summaryPara2 = '';
+                let glossary = [];
+
+                if (aiSummary) {
+                    aiSuccessCount += 1;
+                    activityTag = aiSummary.activity_tag;
+                    summaryPara1 = aiSummary.summary_para_1;
+                    summaryPara2 = aiSummary.summary_para_2;
+                    glossary = aiSummary.glossary;
                 } else {
-                    activityTag = activeVotes.length === 1 ? '1 Division Vote' : `${activeVotes.length} Division Votes`;
-                    const firstVote = activeVotes[0];
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
-                    summaryPara2 = firstVote.explainer?.whatItDoes || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions.`;
+                    const askedQs = writtenQuestions.filter(q => q.direction !== 'answered');
+                    const answeredQs = writtenQuestions.filter(q => q.direction === 'answered');
+                    const votePara = activeVotes.length > 0
+                        ? `\n\nIn the voting lobbies, ${mp.short_name} cast ${activeVotes.length} recorded division ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${activeVotes[0].mpVote} on ${activeVotes[0].title}.`
+                        : '';
+
+                    if (speeches.length > 0) {
+                        const topics = [...new Set(speeches.map(s => s.debateTitle))].slice(0, 2);
+                        activityTag = topics[0].slice(0, 42);
+                        const quotePara = verbatimExcerpt
+                            ? `\n\nDuring the debate, ${mp.short_name} told the House: “${verbatimExcerpt}”`
+                            : '';
+                        summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber during proceedings on ${topics.join(' and ')}.${quotePara}${votePara}`;
+                        summaryPara2 = `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
+                    } else if (committees.length > 0) {
+                        const commName = committees[0].committeeName;
+                        activityTag = commName.slice(0, 42);
+                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, instead taking part in ${committees.length} select committee ${committees.length === 1 ? 'session' : 'sessions'} with the ${commName}.${votePara}`;
+                        summaryPara2 = `Select committees are cross-party groups of MPs that investigate government departments and public bodies, questioning ministers and expert witnesses on the public record.`;
+                    } else if (answeredQs.length > 0) {
+                        const dept = answeredQs[0].department;
+                        const topics = [...new Set(answeredQs.map(q => q.heading))].slice(0, 3);
+                        activityTag = answeredQs.length === 1 ? 'Answered 1 Written Question' : `Answered ${answeredQs.length} Written Questions`;
+                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}.${votePara}`;
+                        summaryPara2 = `Ministers provide formal written replies to MPs' parliamentary questions on behalf of their department, placing policy details and official figures on the public record.`;
+                    } else if (askedQs.length > 0) {
+                        const depts = [...new Set(askedQs.map(q => q.department))];
+                        const topics = [...new Set(askedQs.map(q => q.heading))].slice(0, 3);
+                        activityTag = askedQs.length === 1 ? '1 Written Question' : `${askedQs.length} Written Questions`;
+                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}.${votePara}`;
+                        summaryPara2 = `Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.`;
+                    } else {
+                        activityTag = activeVotes.length === 1 ? '1 Division Vote' : `${activeVotes.length} Division Votes`;
+                        const firstVote = activeVotes[0];
+                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
+                        summaryPara2 = firstVote.explainer?.whatItDoes || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions.`;
+                    }
                 }
-            }
-        }
 
-        if (govRole) {
-            glossary = [
-                {
-                    _type: 'ministerial_meta',
-                    postTitle: govRole.postTitle,
-                    deptSlug: govRole.deptSlug,
-                    deptName: govRole.deptName,
-                    isWhip: govRole.isWhip,
-                    deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-                },
-                ...glossary
-            ];
-        }
+                if (govRole) {
+                    glossary = [
+                        {
+                            _type: 'ministerial_meta',
+                            postTitle: govRole.postTitle,
+                            deptSlug: govRole.deptSlug,
+                            deptName: govRole.deptName,
+                            isWhip: govRole.isWhip,
+                            deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
+                        },
+                        ...glossary
+                    ];
+                }
 
-        rowsToUpsert.push({
-            parliament_member_id: memberId,
-            sitting_date: targetDate,
-            activity_tag: activityTag,
-            hansard_ref: hansardRef,
-            summary_para_1: summaryPara1,
-            summary_para_2: summaryPara2,
-            verbatim_excerpt: verbatimExcerpt,
-            glossary,
-            votes: mpVotes,
-            written_questions: writtenQuestions,
-            committee_sessions: committees
-        });
+                return {
+                    parliament_member_id: memberId,
+                    sitting_date: targetDate,
+                    activity_tag: activityTag,
+                    hansard_ref: hansardRef,
+                    summary_para_1: summaryPara1,
+                    summary_para_2: summaryPara2,
+                    verbatim_excerpt: verbatimExcerpt,
+                    glossary,
+                    votes: mpVotes,
+                    written_questions: writtenQuestions,
+                    committee_sessions: committees
+                };
+            })
+        );
+        rowsToUpsert.push(...batchResults);
     }
 
     for (let i = 0; i < rowsToUpsert.length; i += 100) {
@@ -1049,7 +1089,7 @@ export async function generateBriefings() {
 
     console.log(
         `[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${targetDate} ` +
-        `(${aiSuccessCount} Gemini narrative summaries).`
+        `(${aiSuccessCount}/${activeTasks.length} Gemini narrative summaries).`
     );
 }
 

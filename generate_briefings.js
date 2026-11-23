@@ -66,6 +66,20 @@ function formatReadableDate(isoDate) {
     });
 }
 
+function getWeekBoundsForDate(isoDate) {
+    const d = new Date(`${isoDate}T12:00:00Z`);
+    const day = d.getUTCDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() + diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+    return {
+        mondayIso: monday.toISOString().slice(0, 10),
+        sundayIso: sunday.toISOString().slice(0, 10)
+    };
+}
+
 function stripHtml(html) {
     return String(html || '')
         .replace(/<[^>]*>/g, ' ')
@@ -196,23 +210,24 @@ async function callGeminiApi(prompt) {
     throw lastError || new Error('No working Gemini model found');
 }
 
-async function fetchDepartmentDailyDigest(deptSlug, deptName, dateStr) {
+async function fetchDepartmentWeeklyDigest(deptSlug, deptName, dateStr) {
     try {
+        const { mondayIso, sundayIso } = getWeekBoundsForDate(dateStr);
         const url = new URL(GOVUK_SEARCH_API);
         url.searchParams.set('filter_organisations', deptSlug);
-        url.searchParams.set('filter_content_purpose_supergroup', 'news_and_communications');
-        url.searchParams.set('filter_public_timestamp', `from:${dateStr},to:${dateStr}`);
+        url.searchParams.set('filter_public_timestamp', `from:${mondayIso},to:${sundayIso}`);
         url.searchParams.set('fields', 'title,description,link,public_timestamp');
         url.searchParams.set('order', '-public_timestamp');
-        url.searchParams.set('count', '8');
+        url.searchParams.set('count', '10');
 
         const data = await fetchJsonWithTimeout(url.toString(), 12000);
         const results = Array.isArray(data?.results) ? data.results : [];
         if (results.length === 0) return null;
 
-        const items = results.slice(0, 4).map(r => ({
+        const items = results.slice(0, 5).map(r => ({
             title: stripHtml(r.title || ''),
             description: stripHtml(r.description || ''),
+            publishedDate: r.public_timestamp ? String(r.public_timestamp).slice(0, 10) : null,
             url: r.link?.startsWith('http') ? r.link : `https://www.gov.uk${r.link || ''}`
         }));
 
@@ -223,7 +238,7 @@ async function fetchDepartmentDailyDigest(deptSlug, deptName, dateStr) {
                 .join('\n');
 
             const prompt = `You are a strictly neutral, non-partisan UK public service editor writing for Whip (whipdaily.uk).
-Summarize the ${deptName}'s official GOV.UK announcements on ${formatReadableDate(dateStr)} in 1–2 concise, neutral British English sentences.
+Summarize the ${deptName}'s official GOV.UK announcements and policy work during the week of ${mondayIso} to ${sundayIso} in 2 concise, specific, neutral British English sentences.
 Return valid JSON only: {"summary": "..."}.
 
 Announcements:
@@ -233,8 +248,8 @@ ${digestInput}`;
             const parsed = JSON.parse(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
             summary = (parsed.summary || '').trim();
         } catch {
-            const titles = items.map(i => i.title).filter(Boolean).slice(0, 2);
-            summary = `The ${deptName} published ${items.length} official ${items.length === 1 ? 'announcement' : 'announcements'} on GOV.UK, including "${titles.join('" and "')}".`;
+            const titles = items.map(i => i.title).filter(Boolean).slice(0, 3);
+            summary = `During this week, the ${deptName} published ${items.length} official ${items.length === 1 ? 'update' : 'updates'} on GOV.UK, covering ${titles.join('; ')}.`;
         }
 
         return {
@@ -1031,12 +1046,12 @@ export async function generateBriefings() {
         committeesByMember.size === 0 &&
         wqByMember.size === 0;
 
-    // Fetch GOV.UK departmental announcements once per active department on sitting days
+    // Fetch GOV.UK weekly departmental announcements once per active department on sitting days
     const deptDigestBySlug = new Map();
     if (!isNonSittingDay && activeDeptSlugs.size > 0) {
         const entries = Array.from(activeDeptSlugs.entries());
         await mapWithConcurrency(entries, 4, async ([slug, name]) => {
-            const digest = await fetchDepartmentDailyDigest(slug, name, dateStr);
+            const digest = await fetchDepartmentWeeklyDigest(slug, name, dateStr);
             if (digest) {
                 deptDigestBySlug.set(slug, digest);
             }
@@ -1084,13 +1099,13 @@ export async function generateBriefings() {
                 .map(d => ({ ...d, mpVote: 'Abstained' }))
         ];
 
-        // Store ministerial metadata + any GOV.UK departmental update inside glossary JSONB (zero schema changes)
         const attachMinisterialMeta = (baseGlossary = []) => {
             const list = Array.isArray(baseGlossary) ? [...baseGlossary] : [];
             if (ministerialInfo) {
                 list.push({
                     _type: 'ministerial_meta',
                     postTitle: ministerialInfo.postTitle,
+                    deptSlug: ministerialInfo.deptSlug,
                     deptName: ministerialInfo.deptName,
                     isWhip: ministerialInfo.isWhip,
                     deptDigest
@@ -1202,7 +1217,7 @@ export async function generateBriefings() {
 
             const billContext = await getBillContextForDivisions(mpVotes, readableDate);
             const ministerNote = ministerialInfo
-                ? ` As ${ministerialInfo.postTitle}, ${mp.short_name} does not table written questions or sit on select committees; check back at the end of the week for a roundup of ${ministerialInfo.deptName || 'departmental'} activity.`
+                ? ` Ministers do not table written questions or sit on select committees; check back at the end of the week for a roundup of ${ministerialInfo.deptName || 'departmental'} activity.`
                 : '';
 
             return {
@@ -1227,7 +1242,7 @@ export async function generateBriefings() {
                 sitting_date: dateStr,
                 activity_tag: 'Ministerial & Departmental Work',
                 hansard_ref: `Ministerial Duty • ${dateStr}`,
-                summary_para_1: `${mp.short_name} (${ministerialInfo.postTitle}) had no spoken Chamber contributions or recorded division votes on ${readableDate}. Ministers do not table written questions or sit on select committees, and typically speak in the Chamber only during their department's question rota or legislation.`,
+                summary_para_1: `${mp.short_name} had no spoken Chamber contributions or recorded division votes on ${readableDate}. Ministers do not table written questions or sit on select committees, and typically speak in the Chamber only during their department's question rota or legislation.`,
                 summary_para_2: `Most of a minister's working week is spent running ${deptLabel} and attending Cabinet or ministerial meetings. Check back at the end of the week for a roundup of ${deptLabel}'s official announcements.`,
                 verbatim_excerpt: null,
                 glossary: attachMinisterialMeta([]),

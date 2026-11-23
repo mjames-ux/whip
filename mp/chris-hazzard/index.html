@@ -16,16 +16,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#FFFFFF">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="description" content="Chris Hazzard (Sinn Féin, MP for South Down): Chris Hazzard did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, o">
+    <meta name="description" content="Chris Hazzard (Sinn Féin, MP for South Down): Chris Hazzard did not attend the Commons Chamber, sit on committees, table written questions, or vote during the w">
     <link rel="canonical" href="https://whipdaily.uk/mp/chris-hazzard/">
     <meta property="og:type" content="article">
     <meta property="og:site_name" content="Whip">
     <meta property="og:title" content="Chris Hazzard (UK Constituency) — Parliament Briefing | Whip">
-    <meta property="og:description" content="Chris Hazzard (Sinn Féin, MP for South Down): Chris Hazzard did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, o">
+    <meta property="og:description" content="Chris Hazzard (Sinn Féin, MP for South Down): Chris Hazzard did not attend the Commons Chamber, sit on committees, table written questions, or vote during the w">
     <meta property="og:url" content="https://whipdaily.uk/mp/chris-hazzard/">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Chris Hazzard (UK Constituency) — Parliament Briefing | Whip">
-    <meta name="twitter:description" content="Chris Hazzard (Sinn Féin, MP for South Down): Chris Hazzard did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, o">
+    <meta name="twitter:description" content="Chris Hazzard (Sinn Féin, MP for South Down): Chris Hazzard did not attend the Commons Chamber, sit on committees, table written questions, or vote during the w">
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Chris Hazzard","jobTitle":"MP for South Down","affiliation":{"@type":"Organization","name":"Sinn Féin"},"url":"https://whipdaily.uk/mp/chris-hazzard/","sameAs":"https://members.parliament.uk/member/4636/contact"}</script>
     <script>window.__WHIP_INITIAL_MP_SLUG__ = "chris-hazzard";</script>
     <link rel="canonical" href="https://whipdaily.uk/">
@@ -282,7 +282,7 @@
                         <p class="text-sm text-inkSecondary mt-2.5">
                             <span id="mpRole">MP for South Down</span>
                             <span id="headerBadgeDivider" class="mx-2 text-hairline">•</span>
-                            <span id="activityBadge" class="text-inkTertiary">2 Sitting Days</span>
+                            <span id="activityBadge" class="text-inkTertiary">Abstentionist MP</span>
                         </p>
                     </div>
 
@@ -305,7 +305,7 @@
                     <!-- 2. Two-Paragraph Accessible Summary -->
                     <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
                         <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
-                            Chris Hazzard did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes during the week of 16 Nov – 19 Nov 2026.
+                            Chris Hazzard did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of 16 Nov – 19 Nov 2026 in line with Sinn Féin’s policy of abstentionism.
                         </p>
 
                         <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
@@ -313,7 +313,7 @@
                                 Context
                             </p>
                             <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                                MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.
+                                Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.
                             </p>
                         </div>
 
@@ -368,7 +368,7 @@
                         </div>
                     </section>
 
-                    <!-- 4. Written Parliamentary Questions (Shown when MP tabled questions) -->
+                    <!-- 4. Written Parliamentary Questions (Tabled by MP or Answered by Minister) -->
                     <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden mt-16 pt-10 border-t border-hairline">
                         <div class="flex items-baseline justify-between gap-4 mb-6">
                             <h3 class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-tight">
@@ -871,7 +871,7 @@
         const CLIENT_DEPARTMENT_MAP = [
             { match: /\bprime minister\b/i, slug: 'prime-ministers-office-10-downing-street', name: '10 Downing Street' },
             { match: /\b(exchequer|treasury)\b/i, slug: 'hm-treasury', name: 'HM Treasury' },
-            { match: /\bhome department|home secretary|policing|immigration|border security\b/i, slug: 'home-office', name: 'Home Office' },
+            { match: /\bhome department|home secretary|home office|policing|immigration|border security\b/i, slug: 'home-office', name: 'Home Office' },
             { match: /\bforeign, commonwealth|foreign secretary|development\b/i, slug: 'foreign-commonwealth-development-office', name: 'Foreign, Commonwealth & Development Office' },
             { match: /\bdefence\b/i, slug: 'ministry-of-defence', name: 'Ministry of Defence' },
             { match: /\bjustice|lord chancellor|prisons\b/i, slug: 'ministry-of-justice', name: 'Ministry of Justice' },
@@ -889,8 +889,13 @@
             { match: /\bwales\b/i, slug: 'office-of-the-secretary-of-state-for-wales', name: 'Wales Office' },
             { match: /\bnorthern ireland\b/i, slug: 'northern-ireland-office', name: 'Northern Ireland Office' },
             { match: /\bcabinet office|duchy of lancaster\b/i, slug: 'cabinet-office', name: 'Cabinet Office' },
-            { match: /\battorney general|solicitor general\b/i, slug: 'attorney-generals-office', name: "Attorney General's Office" }
+            { match: /\battorney general|solicitor general|advocate general\b/i, slug: 'attorney-generals-office', name: "Attorney General's Office" },
+            { match: /\bleader of the house of commons\b/i, slug: 'office-of-the-leader-of-the-house-of-commons', name: 'Office of the Leader of the House of Commons' }
         ];
+
+        function isSinnFeinMp(mp) {
+            return /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
+        }
 
         function resolveDepartmentFromPost(postTitle) {
             if (!postTitle) return null;
@@ -2398,7 +2403,7 @@
             }).join('');
         }
 
-function renderWrittenQuestions(questions) {
+        function renderWrittenQuestions(questions) {
             const list = Array.isArray(questions) ? questions : [];
             if (list.length === 0) {
                 els.writtenQuestionsSection.classList.add('hidden');
@@ -2512,9 +2517,12 @@ function renderWrittenQuestions(questions) {
             els.voteCountBadge.textContent = `${list.length} ${list.length === 1 ? 'division' : 'divisions'}`;
 
             if (list.length === 0) {
+                const emptyMsg = isSinnFeinMp(state.selectedMp)
+                    ? `${state.selectedMp.short_name} does not vote in House of Commons divisions under Sinn Féin’s abstentionist policy.`
+                    : 'No House of Commons division votes were recorded for this period.';
                 els.votingRecordsList.innerHTML = `
                     <div class="py-6 text-sm text-inkTertiary">
-                        No House of Commons division votes were recorded for this period.
+                        ${emptyMsg}
                     </div>
                 `;
                 return;
@@ -2582,6 +2590,7 @@ function renderWrittenQuestions(questions) {
         function compileWeeklyBriefing(mp, weekDates, rows) {
             const sortedDates = [...weekDates].sort();
             const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
+            const sinnFein = isSinnFeinMp(mp);
             const { meta: ministerialMeta, deptUpdates } = extractMinisterialFromMpAndRows(mp, rows);
 
             const activeDayEntries = sortedDates
@@ -2591,12 +2600,14 @@ function renderWrittenQuestions(questions) {
             const substantiveEntries = activeDayEntries.filter(entry =>
                 entry.row.activity_tag !== 'Constituency & Parliamentary Work' &&
                 entry.row.activity_tag !== 'Ministerial & Departmental Work' &&
+                entry.row.activity_tag !== 'Abstentionist MP' &&
                 entry.row.activity_tag !== 'No Vote Recorded'
             );
 
             const spokenOrCommitteeEntries = substantiveEntries.filter(entry =>
                 !/^\d+\s+Division Votes?$/i.test(entry.row.activity_tag || '') &&
                 !/^\d+\s+Written Questions?$/i.test(entry.row.activity_tag || '') &&
+                !/^Answered\s+\d+\s+Written Questions?$/i.test(entry.row.activity_tag || '') &&
                 !/^Written Questions/i.test(entry.row.activity_tag || '')
             );
 
@@ -2669,6 +2680,30 @@ function renderWrittenQuestions(questions) {
             const uniqueContexts = [...new Set(rawContexts)];
 
             if (substantiveEntries.length === 0 && combinedWrittenQuestions.length === 0 && combinedCommittees.length === 0) {
+                if (sinnFein) {
+                    return {
+                        activity_tag: 'Abstentionist MP',
+                        hansard_ref: `Week of ${rangeLabel} • Abstentionist Policy`,
+                        summary_para_1: `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.`,
+                        summary_para_2: `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead carrying out constituency work in Northern Ireland.`,
+                        verbatim_excerpt: null,
+                        glossary: [
+                            {
+                                term: 'Abstentionism',
+                                plain: 'Sinn Féin’s policy of contesting Westminster elections while refusing to take the oath of allegiance or sit, speak, or vote in the House of Commons.'
+                            },
+                            {
+                                term: 'Parliamentary Oath',
+                                plain: 'The legal oath or affirmation of allegiance to the monarch required under the Parliamentary Oaths Act 1866 before an elected MP can sit or vote in the Commons.'
+                            }
+                        ],
+                        deptSection: null,
+                        committee_sessions: [],
+                        votes: combinedVotes,
+                        written_questions: []
+                    };
+                }
+
                 if (ministerialMeta) {
                     return {
                         activity_tag: ministerialMeta.deptName || 'Ministerial Duty',
@@ -2714,15 +2749,25 @@ function renderWrittenQuestions(questions) {
                     sentences.push(committeeWeeklySentence);
                 }
                 if (combinedWrittenQuestions.length > 0) {
-                    const depts = [...new Set(combinedWrittenQuestions.map(q => q.department))];
-                    const topics = [...new Set(combinedWrittenQuestions.map(q => q.heading))].slice(0, 2);
-                    const deptList = depts.length === 1
-                        ? depts[0]
-                        : `${depts.slice(0, 2).join(' and ')}${depts.length > 2 ? ` (+${depts.length - 2} more)` : ''}`;
-
-                    sentences.push(
-                        `${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, but tabled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'} to ${deptList} on ${topics.join(' and ')}.`
-                    );
+                    const askedWqs = combinedWrittenQuestions.filter(q => q.direction !== 'answered');
+                    const answeredWqs = combinedWrittenQuestions.filter(q => q.direction === 'answered');
+                    if (answeredWqs.length > 0) {
+                        const depts = [...new Set(answeredWqs.map(q => q.department))];
+                        const topics = [...new Set(answeredWqs.map(q => q.heading))].slice(0, 2);
+                        sentences.push(
+                            `${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} for ${depts.slice(0, 2).join(' and ')}${depts.length > 2 ? ` (+${depts.length - 2} more)` : ''} on ${topics.join(' and ')}.`
+                        );
+                    }
+                    if (askedWqs.length > 0) {
+                        const depts = [...new Set(askedWqs.map(q => q.department))];
+                        const topics = [...new Set(askedWqs.map(q => q.heading))].slice(0, 2);
+                        const deptList = depts.length === 1
+                            ? depts[0]
+                            : `${depts.slice(0, 2).join(' and ')}${depts.length > 2 ? ` (+${depts.length - 2} more)` : ''}`;
+                        sentences.push(
+                            `${mp.short_name} tabled ${askedWqs.length} written ${askedWqs.length === 1 ? 'question' : 'questions'} to ${deptList} on ${topics.join(' and ')}.`
+                        );
+                    }
                 }
 
                 if (activeVoteRows.length > 0) {
@@ -2799,7 +2844,7 @@ function renderWrittenQuestions(questions) {
                 );
             }
             if (combinedWrittenQuestions.length > 0) {
-                extras.push(`tabled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'}`);
+                extras.push(`handled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'}`);
             }
             if (activeVoteRows.length > 0) {
                 extras.push(`cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}`);
@@ -2845,6 +2890,26 @@ function renderWrittenQuestions(questions) {
 
         function buildNonSittingFridayBriefing(mp, dateStr) {
             const longDate = formatLongDate(dateStr);
+            if (isSinnFeinMp(mp)) {
+                return {
+                    activity_tag: 'Abstentionist MP',
+                    hansard_ref: 'Abstentionist Policy • Non-Sitting Friday',
+                    summary_para_1: `The House of Commons did not sit on ${longDate}. In line with Sinn Féin’s policy of abstentionism, ${mp.short_name} does not take the oath of allegiance or sit in Westminster, focusing instead on local constituency representation in Northern Ireland.`,
+                    summary_para_2: `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats, speaking, or voting in the House of Commons.`,
+                    verbatim_excerpt: null,
+                    glossary: [
+                        {
+                            term: 'Abstentionism',
+                            plain: 'Sinn Féin’s policy of contesting Westminster elections while refusing to take the oath of allegiance or sit, speak, or vote in the House of Commons.'
+                        }
+                    ],
+                    deptSection: null,
+                    committee_sessions: [],
+                    votes: [],
+                    written_questions: []
+                };
+            }
+
             const { meta: ministerialMeta } = extractMinisterialFromMpAndRows(mp, []);
             if (ministerialMeta) {
                 const deptLabel = ministerialMeta.deptName || 'their government department';
@@ -2911,7 +2976,7 @@ function renderWrittenQuestions(questions) {
 
             if (!state.selectedDate && state.latestWeekDates.length === 0) {
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
-                state.baseActivityBadge = 'Awaiting next sitting';
+                state.baseActivityBadge = isSinnFeinMp(mp) ? 'Abstentionist MP' : 'Awaiting next sitting';
                 syncActivityBadgeDisplay();
                 els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
                 els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
@@ -2991,7 +3056,7 @@ function renderWrittenQuestions(questions) {
                         state.currentBriefing = fridayBriefing;
                         state.baseActivityBadge = fridayBriefing.activity_tag;
                         syncActivityBadgeDisplay();
-                        els.contextHeading.textContent = 'What MPs Do on Non-Sitting Fridays';
+                        els.contextHeading.textContent = isSinnFeinMp(mp) ? 'Abstentionist Policy' : 'What MPs Do on Non-Sitting Fridays';
                         els.summaryPara1.textContent = fridayBriefing.summary_para_1;
                         els.summaryPara2.textContent = fridayBriefing.summary_para_2;
                         els.hansardRefTag.textContent = fridayBriefing.hansard_ref;
@@ -3017,10 +3082,29 @@ function renderWrittenQuestions(questions) {
                             state.currentBriefing = fridayBriefing;
                             state.baseActivityBadge = fridayBriefing.activity_tag;
                             syncActivityBadgeDisplay();
-                            els.contextHeading.textContent = 'What MPs Do on Non-Sitting Fridays';
+                            els.contextHeading.textContent = isSinnFeinMp(mp) ? 'Abstentionist Policy' : 'What MPs Do on Non-Sitting Fridays';
                             els.summaryPara1.textContent = fridayBriefing.summary_para_1;
                             els.summaryPara2.textContent = fridayBriefing.summary_para_2;
                             els.hansardRefTag.textContent = fridayBriefing.hansard_ref;
+                            renderCommitteeSessions([]);
+                            renderWrittenQuestions([]);
+                            renderVotingRecords([]);
+                        } else if (isSinnFeinMp(mp)) {
+                            state.currentBriefing = {
+                                hansard_ref: `HC Deb ${formatShortPillDate(state.selectedDate)} • Abstentionist MP`,
+                                verbatim_excerpt: null,
+                                glossary: [
+                                    {
+                                        term: 'Abstentionism',
+                                        plain: 'Sinn Féin’s policy of contesting Westminster elections while refusing to take the oath of allegiance or sit, speak, or vote in the House of Commons.'
+                                    }
+                                ]
+                            };
+                            state.baseActivityBadge = 'Abstentionist MP';
+                            syncActivityBadgeDisplay();
+                            els.summaryPara1.textContent = `${mp.short_name} did not attend the Commons Chamber or vote on ${formatLongDate(state.selectedDate)} in line with Sinn Féin’s policy of abstentionism at Westminster.`;
+                            els.summaryPara2.textContent = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before sitting or voting in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.`;
+                            els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
                             renderCommitteeSessions([]);
                             renderWrittenQuestions([]);
                             renderVotingRecords([]);

@@ -116,6 +116,7 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
     const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
     const rangeLabel = formatWeekRangeLabel(sortedDates);
 
+    const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
     const isMinister = Boolean(mp.role_title && mp.role_title.includes('• MP for '));
     const postTitle = isMinister ? mp.role_title.split('• MP for ')[0].trim() : null;
 
@@ -137,12 +138,14 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
     const substantiveEntries = activeDayEntries.filter(e =>
         e.row.activity_tag !== 'Constituency & Parliamentary Work' &&
         e.row.activity_tag !== 'Ministerial & Departmental Work' &&
+        e.row.activity_tag !== 'Abstentionist MP' &&
         e.row.activity_tag !== 'No Vote Recorded'
     );
 
     const spokenOrCommitteeEntries = substantiveEntries.filter(e =>
         !/^\d+\s+Division Votes?$/i.test(e.row.activity_tag || '') &&
         !/^\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
+        !/^Answered\s+\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
         !/^Written Questions/i.test(e.row.activity_tag || '')
     );
 
@@ -170,7 +173,11 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
     let activityTag = 'Weekly Roundup';
 
     if (substantiveEntries.length === 0 && combinedWqs.length === 0 && combinedCommittees.length === 0) {
-        if (isMinister) {
+        if (isSinnFein) {
+            activityTag = 'Abstentionist MP';
+            para1 = `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.`;
+            para2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.`;
+        } else if (isMinister) {
             activityTag = deptInfo?.deptName || 'Ministerial Duty';
             para1 = `${mp.short_name} had no spoken Commons Chamber contributions or recorded division votes during the week of ${rangeLabel}.`;
             para2 = `Ministers do not table written questions or sit on select committees, and typically speak in the Chamber only during their department's question rota or legislation.`;
@@ -186,9 +193,18 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
             sentences.push(`They took part in ${combinedCommittees.length} committee ${combinedCommittees.length === 1 ? 'session' : 'sessions'}: ${labels.join(', ')}.`);
         }
         if (combinedWqs.length > 0) {
-            const depts = [...new Set(combinedWqs.map(q => q.department))];
-            const topics = [...new Set(combinedWqs.map(q => q.heading))].slice(0, 2);
-            sentences.push(`${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, but tabled ${combinedWqs.length} written ${combinedWqs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
+            const askedWqs = combinedWqs.filter(q => q.direction !== 'answered');
+            const answeredWqs = combinedWqs.filter(q => q.direction === 'answered');
+            if (answeredWqs.length > 0) {
+                const depts = [...new Set(answeredWqs.map(q => q.department))];
+                const topics = [...new Set(answeredWqs.map(q => q.heading))].slice(0, 2);
+                sentences.push(`${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} for ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
+            }
+            if (askedWqs.length > 0) {
+                const depts = [...new Set(askedWqs.map(q => q.department))];
+                const topics = [...new Set(askedWqs.map(q => q.heading))].slice(0, 2);
+                sentences.push(`${mp.short_name} tabled ${askedWqs.length} written ${askedWqs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
+            }
         }
         if (activeVoteRows.length > 0) {
             const ayeTitles = activeVoteRows.filter(v => v.mpVote === 'Aye').map(v => v.title);
@@ -206,7 +222,9 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
         para1 = sentences.join(' ');
         const contexts = [...new Set(substantiveEntries.map(e => (e.row.summary_para_2 || '').trim()).filter(Boolean))];
         para2 = contexts.slice(0, 2).join(' ') || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
-        activityTag = `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`;
+        activityTag = activeVoteRows.length > 0
+            ? `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`
+            : `${combinedWqs.length} Written ${combinedWqs.length === 1 ? 'Question' : 'Questions'}`;
     } else {
         const dayHighlights = spokenOrCommitteeEntries
             .map(({ date, row }) => {
@@ -280,7 +298,6 @@ function renderStaticMpPage(templateHtml, mp, slug, weekly) {
         `<meta name="description" content="${escapeHtml(metaDesc)}">${seoHeadTags}`
     );
 
-    // Reveal masthead & briefing workspace immediately in static HTML so crawlers index full content
     html = html
         .replace('id="topMasthead" class="hidden ', 'id="topMasthead" class="')
         .replace('id="landingHero" class="', 'id="landingHero" class="hidden ')
@@ -330,13 +347,19 @@ function renderStaticMpPage(templateHtml, mp, slug, weekly) {
     }
 
     if (weekly.writtenQuestions.length > 0) {
-        const wqHtml = weekly.writtenQuestions.map(q => `
-            <div class="py-5 space-y-2">
-                <span class="text-xs font-medium text-commonsGreen">${escapeHtml(q.department)} • Tabled ${escapeHtml(q.sittingDateLabel)}</span>
-                <p class="text-sm font-medium text-ink">${escapeHtml(q.heading)}</p>
-                <p class="text-xs text-inkSecondary">${escapeHtml(q.questionText || '')}</p>
-            </div>
-        `).join('');
+        const wqHtml = weekly.writtenQuestions.map(q => {
+            const isAns = q.direction === 'answered';
+            const label = isAns
+                ? `${escapeHtml(q.department)} • Answered ${escapeHtml(q.sittingDateLabel)}`
+                : `${escapeHtml(q.department)} • Tabled ${escapeHtml(q.sittingDateLabel)}`;
+            return `
+                <div class="py-5 space-y-2">
+                    <span class="text-xs font-medium text-commonsGreen">${label}</span>
+                    <p class="text-sm font-medium text-ink">${escapeHtml(q.heading)}</p>
+                    <p class="text-xs text-inkSecondary">${escapeHtml(q.answerText || q.questionText || '')}</p>
+                </div>
+            `;
+        }).join('');
 
         html = html
             .replace('id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden ', 'id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="')

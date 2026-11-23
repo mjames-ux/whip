@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const MEMBERS_SEARCH_API = 'https://members-api.parliament.uk/api/Members/Search';
 const GOVERNMENT_POSTS_API = 'https://members-api.parliament.uk/api/Posts/GovernmentPosts';
+const MEMBER_BIOGRAPHY_API = 'https://members-api.parliament.uk/api/Members';
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -50,6 +51,32 @@ const PARTY_COLORS = {
     'Speaker': '#111111',
     'Independent': '#6B7280'
 };
+
+function isActiveHolder(holder) {
+    if (!holder) return false;
+    if (!holder.endDate) return true;
+    const endMs = new Date(holder.endDate).getTime();
+    return !Number.isNaN(endMs) && endMs > Date.now();
+}
+
+function formatPostWithDept(postName, deptName) {
+    const cleanPost = String(postName || '').trim();
+    const cleanDept = String(deptName || '').trim();
+    if (!cleanPost) return '';
+    if (!cleanDept) return cleanPost;
+
+    const shortDept = cleanDept
+        .replace(/^department (for|of)\s+/i, '')
+        .replace(/^ministry of\s+/i, '')
+        .trim();
+
+    const alreadyHasDept =
+        cleanPost.toLowerCase().includes(cleanDept.toLowerCase()) ||
+        (shortDept.length > 3 && cleanPost.toLowerCase().includes(shortDept.toLowerCase())) ||
+        /\b(prime minister|chancellor of the exchequer|home secretary|foreign secretary)\b/i.test(cleanPost);
+
+    return alreadyHasDept ? cleanPost : `${cleanPost} (${cleanDept})`;
+}
 
 async function fetchJson(url) {
     const res = await fetch(url, {
@@ -92,39 +119,46 @@ async function fetchAllCommonsMembers() {
     return allMembers;
 }
 
+function addPostForMember(postsByMember, memberId, formattedTitle) {
+    if (!memberId || !formattedTitle) return;
+    if (!postsByMember.has(memberId)) {
+        postsByMember.set(memberId, []);
+    }
+    const list = postsByMember.get(memberId);
+    if (!list.includes(formattedTitle)) {
+        list.push(formattedTitle);
+    }
+}
+
 async function fetchGovernmentPostsByMemberId() {
     const postsByMember = new Map();
 
     try {
         const data = await fetchJson(GOVERNMENT_POSTS_API);
-        const posts = Array.isArray(data) ? data : (data?.items || data?.value || []);
+        const rawList = Array.isArray(data) ? data : (data?.items || data?.value || []);
 
-        for (const entry of posts) {
-            const post = entry?.value || entry;
-            const postName = (post?.name || post?.postName || '').trim();
-            const deptName = (post?.governmentDepartments?.[0]?.name || post?.department?.name || '').trim();
-            const holders = Array.isArray(post?.postHolders) ? post.postHolders : [];
+        for (const entry of rawList) {
+            const post = entry?.post || entry?.value || entry;
+            const postName = (post?.name || post?.postName || entry?.name || '').trim();
+            const deptName = (
+                post?.governmentDepartments?.[0]?.name ||
+                post?.department?.name ||
+                entry?.governmentDepartments?.[0]?.name ||
+                ''
+            ).trim();
+            const holders = Array.isArray(post?.postHolders)
+                ? post.postHolders
+                : (Array.isArray(entry?.postHolders) ? entry.postHolders : []);
 
             for (const holder of holders) {
-                if (holder?.endDate) continue;
-                const memberId = Number(holder?.member?.id ?? holder?.member?.value?.id ?? holder?.memberId);
+                if (!isActiveHolder(holder)) continue;
+                const memberId = Number(
+                    holder?.member?.id ??
+                    holder?.member?.value?.id ??
+                    holder?.memberId
+                );
                 if (!memberId || !postName) continue;
-
-                // Include department context in parentheses if not already obvious in the title
-                const needsDeptContext = deptName &&
-                    !postName.toLowerCase().includes(deptName.toLowerCase().replace(/^department (for|of)\s+/i, '')) &&
-                    !/prime minister|chancellor of the exchequer|home secretary|foreign secretary/i.test(postName);
-
-                const formattedTitle = needsDeptContext
-                    ? `${postName} (${deptName})`
-                    : postName;
-
-                if (!postsByMember.has(memberId)) {
-                    postsByMember.set(memberId, []);
-                }
-                if (!postsByMember.get(memberId).includes(formattedTitle)) {
-                    postsByMember.get(memberId).push(formattedTitle);
-                }
+                addPostForMember(postsByMember, memberId, formatPostWithDept(postName, deptName));
             }
         }
     } catch (err) {
@@ -132,6 +166,30 @@ async function fetchGovernmentPostsByMemberId() {
     }
 
     return postsByMember;
+}
+
+async function enrichFromMemberBiography(memberIds, postsByMember) {
+    const batchSize = 25;
+    for (let i = 0; i < memberIds.length; i += batchSize) {
+        const batch = memberIds.slice(i, i + batchSize);
+        await Promise.all(
+            batch.map(async (memberId) => {
+                try {
+                    const bio = await fetchJson(`${MEMBER_BIOGRAPHY_API}/${memberId}/Biography`);
+                    const val = bio?.value || bio || {};
+                    const govPosts = Array.isArray(val.governmentPosts) ? val.governmentPosts : [];
+                    for (const gp of govPosts) {
+                        if (!isActiveHolder(gp)) continue;
+                        const postName = (gp?.name || gp?.postName || '').trim();
+                        const deptName = (gp?.governmentDepartments?.[0]?.name || gp?.department?.name || '').trim();
+                        addPostForMember(postsByMember, memberId, formatPostWithDept(postName, deptName));
+                    }
+                } catch {
+                    // Ignore individual member biography misses
+                }
+            })
+        );
+    }
 }
 
 export async function syncRoster() {
@@ -147,9 +205,11 @@ export async function syncRoster() {
         return;
     }
 
+    const memberIds = members.map(m => Number(m.id)).filter(Boolean);
+    await enrichFromMemberBiography(memberIds, govPostsByMember);
+
     console.log(`Fetched ${members.length} active MPs and ${govPostsByMember.size} Government payroll postholders.`);
 
-    // Upsert constituencies first
     const constituencyMap = new Map();
     for (const m of members) {
         const membership = m.latestHouseMembership || {};
@@ -217,7 +277,6 @@ export async function syncRoster() {
         }
     }
 
-    // Mark former MPs as no longer current (preserving historical briefings)
     const { data: existingCurrent } = await supabase
         .from('mps')
         .select('parliament_member_id')

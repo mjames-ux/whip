@@ -3,8 +3,9 @@
  *
  * Fetches Hansard debates, Select Committee sessions, Written Parliamentary Questions
  * (both tabled by MPs and answered by Ministers), Commons Division votes, and GOV.UK
- * departmental announcements for a target sitting date, generates plain-English summaries
- * via Gemini, and upserts them into Supabase (`daily_briefings`).
+ * departmental announcements for a target sitting date, generates accessible multi-paragraph
+ * plain-English briefings with verified verbatim Hansard quotes via Gemini, and upserts
+ * them into Supabase (`daily_briefings`).
  */
 
 import 'dotenv/config';
@@ -65,6 +66,10 @@ const DEPARTMENT_MAP = [
 
 function isSinnFeinMp(mp) {
     return /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
+}
+
+function isSpeakerOrDeputyMp(mp) {
+    return /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
 }
 
 function resolveGovernmentRole(mp) {
@@ -138,17 +143,97 @@ function stripHtml(html) {
         .trim();
 }
 
-function extractCleanExcerpt(text, maxLen = 450) {
+/**
+ * Splits text into complete grammatical sentences without ever cutting mid-word or mid-sentence.
+ */
+function splitCompleteSentences(text) {
     const clean = stripHtml(text);
-    if (!clean) return '';
-    if (clean.length <= maxLen) return clean;
-    const sliced = clean.slice(0, maxLen);
-    const lastStop = Math.max(sliced.lastIndexOf('. '), sliced.lastIndexOf('? '), sliced.lastIndexOf('! '));
-    if (lastStop > maxLen * 0.5) {
-        return sliced.slice(0, lastStop + 1).trim();
+    if (!clean) return [];
+
+    // Protect common parliamentary titles/abbreviations from splitting
+    const protectedText = clean
+        .replace(/\b(Mr|Mrs|Ms|Mx|Dr|Prof|Hon|Rt Hon|St|No|Nos|Vol|Col|Cols|Fig|v)\./g, '$1\u0000');
+
+    const rawParts = protectedText.match(/[^.!?]+[.!?]+(?:["”'’)\]]+)?/g) || [];
+    return rawParts
+        .map(s => s.replace(/\u0000/g, '.').trim())
+        .filter(s => s.length > 0 && /[.!?]["”'’)\]]*$/.test(s));
+}
+
+/**
+ * Extracts 1 to 2 complete verbatim sentences from Hansard speech text.
+ * Never truncates mid-word or mid-sentence.
+ */
+function extractCompleteVerbatimSentences(text, maxChars = 360) {
+    const sentences = splitCompleteSentences(text);
+    if (sentences.length === 0) return '';
+
+    // Prefer substantive sentences (skip very short procedural formalities like "I beg to move.")
+    const substantiveStartIdx = sentences.findIndex(
+        s => s.length >= 45 && !/^(I beg to move|I thank my|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker)[,.!]?$/i.test(s)
+    );
+    const startIdx = substantiveStartIdx >= 0 ? substantiveStartIdx : 0;
+
+    let selected = sentences[startIdx];
+    if (
+        sentences[startIdx + 1] &&
+        selected.length < 180 &&
+        selected.length + 1 + sentences[startIdx + 1].length <= maxChars
+    ) {
+        selected = `${selected} ${sentences[startIdx + 1]}`;
     }
-    const lastSpace = sliced.lastIndexOf(' ');
-    return `${(lastSpace > 40 ? sliced.slice(0, lastSpace) : sliced).trim()}…`;
+
+    return selected;
+}
+
+function normalizeForQuoteMatch(str) {
+    return String(str || '')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+/**
+ * Verifies that any quoted passage in the generated narrative appears verbatim
+ * in the source Hansard speeches and ends as a complete sentence.
+ */
+function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
+    const cleanNarrative = String(narrative || '').trim();
+    if (!speeches || speeches.length === 0) return cleanNarrative;
+
+    const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
+    const quoteMatches = [...cleanNarrative.matchAll(/[“"]([^”"]+)[”"]/g)];
+
+    if (quoteMatches.length > 0) {
+        const allValid = quoteMatches.every(m => {
+            const q = m[1].trim();
+            const isCompleteSentence = /[.!?]$/.test(q) && !q.includes('...');
+            const isExactSubstring = fullTranscriptNorm.includes(normalizeForQuoteMatch(q));
+            return isCompleteSentence && isExactSubstring;
+        });
+
+        if (allValid) {
+            return cleanNarrative;
+        }
+
+        // Remove any paraphrased or truncated quote and append the verified verbatim sentence cleanly
+        const withoutBadQuotes = cleanNarrative
+            .replace(/\s*[“"][^”"]+[”"]\s*/g, ' ')
+            .replace(/\s+\./g, '.')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+
+        return fallbackQuote
+            ? `${withoutBadQuotes}\n\nIn the Chamber, they said: “${fallbackQuote}”`
+            : withoutBadQuotes;
+    }
+
+    // If Gemini omitted a quote altogether when speeches exist, weave the verified verbatim sentence in
+    return fallbackQuote
+        ? `${cleanNarrative}\n\nDuring the debate, they told the House: “${fallbackQuote}”`
+        : cleanNarrative;
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs = 20000) {
@@ -403,8 +488,8 @@ async function fetchWrittenQuestionsForDate(dateStr) {
             uin,
             department,
             heading,
-            questionText: extractCleanExcerpt(questionText, 500) || questionText,
-            answerText: answerText ? (extractCleanExcerpt(answerText, 650) || answerText) : null,
+            questionText: extractCompleteVerbatimSentences(questionText, 480) || questionText,
+            answerText: answerText ? (extractCompleteVerbatimSentences(answerText, 620) || answerText) : null,
             dateAnswered: val?.dateAnswered ? String(val.dateAnswered).slice(0, 10) : null,
             url: uin
                 ? `https://questions-statements.parliament.uk/written-questions/detail/${tabledDate}/${encodeURIComponent(uin)}`
@@ -429,8 +514,8 @@ async function fetchWrittenQuestionsForDate(dateStr) {
             department,
             askingMemberName,
             heading,
-            questionText: extractCleanExcerpt(questionText, 400) || questionText,
-            answerText: answerText ? (extractCleanExcerpt(answerText, 650) || answerText) : null,
+            questionText: extractCompleteVerbatimSentences(questionText, 400) || questionText,
+            answerText: answerText ? (extractCompleteVerbatimSentences(answerText, 620) || answerText) : null,
             dateAnswered: val?.dateAnswered ? String(val.dateAnswered).slice(0, 10) : dateStr,
             url: uin
                 ? `https://questions-statements.parliament.uk/written-questions/detail/${tabledDate}/${encodeURIComponent(uin)}`
@@ -530,7 +615,7 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
     }
 }
 
-async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole }) {
+async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
     if (!geminiApiKey) return null;
 
     const askedQuestions = writtenQuestions.filter(q => q.direction !== 'answered');
@@ -538,7 +623,7 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
 
     const speechDigest = speeches
         .slice(0, 5)
-        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 450)}"`)
+        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 700)}"`)
         .join('\n');
 
     const committeeDigest = committees
@@ -557,16 +642,25 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
         .join('\n');
 
     const prompt = `You are an impartial, strictly factual UK parliamentary correspondent writing for Whip.
-Summarize ${mp.full_name} (${mp.party}, ${mp.role_title}) on ${readableDate} in plain, accessible British English.
+Write a clear, accessible briefing on ${mp.full_name} (${mp.party}, ${mp.role_title}) on ${readableDate}.
 
-Rules:
+Audience & Tone Rules:
+- Write so anyone from a school politics student to an older adult without further education can read it effortlessly.
+- Use short, easily digestible paragraphs (2–3 short sentences per paragraph), separated by a blank line (\\n\\n).
 - Strictly neutral, non-partisan tone. Do not praise, criticize, or editorialize.
 - Use "${mp.short_name}" (never include constituency in parentheses after their name).
-- Return ONLY valid JSON with keys: "activity_tag", "summary_para_1", "summary_para_2", "glossary".
+- Never guess or assume specific topics of constituency work—if mentioning local work, refer only to "handling urgent constituent casework".
+
+Verbatim Hansard Quote Rules (CRITICAL):
+- If Chamber Speeches are provided below, weave ONE exact, word-for-word complete sentence (or two consecutive complete sentences) from the speech transcript into "summary_para_1", enclosed in double quotation marks ("...").
+- NEVER paraphrase, alter, or shorten words inside the quotation marks, and NEVER cut off a quote mid-word or mid-sentence.
+- Introduce the quote naturally so it flows smoothly within the surrounding sentences.
+
+Return ONLY valid JSON with keys: "activity_tag", "summary_para_1", "summary_para_2", "glossary".
 - "activity_tag": short 2–4 word badge (e.g., "Transport Debate", "Answered 4 Written Questions", "Select Committee Evidence", "3 Division Votes").
-- "summary_para_1": 2–3 clear sentences stating exactly what ${mp.short_name} did (speeches, committee work, written questions tabled or answered as a minister, and/or division votes).
-- "summary_para_2": 1–2 sentences giving plain-English background context on the bill, policy issue, or parliamentary procedure involved.
-- "glossary": array of 1–2 objects {"term": "...", "plain": "..."} explaining any parliamentary jargon mentioned (or [] if none).
+- "summary_para_1": 2 to 3 short, well-paced paragraphs separated by \\n\\n covering speeches (with the exact verbatim quote), committee work, written questions tabled or answered as a minister, and/or division votes.
+- "summary_para_2": 1 short paragraph (2–3 clear sentences) titled conceptually as "Why this matters"—explaining in everyday language how the bill, policy issue, or parliamentary step affects ordinary people or how Parliament works.
+- "glossary": array of 1–2 objects {"term": "...", "plain": "..."} explaining any parliamentary term mentioned (or [] if none).
 
 Data for ${readableDate}:
 ${govRole ? `Government Role: ${govRole.postTitle}` : ''}
@@ -600,9 +694,15 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
         const parsed = JSON.parse(rawText);
         if (!parsed?.summary_para_1 || !parsed?.summary_para_2) return null;
 
+        const verifiedNarrative = ensureVerbatimQuoteIntegrity(
+            parsed.summary_para_1,
+            speeches,
+            verbatimExcerpt
+        );
+
         return {
             activity_tag: String(parsed.activity_tag || 'Parliamentary Business').slice(0, 60),
-            summary_para_1: String(parsed.summary_para_1).trim(),
+            summary_para_1: verifiedNarrative,
             summary_para_2: String(parsed.summary_para_2).trim(),
             glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 3) : []
         };
@@ -665,6 +765,7 @@ export async function generateBriefings() {
     for (const mp of mps) {
         const memberId = Number(mp.parliament_member_id);
         const sinnFein = isSinnFeinMp(mp);
+        const speakerOrDeputy = isSpeakerOrDeputyMp(mp);
         const govRole = resolveGovernmentRole(mp);
         const speeches = hansardByMember.get(memberId) || [];
         const committees = committeesByMember.get(memberId) || [];
@@ -695,11 +796,11 @@ export async function generateBriefings() {
                     ? `Abstentionist Policy • ${shortRefDate}`
                     : `Commons Recess / Non-Sitting • ${shortRefDate}`,
                 summary_para_1: sinnFein
-                    ? `The House of Commons did not sit on ${readableDate}. In line with Sinn Féin’s policy of abstentionism, ${mp.short_name} does not take the oath of allegiance or sit in Westminster, focusing instead on local constituency representation in Northern Ireland.`
-                    : `The House of Commons did not sit on ${readableDate}.`,
+                    ? `The House of Commons did not sit on ${readableDate}.\n\nIn line with Sinn Féin’s policy of abstentionism, ${mp.short_name} does not take the oath of allegiance or sit in Westminster, focusing instead on constituency representation in Northern Ireland.`
+                    : `The House of Commons did not sit on ${readableDate}.\n\nWhen the House is not sitting, MPs focus on handling urgent constituent casework, meeting local residents, and preparing for upcoming committee work.`,
                 summary_para_2: sinnFein
                     ? `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats, speaking, or voting in the House of Commons.`
-                    : `When the House is not sitting, MPs focus on constituency casework, local visits, select committee preparation, and departmental responsibilities.`,
+                    : `Much of an MP's job happens outside the main debating Chamber—handling urgent constituent casework and writing directly to government departments on behalf of residents.`,
                 verbatim_excerpt: null,
                 glossary: sinnFein
                     ? [
@@ -744,8 +845,8 @@ export async function generateBriefings() {
             if (sinnFein) {
                 activityTag = 'Abstentionist MP';
                 hansardRef = `Abstentionist Policy • ${shortRefDate}`;
-                summaryPara1 = `${mp.short_name} did not attend the Commons Chamber or vote on ${readableDate} in line with Sinn Féin’s policy of abstentionism at Westminster.`;
-                summaryPara2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before sitting or voting in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.`;
+                summaryPara1 = `${mp.short_name} did not attend the Commons Chamber or vote on ${readableDate} in line with Sinn Féin’s policy of abstentionism at Westminster.\n\nInstead of sitting in the House of Commons, Sinn Féin MPs focus on constituency representation in Northern Ireland.`;
+                summaryPara2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before sitting or voting in the House of Commons. Sinn Féin MPs refuse to take the oath, do not sit in Westminster, and do not draw an MP salary.`;
                 glossary = [
                     {
                         term: 'Abstentionism',
@@ -756,18 +857,23 @@ export async function generateBriefings() {
                         plain: 'The legal oath or affirmation of allegiance to the monarch required under the Parliamentary Oaths Act 1866 before an elected MP can sit or vote in the Commons.'
                     }
                 ];
+            } else if (speakerOrDeputy) {
+                activityTag = 'Chairing the House';
+                hansardRef = `Speaker’s Chair • ${shortRefDate}`;
+                summaryPara1 = `${mp.short_name} did not speak in debates or vote in Commons divisions on ${readableDate} due to the strict impartiality required of the Speaker’s Chair.`;
+                summaryPara2 = `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, keep order, and select amendments—voting only to break a tied result.`;
             } else if (govRole) {
                 activityTag = 'Ministerial & Departmental Work';
                 summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber or cast recorded division votes on ${readableDate}, carrying out ${govRole.postTitle} duties.`;
-                summaryPara2 = `Government ministers divide their week between departmental policy work, bill preparation, official correspondence, and speaking in the Chamber during their department's question rota or legislation.`;
+                summaryPara2 = `Government ministers divide their week between running their department, preparing legislation, answering official correspondence, and speaking in the Chamber during their department's question rota.`;
             } else {
                 activityTag = 'Constituency & Parliamentary Work';
-                summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes on ${readableDate}.`;
-                summaryPara2 = `MPs divide their working week between main Chamber debates, select committees, bill scrutiny, ministerial correspondence, and constituency casework.`;
+                summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote on ${readableDate}.\n\nHaving a quiet day on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.`;
+                summaryPara2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
             }
         } else {
             if (speeches.length > 0) {
-                verbatimExcerpt = extractCleanExcerpt(speeches[0].text, 480);
+                verbatimExcerpt = extractCompleteVerbatimSentences(speeches[0].text, 360);
                 if (speeches[0].hrsRef) {
                     hansardRef = `HC Deb ${shortRefDate} • ${speeches[0].hrsRef}`;
                 }
@@ -780,7 +886,8 @@ export async function generateBriefings() {
                 committees,
                 writtenQuestions,
                 mpVotes: activeVotes,
-                govRole
+                govRole,
+                verbatimExcerpt
             });
 
             if (aiSummary) {
@@ -791,37 +898,40 @@ export async function generateBriefings() {
             } else {
                 const askedQs = writtenQuestions.filter(q => q.direction !== 'answered');
                 const answeredQs = writtenQuestions.filter(q => q.direction === 'answered');
-                const voteClause = activeVotes.length > 0
-                    ? `, alongside casting ${activeVotes.length} recorded division ${activeVotes.length === 1 ? 'vote' : 'votes'}`
+                const votePara = activeVotes.length > 0
+                    ? `\n\nIn the voting lobbies, ${mp.short_name} cast ${activeVotes.length} recorded division ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${activeVotes[0].mpVote} on ${activeVotes[0].title}.`
                     : '';
 
                 if (speeches.length > 0) {
                     const topics = [...new Set(speeches.map(s => s.debateTitle))].slice(0, 2);
                     activityTag = topics[0].slice(0, 42);
-                    summaryPara1 = `${mp.short_name} spoke in the Commons Chamber on ${readableDate} during proceedings on ${topics.join(' and ')}${voteClause}.`;
-                    summaryPara2 = `Full verbatim contributions are recorded in Hansard under ${hansardRef}.`;
+                    const quotePara = verbatimExcerpt
+                        ? `\n\nDuring the debate, ${mp.short_name} told the House: “${verbatimExcerpt}”`
+                        : '';
+                    summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber during proceedings on ${topics.join(' and ')}.${quotePara}${votePara}`;
+                    summaryPara2 = `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
                 } else if (committees.length > 0) {
                     const commName = committees[0].committeeName;
                     activityTag = commName.slice(0, 42);
-                    summaryPara1 = `${mp.short_name} took part in ${committees.length} select committee ${committees.length === 1 ? 'session' : 'sessions'} (${commName}) on ${readableDate}${voteClause}.`;
-                    summaryPara2 = `Select committees examine government policy, spending, and legislation by questioning ministers and outside witnesses.`;
+                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, instead taking part in ${committees.length} select committee ${committees.length === 1 ? 'session' : 'sessions'} with the ${commName}.${votePara}`;
+                    summaryPara2 = `Select committees are cross-party groups of MPs that investigate government departments and public bodies, questioning ministers and expert witnesses on the public record.`;
                 } else if (answeredQs.length > 0) {
                     const dept = answeredQs[0].department;
                     const topics = [...new Set(answeredQs.map(q => q.heading))].slice(0, 3);
                     activityTag = answeredQs.length === 1 ? 'Answered 1 Written Question' : `Answered ${answeredQs.length} Written Questions`;
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}${voteClause}.`;
-                    summaryPara2 = `Ministers provide formal written answers to MPs' parliamentary questions on behalf of their department, placing policy details and official figures on the public record.`;
+                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}.${votePara}`;
+                    summaryPara2 = `Ministers provide formal written replies to MPs' parliamentary questions on behalf of their department, placing policy details and official figures on the public record.`;
                 } else if (askedQs.length > 0) {
                     const depts = [...new Set(askedQs.map(q => q.department))];
                     const topics = [...new Set(askedQs.map(q => q.heading))].slice(0, 3);
                     activityTag = askedQs.length === 1 ? '1 Written Question' : `${askedQs.length} Written Questions`;
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}${voteClause}.`;
-                    summaryPara2 = `Written Parliamentary Questions require government departments to place formal, on-the-record answers before Parliament within a set timeframe.`;
+                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}.${votePara}`;
+                    summaryPara2 = `Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.`;
                 } else {
                     activityTag = activeVotes.length === 1 ? '1 Division Vote' : `${activeVotes.length} Division Votes`;
                     const firstVote = activeVotes[0];
-                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but cast ${activeVotes.length} recorded division ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
-                    summaryPara2 = firstVote.explainer?.whatItDoes || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions, alongside their committee and constituency responsibilities.`;
+                    summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
+                    summaryPara2 = firstVote.explainer?.whatItDoes || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions.`;
                 }
             }
         }

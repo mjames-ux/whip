@@ -63,6 +63,10 @@ const DEPARTMENT_MAP = [
     { match: /\bleader of the house of commons\b/i, slug: 'office-of-the-leader-of-the-house-of-commons', name: 'Office of the Leader of the House of Commons' }
 ];
 
+function isSinnFeinMp(mp) {
+    return /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
+}
+
 function resolveGovernmentRole(mp) {
     if (!mp?.role_title || !mp.role_title.includes('• MP for ')) {
         return null;
@@ -87,7 +91,6 @@ function getTargetDate() {
         return override;
     }
 
-    // Default to yesterday in Europe/London time (since cron runs at 06:45 UTC Tue–Sat)
     const now = new Date();
     const londonToday = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Europe/London',
@@ -159,9 +162,6 @@ async function fetchJsonWithTimeout(url, timeoutMs = 20000) {
     return res.json();
 }
 
-// ---------------------------------------------------------------------------
-// 1. HANSARD DEBATES & CONTRIBUTIONS
-// ---------------------------------------------------------------------------
 async function fetchHansardContributionsForDate(dateStr) {
     const byMember = new Map();
     let skip = 0;
@@ -214,9 +214,6 @@ async function fetchHansardContributionsForDate(dateStr) {
     return byMember;
 }
 
-// ---------------------------------------------------------------------------
-// 2. COMMONS DIVISIONS & PLAIN-ENGLISH VOTE EXPLAINERS
-// ---------------------------------------------------------------------------
 function buildDivisionExplainer(title, divisionId) {
     const cleanTitle = (title || 'House of Commons Division').trim();
     const lower = cleanTitle.toLowerCase();
@@ -335,9 +332,6 @@ async function fetchDivisionsForDate(dateStr) {
     return detailedDivisions;
 }
 
-// ---------------------------------------------------------------------------
-// 3. WRITTEN PARLIAMENTARY QUESTIONS (BOTH TABLED & ANSWERED BY MINISTERS)
-// ---------------------------------------------------------------------------
 async function fetchWrittenQuestionsPage(params) {
     const items = [];
     let skip = 0;
@@ -447,9 +441,6 @@ async function fetchWrittenQuestionsForDate(dateStr) {
     return byMember;
 }
 
-// ---------------------------------------------------------------------------
-// 4. SELECT COMMITTEE SESSIONS
-// ---------------------------------------------------------------------------
 async function fetchCommitteeSessionsForDate(dateStr) {
     const byMember = new Map();
     const url = new URL(COMMITTEES_EVENTS_API);
@@ -508,9 +499,6 @@ async function fetchCommitteeSessionsForDate(dateStr) {
     return byMember;
 }
 
-// ---------------------------------------------------------------------------
-// 5. GOV.UK DEPARTMENTAL ANNOUNCEMENTS FOR MINISTERS
-// ---------------------------------------------------------------------------
 async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
     if (!deptSlug) return null;
 
@@ -542,9 +530,6 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 6. GEMINI NEUTRAL SUMMARY GENERATOR
-// ---------------------------------------------------------------------------
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole }) {
     if (!geminiApiKey) return null;
 
@@ -626,9 +611,6 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
     }
 }
 
-// ---------------------------------------------------------------------------
-// 7. MAIN DAILY PIPELINE
-// ---------------------------------------------------------------------------
 export async function generateBriefings() {
     const targetDate = getTargetDate();
     const readableDate = formatReadableDate(targetDate);
@@ -663,7 +645,6 @@ export async function generateBriefings() {
         `${writtenQuestionsByMember.size} MPs with WQs (asked/answered), ${committeesByMember.size} committee participants.`
     );
 
-    // Pre-fetch GOV.UK departmental digests once per unique department slug
     const deptDigestCache = new Map();
     const uniqueDepts = new Map();
     for (const mp of mps) {
@@ -683,6 +664,7 @@ export async function generateBriefings() {
 
     for (const mp of mps) {
         const memberId = Number(mp.parliament_member_id);
+        const sinnFein = isSinnFeinMp(mp);
         const govRole = resolveGovernmentRole(mp);
         const speeches = hansardByMember.get(memberId) || [];
         const committees = committeesByMember.get(memberId) || [];
@@ -708,19 +690,36 @@ export async function generateBriefings() {
             rowsToUpsert.push({
                 parliament_member_id: memberId,
                 sitting_date: targetDate,
-                activity_tag: 'Non-Sitting Day',
-                hansard_ref: `Commons Recess / Non-Sitting • ${shortRefDate}`,
-                summary_para_1: `The House of Commons did not sit on ${readableDate}.`,
-                summary_para_2: `When the House is not sitting, MPs focus on constituency casework, local visits, select committee preparation, and departmental responsibilities.`,
+                activity_tag: sinnFein ? 'Abstentionist MP' : 'Non-Sitting Day',
+                hansard_ref: sinnFein
+                    ? `Abstentionist Policy • ${shortRefDate}`
+                    : `Commons Recess / Non-Sitting • ${shortRefDate}`,
+                summary_para_1: sinnFein
+                    ? `The House of Commons did not sit on ${readableDate}. In line with Sinn Féin’s policy of abstentionism, ${mp.short_name} does not take the oath of allegiance or sit in Westminster, focusing instead on local constituency representation in Northern Ireland.`
+                    : `The House of Commons did not sit on ${readableDate}.`,
+                summary_para_2: sinnFein
+                    ? `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats, speaking, or voting in the House of Commons.`
+                    : `When the House is not sitting, MPs focus on constituency casework, local visits, select committee preparation, and departmental responsibilities.`,
                 verbatim_excerpt: null,
-                glossary: govRole ? [{
-                    _type: 'ministerial_meta',
-                    postTitle: govRole.postTitle,
-                    deptSlug: govRole.deptSlug,
-                    deptName: govRole.deptName,
-                    isWhip: govRole.isWhip,
-                    deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-                }] : [],
+                glossary: sinnFein
+                    ? [
+                        {
+                            term: 'Abstentionism',
+                            plain: 'Sinn Féin’s longstanding policy of contesting Westminster elections while refusing to take the oath of allegiance or sit, speak, or vote in the House of Commons.'
+                        },
+                        {
+                            term: 'Parliamentary Oath',
+                            plain: 'The legal oath or affirmation of allegiance to the monarch required under the Parliamentary Oaths Act 1866 before an elected MP can sit or vote in the Commons.'
+                        }
+                    ]
+                    : (govRole ? [{
+                        _type: 'ministerial_meta',
+                        postTitle: govRole.postTitle,
+                        deptSlug: govRole.deptSlug,
+                        deptName: govRole.deptName,
+                        isWhip: govRole.isWhip,
+                        deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
+                    }] : []),
                 votes: [],
                 written_questions: [],
                 committee_sessions: []
@@ -742,7 +741,22 @@ export async function generateBriefings() {
         let hansardRef = `HC Deb ${shortRefDate}`;
 
         if (!hasSubstantiveActivity) {
-            if (govRole) {
+            if (sinnFein) {
+                activityTag = 'Abstentionist MP';
+                hansardRef = `Abstentionist Policy • ${shortRefDate}`;
+                summaryPara1 = `${mp.short_name} did not attend the Commons Chamber or vote on ${readableDate} in line with Sinn Féin’s policy of abstentionism at Westminster.`;
+                summaryPara2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before sitting or voting in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.`;
+                glossary = [
+                    {
+                        term: 'Abstentionism',
+                        plain: 'Sinn Féin’s policy of contesting Westminster elections while refusing to take the oath of allegiance or sit, speak, or vote in the House of Commons.'
+                    },
+                    {
+                        term: 'Parliamentary Oath',
+                        plain: 'The legal oath or affirmation of allegiance to the monarch required under the Parliamentary Oaths Act 1866 before an elected MP can sit or vote in the Commons.'
+                    }
+                ];
+            } else if (govRole) {
                 activityTag = 'Ministerial & Departmental Work';
                 summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber or cast recorded division votes on ${readableDate}, carrying out ${govRole.postTitle} duties.`;
                 summaryPara2 = `Government ministers divide their week between departmental policy work, bill preparation, official correspondence, and speaking in the Chamber during their department's question rota or legislation.`;
@@ -775,7 +789,6 @@ export async function generateBriefings() {
                 summaryPara2 = aiSummary.summary_para_2;
                 glossary = aiSummary.glossary;
             } else {
-                // Deterministic fallback if Gemini API key is missing or rate-limited
                 const askedQs = writtenQuestions.filter(q => q.direction !== 'answered');
                 const answeredQs = writtenQuestions.filter(q => q.direction === 'answered');
                 const voteClause = activeVotes.length > 0

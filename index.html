@@ -2339,7 +2339,7 @@
             }).join('');
         }
 
-        function renderWrittenQuestions(questions) {
+function renderWrittenQuestions(questions) {
             const list = Array.isArray(questions) ? questions : [];
             if (list.length === 0) {
                 els.writtenQuestionsSection.classList.add('hidden');
@@ -2347,20 +2347,36 @@
                 return;
             }
 
+            const allAnsweredByMp = list.every(q => q.direction === 'answered');
+            const headingEl = els.writtenQuestionsSection.querySelector('h3');
+            if (headingEl) {
+                headingEl.textContent = allAnsweredByMp ? 'Written questions answered' : 'Written questions';
+            }
+
             els.writtenQuestionsSection.classList.remove('hidden');
             els.wqCountBadge.textContent = `${list.length} ${list.length === 1 ? 'question' : 'questions'}`;
 
             els.writtenQuestionsList.innerHTML = list.map(q => {
-                const dateNote = q.sittingDateLabel ? ` • Tabled ${q.sittingDateLabel}` : '';
+                const isMinisterialReply = q.direction === 'answered';
+                const dateNote = q.sittingDateLabel
+                    ? (isMinisterialReply ? ` • Answered ${q.sittingDateLabel}` : ` • Tabled ${q.sittingDateLabel}`)
+                    : '';
                 const hasAnswer = Boolean(q.answerText);
-                const statusBadge = hasAnswer
-                    ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-900 border border-emerald-200">Answered</span>`
-                    : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-surface text-inkSecondary border border-hairline">Awaiting reply</span>`;
+
+                const statusBadge = isMinisterialReply
+                    ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-900 border border-emerald-200">Ministerial reply</span>`
+                    : (hasAnswer
+                        ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-900 border border-emerald-200">Answered</span>`
+                        : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-surface text-inkSecondary border border-hairline">Awaiting reply</span>`);
+
+                const metaSubline = isMinisterialReply && q.askingMemberName
+                    ? `<p class="text-xs text-inkTertiary">Asked by ${q.askingMemberName}</p>`
+                    : '';
 
                 const answerHtml = hasAnswer
                     ? `
                         <div class="mt-3 pl-4 border-l-2 border-hairline text-xs sm:text-sm text-inkSecondary leading-relaxed">
-                            <span class="font-semibold text-ink">Ministerial reply: </span>${q.answerText}
+                            <span class="font-semibold text-ink">${isMinisterialReply ? 'Reply: ' : 'Ministerial reply: '}</span>${q.answerText}
                         </div>
                     `
                     : '';
@@ -2376,6 +2392,7 @@
                         <p class="text-sm sm:text-[15px] font-medium text-ink leading-snug">
                             ${q.heading || 'Written Parliamentary Question'}
                         </p>
+                        ${metaSubline}
                         ${q.questionText ? `<p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">${q.questionText}</p>` : ''}
                         ${answerHtml}
                         <div class="pt-1">

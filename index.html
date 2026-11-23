@@ -868,9 +868,9 @@
 
             containerEl.innerHTML = paragraphs.map(p => {
                 const formatted = escapeHtmlClient(p).replace(
-                    /(&ldquo;|&quot;)([\s\S]*?)(&rdquo;|&quot;)/g,
-                    '<em class="font-editorial italic text-ink">$1$2$3</em>'
-                );
+    /(“[^”]+”|&quot;[^&]+&quot;)/g,
+    '<em class="font-editorial italic text-ink">$1</em>'
+);
                 return `<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${formatted}</p>`;
             }).join('');
         }

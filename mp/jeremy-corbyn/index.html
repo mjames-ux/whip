@@ -867,6 +867,9 @@
         const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
         const WATCHLIST_MAX = 10;
         const WATCHLIST_STORAGE_KEY = 'whip_watchlist_ids';
+        const ROSTER_CACHE_KEY = 'whip_mps_roster_v1';
+        const ROSTER_TTL_MS = 24 * 60 * 60 * 1000;
+        const BRIEFING_SELECT_COLS = 'sitting_date,activity_tag,hansard_ref,summary_para_1,summary_para_2,verbatim_excerpt,glossary,votes,written_questions,committee_sessions';
 
         const GENERIC_VOTING_BOILERPLATE = 'Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions, alongside their committee and constituency responsibilities.';
 
@@ -1098,9 +1101,6 @@
             return `${unique[0]}, ${unique[1]}, and ${unique.length - 2} other ${unique.length - 2 === 1 ? 'measure' : 'measures'}`;
         }
 
-        /**
-         * Ensures modal quotes are displayed as complete sentences without mid-sentence truncation.
-         */
         function formatCleanModalQuote(rawText, addOuterQuotes) {
             let txt = String(rawText || '').trim();
             if (!txt) return '';
@@ -1196,6 +1196,21 @@
                 throw new Error(`Supabase (${res.status}): ${detail}`);
             }
             return res.json();
+        }
+
+        function getCachedBriefingRows(cacheKey) {
+            try {
+                const raw = sessionStorage.getItem(`whip_b_${cacheKey}`);
+                return raw ? JSON.parse(raw) : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function setCachedBriefingRows(cacheKey, rows) {
+            try {
+                sessionStorage.setItem(`whip_b_${cacheKey}`, JSON.stringify(rows));
+            } catch {}
         }
 
         const state = {
@@ -2715,10 +2730,16 @@
             const billContext = buildVoteContextFromList(combinedVotes);
             const committeeWeeklySentence = formatWeeklyCommitteeSummary(combinedCommittees);
 
-            const rawContexts = substantiveEntries
+            // Prioritize "Why this matters" context from days the MP actually spoke or sat on a committee
+            const spokenContexts = spokenOrCommitteeEntries
                 .map(({ row }) => (row.summary_para_2 || '').trim())
-                .filter(txt => txt && txt !== GENERIC_VOTING_BOILERPLATE);
-            const uniqueContexts = [...new Set(rawContexts)];
+                .filter(txt => txt && txt !== GENERIC_VOTING_BOILERPLATE && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
+
+            const allContexts = substantiveEntries
+                .map(({ row }) => (row.summary_para_2 || '').trim())
+                .filter(txt => txt && txt !== GENERIC_VOTING_BOILERPLATE && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
+
+            const uniqueContexts = [...new Set(spokenContexts.length > 0 ? spokenContexts : allContexts)];
 
             if (substantiveEntries.length === 0 && combinedWrittenQuestions.length === 0 && combinedCommittees.length === 0) {
                 if (sinnFein) {
@@ -2883,13 +2904,17 @@
                 };
             }
 
-            // Build clean multi-paragraph weekly narrative preserving inline verbatim quotes
+            // Preserve proper-noun capitalisation and strip duplicate long dates
             const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
                 const body = (row.summary_para_1 || '').trim();
                 const subParas = body.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
                 if (subParas.length === 0) return '';
-                const first = subParas[0];
-                subParas[0] = `On ${formatShortPillDate(date)}, ${first.charAt(0).toLowerCase()}${first.slice(1)}`;
+
+                const cleanedFirst = subParas[0]
+                    .replace(/^On\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},\s*/i, '')
+                    .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '');
+
+                subParas[0] = `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
                 return subParas.join('\n\n');
             }).filter(Boolean);
 
@@ -2909,7 +2934,7 @@
 
             const contextHighlights = uniqueContexts[0]
                 || billContext
-                || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
+                || `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
 
             const tagParts = [`${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`];
             if (combinedCommittees.length > 0) {
@@ -3062,10 +3087,15 @@
                     els.votingSectionTitle.textContent = 'Weekly voting record';
 
                     const inList = activeWeekDates.join(',');
-                    const rows = await supabaseGet(
-                        'daily_briefings',
-                        `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=in.(${inList})&order=sitting_date.asc`
-                    );
+                    const cacheKey = `w_${mp.parliament_member_id}_${inList}`;
+                    let rows = getCachedBriefingRows(cacheKey);
+                    if (!rows) {
+                        rows = await supabaseGet(
+                            'daily_briefings',
+                            `select=${BRIEFING_SELECT_COLS}&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=in.(${inList})&order=sitting_date.asc`
+                        );
+                        setCachedBriefingRows(cacheKey, rows);
+                    }
 
                     const weekly = compileWeeklyBriefing(mp, activeWeekDates, rows);
                     state.currentBriefing = weekly;
@@ -3125,10 +3155,15 @@
                         return;
                     }
 
-                    const rows = await supabaseGet(
-                        'daily_briefings',
-                        `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
-                    );
+                    const cacheKey = `d_${mp.parliament_member_id}_${state.selectedDate}`;
+                    let rows = getCachedBriefingRows(cacheKey);
+                    if (!rows) {
+                        rows = await supabaseGet(
+                            'daily_briefings',
+                            `select=${BRIEFING_SELECT_COLS}&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
+                        );
+                        setCachedBriefingRows(cacheKey, rows);
+                    }
                     const briefing = Array.isArray(rows) ? rows[0] : null;
 
                     if (!briefing || briefing.activity_tag === 'Non-Sitting Day') {
@@ -3353,7 +3388,7 @@
 
         async function initApp() {
             try {
-                const statusRows = await supabaseGet('system_status', 'select=*&id=eq.1&limit=1');
+                const statusRows = await supabaseGet('system_status', 'select=is_parliament_dissolved&id=eq.1&limit=1');
                 const statusData = Array.isArray(statusRows) ? statusRows[0] : null;
 
                 if (statusData?.is_parliament_dissolved) {
@@ -3363,17 +3398,34 @@
                     return;
                 }
 
-                let mps;
+                let mps = null;
                 try {
-                    mps = await supabaseGet(
-                        'mps',
-                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title,member_since,constituencies(name)&is_current_member=eq.true&order=short_name.asc&limit=1000'
-                    );
-                } catch {
-                    mps = await supabaseGet(
-                        'mps',
-                        'select=parliament_member_id,full_name,short_name,party,party_color,role_title&is_current_member=eq.true&order=short_name.asc&limit=1000'
-                    );
+                    const cachedRaw = localStorage.getItem(ROSTER_CACHE_KEY);
+                    if (cachedRaw) {
+                        const cached = JSON.parse(cachedRaw);
+                        if (cached?.ts && (Date.now() - cached.ts) < ROSTER_TTL_MS && Array.isArray(cached.data)) {
+                            mps = cached.data;
+                        }
+                    }
+                } catch {}
+
+                if (!mps) {
+                    try {
+                        mps = await supabaseGet(
+                            'mps',
+                            'select=parliament_member_id,full_name,short_name,party,party_color,role_title,member_since,constituencies(name)&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                        );
+                    } catch {
+                        mps = await supabaseGet(
+                            'mps',
+                            'select=parliament_member_id,full_name,short_name,party,party_color,role_title&is_current_member=eq.true&order=short_name.asc&limit=1000'
+                        );
+                    }
+                    if (Array.isArray(mps) && mps.length > 0) {
+                        try {
+                            localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: mps }));
+                        } catch {}
+                    }
                 }
 
                 if (!Array.isArray(mps) || mps.length === 0) {

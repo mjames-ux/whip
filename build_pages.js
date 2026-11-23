@@ -51,6 +51,14 @@ function slugify(str) {
         .replace(/^-+|-+$/g, '');
 }
 
+function getConstituencyName(mp) {
+    if (mp?.constituencies?.name) return mp.constituencies.name;
+    if (mp?.role_title && mp.role_title.includes('MP for ')) {
+        return mp.role_title.split('MP for ').pop().trim();
+    }
+    return 'UK Constituency';
+}
+
 function buildUniqueMpSlugs(mps) {
     const slugByMemberId = new Map();
     const usedSlugs = new Set();
@@ -59,7 +67,7 @@ function buildUniqueMpSlugs(mps) {
         const base = slugify(mp.short_name || mp.full_name || `member-${mp.parliament_member_id}`);
         let candidate = base || `member-${mp.parliament_member_id}`;
         if (usedSlugs.has(candidate)) {
-            const seatSlug = slugify(mp.constituencies?.name || '');
+            const seatSlug = slugify(getConstituencyName(mp));
             candidate = seatSlug ? `${base}-${seatSlug}` : `${base}-${mp.parliament_member_id}`;
         }
         if (usedSlugs.has(candidate)) {
@@ -255,7 +263,7 @@ function buildStaticWeeklySummary(mp, weekDates, rows) {
 }
 
 function renderStaticMpPage(templateHtml, mp, slug, weekly) {
-    const seatName = mp.constituencies?.name || 'UK Constituency';
+    const seatName = getConstituencyName(mp);
     const roleDisplay = mp.role_title || `MP for ${seatName}`;
     const canonicalUrl = `${SITE_ORIGIN}/mp/${slug}/`;
     const pageTitle = `${mp.full_name} (${seatName}) — Parliament Briefing | Whip`;

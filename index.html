@@ -2844,9 +2844,16 @@
             }
 
             // Preserve proper-noun capitalisation and strip duplicate long dates
-            const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
+           const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
                 const body = (row.summary_para_1 || '').trim();
-                const subParas = body.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+                const subParas = body
+                    .split(/\n{2,}/)
+                    .map(s => s.trim())
+                    .filter(s =>
+                        s &&
+                        !/^In the voting lobbies,/i.test(s) &&
+                        !/routinely spend time handling urgent constituent casework/i.test(s)
+                    );
                 if (subParas.length === 0) return '';
 
                 const cleanedFirst = subParas[0]

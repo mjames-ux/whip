@@ -16,16 +16,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#FFFFFF">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="description" content="Dame Meg Hillier (Labour (Co-op), MP for Hackney South and Shoreditch): Meg Hillier did not speak in the Commons Chamber, attend recorded committee sessions, ta">
+    <meta name="description" content="Dame Meg Hillier (Labour (Co-op), MP for Hackney South and Shoreditch): Meg Hillier did not speak in the Commons Chamber, attend a public select committee sessi">
     <link rel="canonical" href="https://whipdaily.uk/mp/meg-hillier/">
     <meta property="og:type" content="article">
     <meta property="og:site_name" content="Whip">
     <meta property="og:title" content="Dame Meg Hillier (Hackney South and Shoreditch) — Parliament Briefing | Whip">
-    <meta property="og:description" content="Dame Meg Hillier (Labour (Co-op), MP for Hackney South and Shoreditch): Meg Hillier did not speak in the Commons Chamber, attend recorded committee sessions, ta">
+    <meta property="og:description" content="Dame Meg Hillier (Labour (Co-op), MP for Hackney South and Shoreditch): Meg Hillier did not speak in the Commons Chamber, attend a public select committee sessi">
     <meta property="og:url" content="https://whipdaily.uk/mp/meg-hillier/">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Dame Meg Hillier (Hackney South and Shoreditch) — Parliament Briefing | Whip">
-    <meta name="twitter:description" content="Dame Meg Hillier (Labour (Co-op), MP for Hackney South and Shoreditch): Meg Hillier did not speak in the Commons Chamber, attend recorded committee sessions, ta">
+    <meta name="twitter:description" content="Dame Meg Hillier (Labour (Co-op), MP for Hackney South and Shoreditch): Meg Hillier did not speak in the Commons Chamber, attend a public select committee sessi">
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Dame Meg Hillier","jobTitle":"MP for Hackney South and Shoreditch","affiliation":{"@type":"Organization","name":"Labour (Co-op)"},"url":"https://whipdaily.uk/mp/meg-hillier/","sameAs":"https://members.parliament.uk/member/1524/contact"}</script>
     <script>window.__WHIP_INITIAL_MP_SLUG__ = "meg-hillier";</script>
     <link rel="canonical" href="https://whipdaily.uk/">
@@ -302,18 +302,20 @@
 
                 <!-- VIEW A: BRIEFING TAB CONTENT -->
                 <div id="briefingTabContent">
-                    <!-- 2. Two-Paragraph Accessible Summary -->
+                    <!-- 2. Multi-Paragraph Narrative Summary + Why This Matters -->
                     <section aria-label="Summary of Parliamentary Activity" class="space-y-7">
-                        <p id="summaryPara1" class="text-lg sm:text-[20px] leading-[1.7] text-ink font-normal tracking-[-0.01em]">
-                            Meg Hillier did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes during the week of 16 Nov – 19 Nov 2026.
-                        </p>
+                        <div id="summaryNarrativeBody" class="space-y-4">
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Meg Hillier did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of 16 Nov – 19 Nov 2026.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Having a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across 6 Commons votes held last week, no vote was recorded for Meg Hillier—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.</p>
+                        </div>
 
                         <div class="pl-5 sm:pl-6 border-l-2 border-commonsGreen/70 py-0.5">
                             <p id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
-                                Context
+                                What MPs do behind the scenes
                             </p>
                             <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                                MPs divide their working week between select committees, bill scrutiny, ministerial correspondence, and constituency casework.
+                                Much of an MP&#39;s working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.
                             </p>
                         </div>
 
@@ -897,6 +899,40 @@
             return /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
         }
 
+        function isSpeakerOrDeputyMp(mp) {
+            return /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
+        }
+
+        function escapeHtmlClient(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderNarrativeParagraphs(containerEl, rawText) {
+            if (!containerEl) return;
+            const paragraphs = String(rawText || '')
+                .split(/\n{2,}/)
+                .map(p => p.trim())
+                .filter(Boolean);
+
+            if (paragraphs.length === 0) {
+                containerEl.innerHTML = '';
+                return;
+            }
+
+            containerEl.innerHTML = paragraphs.map(p => {
+                const formatted = escapeHtmlClient(p).replace(
+                    /(&ldquo;|&quot;)([\s\S]*?)(&rdquo;|&quot;)/g,
+                    '<em class="font-editorial italic text-ink">$1$2$3</em>'
+                );
+                return `<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${formatted}</p>`;
+            }).join('');
+        }
+
         function resolveDepartmentFromPost(postTitle) {
             if (!postTitle) return null;
             return CLIENT_DEPARTMENT_MAP.find(d => d.match.test(postTitle)) || null;
@@ -1062,13 +1098,16 @@
             return `${unique[0]}, ${unique[1]}, and ${unique.length - 2} other ${unique.length - 2 === 1 ? 'measure' : 'measures'}`;
         }
 
+        /**
+         * Ensures modal quotes are displayed as complete sentences without mid-sentence truncation.
+         */
         function formatCleanModalQuote(rawText, addOuterQuotes) {
             let txt = String(rawText || '').trim();
             if (!txt) return '';
             if (!/[.?!…"”']$/.test(txt)) {
-                const lastSpace = txt.lastIndexOf(' ');
-                if (lastSpace > 40) {
-                    txt = `${txt.slice(0, lastSpace).trim()}…`;
+                const lastStop = Math.max(txt.lastIndexOf('. '), txt.lastIndexOf('? '), txt.lastIndexOf('! '));
+                if (lastStop > 40) {
+                    txt = txt.slice(0, lastStop + 1).trim();
                 }
             }
             return addOuterQuotes ? `“${txt}”` : txt;
@@ -1231,7 +1270,7 @@
             saveMpBtn: document.getElementById('saveMpBtn'),
             saveMpIcon: document.getElementById('saveMpIcon'),
             saveMpText: document.getElementById('saveMpText'),
-            summaryPara1: document.getElementById('summaryPara1'),
+            summaryNarrativeBody: document.getElementById('summaryNarrativeBody'),
             contextHeading: document.getElementById('contextHeading'),
             summaryPara2: document.getElementById('summaryPara2'),
             openHansardBtn: document.getElementById('openHansardBtn'),
@@ -2579,18 +2618,19 @@
             const uniqueLabels = [...new Set(labels)];
 
             if (uniqueLabels.length === 1) {
-                return `They also took part in ${list.length} committee ${list.length === 1 ? 'session' : 'sessions'}: ${uniqueLabels[0]}.`;
+                return `They took part in ${list.length} select committee ${list.length === 1 ? 'session' : 'sessions'}: ${uniqueLabels[0]}.`;
             }
             if (uniqueLabels.length === 2) {
-                return `They also took part in ${list.length} committee sessions: ${uniqueLabels[0]} and ${uniqueLabels[1]}.`;
+                return `They took part in ${list.length} select committee sessions: ${uniqueLabels[0]} and ${uniqueLabels[1]}.`;
             }
-            return `They also took part in ${list.length} committee sessions: ${uniqueLabels[0]}, ${uniqueLabels[1]}, and ${uniqueLabels.length - 2} other ${uniqueLabels.length - 2 === 1 ? 'session' : 'sessions'}.`;
+            return `They took part in ${list.length} select committee sessions: ${uniqueLabels[0]}, ${uniqueLabels[1]}, and ${uniqueLabels.length - 2} other ${uniqueLabels.length - 2 === 1 ? 'session' : 'sessions'}.`;
         }
 
         function compileWeeklyBriefing(mp, weekDates, rows) {
             const sortedDates = [...weekDates].sort();
             const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
             const sinnFein = isSinnFeinMp(mp);
+            const speakerOrDeputy = isSpeakerOrDeputyMp(mp);
             const { meta: ministerialMeta, deptUpdates } = extractMinisterialFromMpAndRows(mp, rows);
 
             const activeDayEntries = sortedDates
@@ -2601,6 +2641,7 @@
                 entry.row.activity_tag !== 'Constituency & Parliamentary Work' &&
                 entry.row.activity_tag !== 'Ministerial & Departmental Work' &&
                 entry.row.activity_tag !== 'Abstentionist MP' &&
+                entry.row.activity_tag !== 'Chairing the House' &&
                 entry.row.activity_tag !== 'No Vote Recorded'
             );
 
@@ -2683,9 +2724,10 @@
                 if (sinnFein) {
                     return {
                         activity_tag: 'Abstentionist MP',
+                        context_heading: 'Why Sinn Féin MPs do not sit at Westminster',
                         hansard_ref: `Week of ${rangeLabel} • Abstentionist Policy`,
-                        summary_para_1: `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.`,
-                        summary_para_2: `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead carrying out constituency work in Northern Ireland.`,
+                        summary_para_1: `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.\n\nInstead of taking a seat in Westminster, Sinn Féin MPs represent constituents locally in Northern Ireland.`,
+                        summary_para_2: `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary.`,
                         verbatim_excerpt: null,
                         glossary: [
                             {
@@ -2704,12 +2746,29 @@
                     };
                 }
 
+                if (speakerOrDeputy) {
+                    return {
+                        activity_tag: 'Chairing the House',
+                        context_heading: 'Role of the Speaker’s Chair',
+                        hansard_ref: `Week of ${rangeLabel} • Speaker’s Chair`,
+                        summary_para_1: `${mp.short_name} did not speak in debates or vote in Commons divisions during the week of ${rangeLabel} due to the strict impartiality required of the Speaker’s Chair.`,
+                        summary_para_2: `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, keep order, and select amendments—voting only to break a tied result.`,
+                        verbatim_excerpt: null,
+                        glossary: [],
+                        deptSection: null,
+                        committee_sessions: [],
+                        votes: combinedVotes,
+                        written_questions: []
+                    };
+                }
+
                 if (ministerialMeta) {
                     return {
                         activity_tag: ministerialMeta.deptName || 'Ministerial Duty',
+                        context_heading: 'What ministers do outside the Chamber',
                         hansard_ref: `Week of ${rangeLabel}`,
                         summary_para_1: `${mp.short_name} had no spoken Commons Chamber contributions or recorded division votes during the week of ${rangeLabel}.`,
-                        summary_para_2: billContext || `Ministers do not table written questions or sit on select committees, and typically speak in the Chamber only during their department's question rota or legislation.`,
+                        summary_para_2: `Ministers do not table written questions or sit on select committees, focusing on running their department and speaking in the Chamber during their department's question rota or legislation.`,
                         verbatim_excerpt: null,
                         glossary: Array.from(glossaryMap.values()),
                         deptSection: {
@@ -2725,44 +2784,16 @@
                     };
                 }
 
-              const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(mp.role_title || '');
-                if (isSpeakerOrDeputy) {
-                    return {
-                        activity_tag: 'Chairing the House',
-                        hansard_ref: `Week of ${rangeLabel} • Speaker’s Chair`,
-                        summary_para_1: `${mp.short_name} did not speak in debates or vote in Commons divisions during the week of ${rangeLabel} due to the strict impartiality required of the Speaker’s Chair.`,
-                        summary_para_2: `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, maintain order, and select amendments, voting only to break a tied division.`,
-                        verbatim_excerpt: null,
-                        glossary: [],
-                        deptSection: null,
-                        committee_sessions: [],
-                        votes: combinedVotes,
-                        written_questions: []
-                    };
-                }
-
-                const missedVotesNote = combinedVotes.length > 0
-                    ? `Across ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'division' : 'divisions'} that week, ${mp.short_name} had no vote recorded—which can reflect pairing arrangements with an opposing MP, select committee travel, or constituency duties. MPs divide their working week between bill scrutiny, committee work, ministerial correspondence, and local casework.`
-                    : `MPs divide their working week between select committees, bill scrutiny, All-Party Parliamentary Groups, ministerial correspondence, and constituency casework.`;
+                const missedVotesParagraph = combinedVotes.length > 0
+                    ? `\n\nAcross ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'vote' : 'votes'} held last week, no vote was recorded for ${mp.short_name}—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.`
+                    : '';
 
                 return {
                     activity_tag: `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`,
+                    context_heading: 'What MPs do behind the scenes',
                     hansard_ref: `Week of ${rangeLabel}`,
-                    summary_para_1: `${mp.short_name} did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes during the week of ${rangeLabel}.`,
-                    summary_para_2: missedVotesNote,
-                    verbatim_excerpt: null,
-                    glossary: Array.from(glossaryMap.values()),
-                    deptSection: null,
-                    committee_sessions: [],
-                    votes: combinedVotes,
-                    written_questions: []
-                };
-
-                return {
-                    activity_tag: `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`,
-                    hansard_ref: `Week of ${rangeLabel}`,
-                    summary_para_1: `${mp.short_name} did not speak in the Commons Chamber, attend recorded committee sessions, table written questions, or cast recorded votes during the week of ${rangeLabel}.`,
-                    summary_para_2: billContext ? `${billContext} ${missedVotesNote}` : missedVotesNote,
+                    summary_para_1: `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of ${rangeLabel}.\n\nHaving a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.${missedVotesParagraph}`,
+                    summary_para_2: `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`,
                     verbatim_excerpt: null,
                     glossary: Array.from(glossaryMap.values()),
                     deptSection: null,
@@ -2773,9 +2804,11 @@
             }
 
             if (spokenOrCommitteeEntries.length === 0) {
-                const sentences = [];
+                const paragraphs = [];
+                paragraphs.push(`${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
+
                 if (combinedCommittees.length > 0) {
-                    sentences.push(committeeWeeklySentence);
+                    paragraphs.push(committeeWeeklySentence);
                 }
                 if (combinedWrittenQuestions.length > 0) {
                     const askedWqs = combinedWrittenQuestions.filter(q => q.direction !== 'answered');
@@ -2783,8 +2816,8 @@
                     if (answeredWqs.length > 0) {
                         const depts = [...new Set(answeredWqs.map(q => q.department))];
                         const topics = [...new Set(answeredWqs.map(q => q.heading))].slice(0, 2);
-                        sentences.push(
-                            `${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} for ${depts.slice(0, 2).join(' and ')}${depts.length > 2 ? ` (+${depts.length - 2} more)` : ''} on ${topics.join(' and ')}.`
+                        paragraphs.push(
+                            `On behalf of ${depts.slice(0, 2).join(' and ')}, ${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} on ${topics.join(' and ')}.`
                         );
                     }
                     if (askedWqs.length > 0) {
@@ -2793,8 +2826,8 @@
                         const deptList = depts.length === 1
                             ? depts[0]
                             : `${depts.slice(0, 2).join(' and ')}${depts.length > 2 ? ` (+${depts.length - 2} more)` : ''}`;
-                        sentences.push(
-                            `${mp.short_name} tabled ${askedWqs.length} written ${askedWqs.length === 1 ? 'question' : 'questions'} to ${deptList} on ${topics.join(' and ')}.`
+                        paragraphs.push(
+                            `They tabled ${askedWqs.length} written parliamentary ${askedWqs.length === 1 ? 'question' : 'questions'} to ${deptList} on ${topics.join(' and ')}.`
                         );
                     }
                 }
@@ -2806,15 +2839,9 @@
                     if (ayeTitles.length > 0) voteParts.push(`voting Aye on ${formatCleanSubjectList(ayeTitles)}`);
                     if (noTitles.length > 0) voteParts.push(`voting No on ${formatCleanSubjectList(noTitles)}`);
 
-                    if (sentences.length === 0) {
-                        sentences.push(
-                            `${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, but cast ${activeVoteRows.length} recorded ${activeVoteRows.length === 1 ? 'vote' : 'votes'} across ${substantiveEntries.length} sitting ${substantiveEntries.length === 1 ? 'day' : 'days'}, ${voteParts.join(' and ')}.`
-                        );
-                    } else {
-                        sentences.push(
-                            `They also cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}, ${voteParts.join(' and ')}.`
-                        );
-                    }
+                    paragraphs.push(
+                        `In the voting lobbies, ${mp.short_name} took part in ${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'division' : 'divisions'}, ${voteParts.join(' and ')}.`
+                    );
                 }
 
                 const tagParts = [];
@@ -2831,14 +2858,15 @@
                     tagParts.push(`${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`);
                 }
 
-                const contextText = uniqueContexts.length > 0
-                    ? uniqueContexts.slice(0, 2).join(' ')
-                    : (billContext || `Written Parliamentary Questions require government departments to place formal, on-the-record answers before Parliament within a set timeframe.`);
+                const contextText = uniqueContexts[0]
+                    || billContext
+                    || `Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.`;
 
                 return {
                     activity_tag: tagParts.join(' & ') || 'Weekly Roundup',
+                    context_heading: 'Why this matters',
                     hansard_ref: `Week of ${rangeLabel}`,
-                    summary_para_1: sentences.join(' '),
+                    summary_para_1: paragraphs.join('\n\n'),
                     summary_para_2: contextText,
                     verbatim_excerpt: null,
                     glossary: Array.from(glossaryMap.values()),
@@ -2855,22 +2883,19 @@
                 };
             }
 
-            const dayHighlights = spokenOrCommitteeEntries
-                .map(({ date, row }) => {
-                    const cleanedDaily = (row.summary_para_1 || '')
-                        .replace(/\s+and cast \d+ recorded division votes?\./i, '.')
-                        .trim();
-                    return `${formatShortPillDate(date)}: ${cleanedDaily}`;
-                })
-                .join(' ');
+            // Build clean multi-paragraph weekly narrative preserving inline verbatim quotes
+            const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
+                const body = (row.summary_para_1 || '').trim();
+                const subParas = body.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+                if (subParas.length === 0) return '';
+                const first = subParas[0];
+                subParas[0] = `On ${formatShortPillDate(date)}, ${first.charAt(0).toLowerCase()}${first.slice(1)}`;
+                return subParas.join('\n\n');
+            }).filter(Boolean);
 
             const extras = [];
             if (committeeWeeklySentence) {
-                extras.push(
-                    committeeWeeklySentence
-                        .replace(/^They also\s+/i, '')
-                        .replace(/\.+$/, '')
-                );
+                extras.push(committeeWeeklySentence.replace(/^They\s+/i, '').replace(/\.+$/, ''));
             }
             if (combinedWrittenQuestions.length > 0) {
                 extras.push(`handled ${combinedWrittenQuestions.length} written ${combinedWrittenQuestions.length === 1 ? 'question' : 'questions'}`);
@@ -2878,13 +2903,13 @@
             if (activeVoteRows.length > 0) {
                 extras.push(`cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}`);
             }
-            const extraSentence = extras.length > 0
-                ? ` Across the week, ${mp.short_name} also ${extras.join(', ')}.`
-                : '';
+            if (extras.length > 0) {
+                dayParagraphs.push(`Across the week, ${mp.short_name} also ${extras.join(', ')}.`);
+            }
 
-            const contextHighlights = uniqueContexts.length > 0
-                ? uniqueContexts.slice(0, 2).join(' ')
-                : (billContext || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`);
+            const contextHighlights = uniqueContexts[0]
+                || billContext
+                || `Full daily transcripts and division lists for ${rangeLabel} are archived on parliament.uk.`;
 
             const tagParts = [`${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`];
             if (combinedCommittees.length > 0) {
@@ -2899,8 +2924,9 @@
 
             return {
                 activity_tag: tagParts.join(' & ') || 'Weekly Roundup',
+                context_heading: 'Why this matters',
                 hansard_ref: `Week of ${rangeLabel}`,
-                summary_para_1: dayHighlights + extraSentence,
+                summary_para_1: dayParagraphs.join('\n\n'),
                 summary_para_2: contextHighlights,
                 verbatim_excerpt: excerpts.length > 0 ? excerpts.join('\n\n') : null,
                 glossary: Array.from(glossaryMap.values()),
@@ -2922,8 +2948,9 @@
             if (isSinnFeinMp(mp)) {
                 return {
                     activity_tag: 'Abstentionist MP',
+                    context_heading: 'Why Sinn Féin MPs do not sit at Westminster',
                     hansard_ref: 'Abstentionist Policy • Non-Sitting Friday',
-                    summary_para_1: `The House of Commons did not sit on ${longDate}. In line with Sinn Féin’s policy of abstentionism, ${mp.short_name} does not take the oath of allegiance or sit in Westminster, focusing instead on local constituency representation in Northern Ireland.`,
+                    summary_para_1: `The House of Commons did not sit on ${longDate}.\n\nIn line with Sinn Féin’s policy of abstentionism, ${mp.short_name} does not take the oath of allegiance or sit in Westminster, focusing instead on local constituency representation in Northern Ireland.`,
                     summary_para_2: `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats, speaking, or voting in the House of Commons.`,
                     verbatim_excerpt: null,
                     glossary: [
@@ -2944,8 +2971,9 @@
                 const deptLabel = ministerialMeta.deptName || 'their government department';
                 return {
                     activity_tag: 'Ministerial & Constituency Friday',
+                    context_heading: 'What ministers do on non-sitting Fridays',
                     hansard_ref: 'Non-Sitting Friday • Ministerial & Constituency Work',
-                    summary_para_1: `The House of Commons did not sit on ${longDate}. ${mp.short_name} divides non-sitting Fridays between ${deptLabel} duties and constituency work in ${getMpConstituencyName(mp)}.`,
+                    summary_para_1: `The House of Commons did not sit on ${longDate}.\n\n${mp.short_name} divides non-sitting Fridays between ${deptLabel} duties and handling urgent constituent casework in ${getMpConstituencyName(mp)}.`,
                     summary_para_2: `Check the This Week or Last Week tab for a roundup of ${deptLabel}'s official announcements and the week's parliamentary record.`,
                     verbatim_excerpt: null,
                     glossary: [],
@@ -2958,18 +2986,15 @@
 
             return {
                 activity_tag: 'Constituency Friday',
+                context_heading: 'What MPs do on non-sitting Fridays',
                 hansard_ref: 'Constituency Day • Non-Sitting Friday',
-                summary_para_1: `The House of Commons did not sit on ${longDate}. On non-sitting Fridays, MPs typically return to their constituencies rather than debating in the Westminster Chamber.`,
-                summary_para_2: `Constituency Fridays are typically used for holding local advice surgeries with residents, visiting schools, hospitals, and local businesses, meeting council and community leaders, and progressing urgent constituent casework.`,
+                summary_para_1: `The House of Commons did not sit on ${longDate}.\n\nOn non-sitting Fridays, MPs typically return to their constituencies to focus on handling urgent constituent casework and meeting local residents.`,
+                summary_para_2: `Most Fridays in the parliamentary calendar are reserved for constituency work rather than Westminster debates, except on roughly 13 Fridays each session set aside for Private Members’ Bills.`,
                 verbatim_excerpt: null,
                 glossary: [
                     {
                         term: 'Constituency Friday',
-                        plain: 'Most Fridays in the parliamentary calendar are reserved for MPs to return to their local seats for surgeries and community visits, except on roughly 13 Fridays each session set aside for Private Members’ Bills.'
-                    },
-                    {
-                        term: 'MP Surgery',
-                        plain: 'Drop-in or appointment sessions where local constituents can raise personal issues or policy concerns directly with their MP.'
+                        plain: 'Most Fridays in the parliamentary calendar are reserved for MPs to return to their local seats for constituent casework and meetings, except on Fridays set aside for Private Members’ Bills.'
                     }
                 ],
                 deptSection: null,
@@ -3007,7 +3032,10 @@
                 els.sittingDateDisplay.textContent = 'Latest Parliamentary Briefing';
                 state.baseActivityBadge = isSinnFeinMp(mp) ? 'Abstentionist MP' : 'Awaiting next sitting';
                 syncActivityBadgeDisplay();
-                els.summaryPara1.textContent = `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`;
+                renderNarrativeParagraphs(
+                    els.summaryNarrativeBody,
+                    `${mp.short_name} represents ${seatName} in the House of Commons. Briefings appear automatically at 7:00 AM following each sitting day.`
+                );
                 els.summaryPara2.textContent = `Use the search bar above to look up any UK postcode, constituency, or sitting Member of Parliament.`;
                 els.hansardRefTag.textContent = 'parliament.uk';
                 renderDepartmentActivity(null, null, []);
@@ -3031,7 +3059,6 @@
                         : CALENDAR_MODE.latestWeekHeading;
 
                     els.sittingDateDisplay.textContent = `${headingPrefix} (${rangeLabel})`;
-                    els.contextHeading.textContent = 'Key Context';
                     els.votingSectionTitle.textContent = 'Weekly voting record';
 
                     const inList = activeWeekDates.join(',');
@@ -3044,7 +3071,8 @@
                     state.currentBriefing = weekly;
                     state.baseActivityBadge = weekly.activity_tag;
                     syncActivityBadgeDisplay();
-                    els.summaryPara1.textContent = weekly.summary_para_1;
+                    els.contextHeading.textContent = weekly.context_heading || 'Why this matters';
+                    renderNarrativeParagraphs(els.summaryNarrativeBody, weekly.summary_para_1);
                     els.summaryPara2.textContent = weekly.summary_para_2;
                     els.hansardRefTag.textContent = weekly.hansard_ref;
                     renderDepartmentActivity(
@@ -3085,8 +3113,8 @@
                         state.currentBriefing = fridayBriefing;
                         state.baseActivityBadge = fridayBriefing.activity_tag;
                         syncActivityBadgeDisplay();
-                        els.contextHeading.textContent = isSinnFeinMp(mp) ? 'Abstentionist Policy' : 'What MPs Do on Non-Sitting Fridays';
-                        els.summaryPara1.textContent = fridayBriefing.summary_para_1;
+                        els.contextHeading.textContent = fridayBriefing.context_heading || 'What MPs do on non-sitting Fridays';
+                        renderNarrativeParagraphs(els.summaryNarrativeBody, fridayBriefing.summary_para_1);
                         els.summaryPara2.textContent = fridayBriefing.summary_para_2;
                         els.hansardRefTag.textContent = fridayBriefing.hansard_ref;
                         renderCommitteeSessions([]);
@@ -3097,7 +3125,6 @@
                         return;
                     }
 
-                    els.contextHeading.textContent = 'Context';
                     const rows = await supabaseGet(
                         'daily_briefings',
                         `select=*&parliament_member_id=eq.${mp.parliament_member_id}&sitting_date=eq.${state.selectedDate}&limit=1`
@@ -3111,8 +3138,8 @@
                             state.currentBriefing = fridayBriefing;
                             state.baseActivityBadge = fridayBriefing.activity_tag;
                             syncActivityBadgeDisplay();
-                            els.contextHeading.textContent = isSinnFeinMp(mp) ? 'Abstentionist Policy' : 'What MPs Do on Non-Sitting Fridays';
-                            els.summaryPara1.textContent = fridayBriefing.summary_para_1;
+                            els.contextHeading.textContent = fridayBriefing.context_heading || 'What MPs do on non-sitting Fridays';
+                            renderNarrativeParagraphs(els.summaryNarrativeBody, fridayBriefing.summary_para_1);
                             els.summaryPara2.textContent = fridayBriefing.summary_para_2;
                             els.hansardRefTag.textContent = fridayBriefing.hansard_ref;
                             renderCommitteeSessions([]);
@@ -3131,8 +3158,26 @@
                             };
                             state.baseActivityBadge = 'Abstentionist MP';
                             syncActivityBadgeDisplay();
-                            els.summaryPara1.textContent = `${mp.short_name} did not attend the Commons Chamber or vote on ${formatLongDate(state.selectedDate)} in line with Sinn Féin’s policy of abstentionism at Westminster.`;
-                            els.summaryPara2.textContent = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before sitting or voting in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary, instead representing constituents locally in Northern Ireland.`;
+                            els.contextHeading.textContent = 'Why Sinn Féin MPs do not sit at Westminster';
+                            renderNarrativeParagraphs(
+                                els.summaryNarrativeBody,
+                                `${mp.short_name} did not attend the Commons Chamber or vote on ${formatLongDate(state.selectedDate)} in line with Sinn Féin’s policy of abstentionism at Westminster.\n\nInstead of sitting in the House of Commons, Sinn Féin MPs represent constituents locally in Northern Ireland.`
+                            );
+                            els.summaryPara2.textContent = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before sitting or voting in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary.`;
+                            els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
+                            renderCommitteeSessions([]);
+                            renderWrittenQuestions([]);
+                            renderVotingRecords([]);
+                        } else if (isSpeakerOrDeputyMp(mp)) {
+                            state.currentBriefing = null;
+                            state.baseActivityBadge = 'Chairing the House';
+                            syncActivityBadgeDisplay();
+                            els.contextHeading.textContent = 'Role of the Speaker’s Chair';
+                            renderNarrativeParagraphs(
+                                els.summaryNarrativeBody,
+                                `${mp.short_name} did not speak in debates or vote in Commons divisions on ${formatLongDate(state.selectedDate)} due to the strict impartiality required of the Speaker’s Chair.`
+                            );
+                            els.summaryPara2.textContent = `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, keep order, and select amendments—voting only to break a tied result.`;
                             els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
                             renderCommitteeSessions([]);
                             renderWrittenQuestions([]);
@@ -3141,8 +3186,12 @@
                             state.currentBriefing = null;
                             state.baseActivityBadge = 'Constituency & Parliamentary Work';
                             syncActivityBadgeDisplay();
-                            els.summaryPara1.textContent = `No Chamber speech, committee session, written question, or division summary was published for ${mp.short_name} on ${formatLongDate(state.selectedDate)}.`;
-                            els.summaryPara2.textContent = `MPs divide their week between main Chamber debates, select committees, bill scrutiny, and constituency casework.`;
+                            els.contextHeading.textContent = 'What MPs do behind the scenes';
+                            renderNarrativeParagraphs(
+                                els.summaryNarrativeBody,
+                                `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote on ${formatLongDate(state.selectedDate)}.\n\nHaving a quiet day on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.`
+                            );
+                            els.summaryPara2.textContent = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
                             els.hansardRefTag.textContent = `HC Deb ${formatShortPillDate(state.selectedDate)}`;
                             renderCommitteeSessions([]);
                             renderWrittenQuestions([]);
@@ -3166,7 +3215,10 @@
                         };
                         state.baseActivityBadge = briefing.activity_tag || 'Parliamentary Business';
                         syncActivityBadgeDisplay();
-                        els.summaryPara1.textContent = cleanedPara1;
+                        els.contextHeading.textContent = briefing.activity_tag === 'Constituency & Parliamentary Work'
+                            ? 'What MPs do behind the scenes'
+                            : 'Why this matters';
+                        renderNarrativeParagraphs(els.summaryNarrativeBody, cleanedPara1);
                         els.summaryPara2.textContent = enrichedContext;
                         els.hansardRefTag.textContent = briefing.hansard_ref || `HC Deb ${formatShortPillDate(state.selectedDate)}`;
                         renderCommitteeSessions(briefing.committee_sessions);
@@ -3175,7 +3227,7 @@
                     }
                 }
             } catch (err) {
-                els.summaryPara1.textContent = `Unable to load briefing: ${err.message}`;
+                renderNarrativeParagraphs(els.summaryNarrativeBody, `Unable to load briefing: ${err.message}`);
             }
 
             els.briefingArticle.classList.remove('fade-out');

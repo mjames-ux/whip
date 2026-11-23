@@ -1,16 +1,18 @@
-name: Daily Parliamentary Briefing
+name: Daily Whip Parliamentary Briefing
 
 on:
   schedule:
-    # Runs at 07:00 UTC every morning
-    - cron: '0 7 * * *'
+    # Runs at 06:45 UTC (06:45 GMT / 07:45 BST) Tuesday–Saturday
+    - cron: '45 6 * * 2-6'
   workflow_dispatch:
     inputs:
       target_date:
-        description: 'Optional sitting date to backfill (YYYY-MM-DD)'
+        description: 'Optional sitting date override (YYYY-MM-DD)'
         required: false
-        type: string
         default: ''
+
+permissions:
+  contents: write
 
 jobs:
   update-briefings:
@@ -23,26 +25,41 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Sync active Commons roster (Sundays or manual backfill)
+        if: github.event.schedule == '45 6 * * 0' || github.event_name == 'workflow_dispatch'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          if [ "$(date -u +%u)" = "7" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            node sync_roster.js
-          else
-            echo "Skipping roster sync (runs on Sundays or manual triggers)."
-          fi
+        run: node sync_roster.js
 
       - name: Generate daily briefings
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TARGET_DATE: ${{ inputs.target_date }}
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
         run: node generate_briefings.js
+
+      - name: Build static MP pages & sitemap
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node build_pages.js
+
+      - name: Publish static pages to GitHub Pages branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mp sitemap.xml robots.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update static MP pages & sitemap"
+            git push
+          else
+            echo "No static page changes to commit."
+          fi

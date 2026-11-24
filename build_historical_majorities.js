@@ -1,5 +1,5 @@
 /**
- * One-time converter: House of Commons Library 1918–2019 CSV -> historical_majorities.json
+ * Converter: House of Commons Library CSV -> historical_majorities.json
  */
 
 import fs from 'node:fs';
@@ -18,7 +18,11 @@ const YEAR_TO_DATE = {
     '1992': '1992-04-09',
     '1997': '1997-05-01',
     '2001': '2001-06-07',
-    '2005': '2005-05-05'
+    '2005': '2005-05-05',
+    '2010': '2010-05-06',
+    '2015': '2015-05-07',
+    '2017': '2017-06-08',
+    '2019': '2019-12-12'
 };
 
 function parseCsvLine(line) {
@@ -91,4 +95,4 @@ for (let i = 1; i < lines.length; i++) {
 
 const outPath = path.resolve(process.cwd(), 'historical_majorities.json');
 fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
-console.log(`Wrote ${Object.keys(out).length} pre-2010 constituency majorities to ${outPath}`);
+console.log(`Wrote ${Object.keys(out).length} constituency majorities to ${outPath}`);

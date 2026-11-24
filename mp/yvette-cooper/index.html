@@ -185,12 +185,12 @@
             <header class="pb-8 border-b border-hairline">
                 <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div class="flex items-start gap-4 sm:gap-5">
-                        <!-- Official Portrait (Shown on Profile tab) -->
+                        <!-- Circular Portrait (Shown on Profile tab) -->
                         <img
                             id="mpProfileAvatar"
                             src=""
                             alt=""
-                            class="hidden w-16 h-20 sm:w-20 sm:h-24 rounded-xl object-cover border border-hairline bg-surfaceSubtle shrink-0"
+                            class="hidden w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover object-top border border-hairline bg-surfaceSubtle shrink-0"
                         >
                         <div>
                             <div class="flex items-center gap-2 text-xs font-medium text-inkSecondary mb-2.5">
@@ -228,8 +228,8 @@
                 <section aria-label="Parliamentary Briefing" class="py-10 border-b border-hairline">
                     <div class="space-y-6">
                         <div id="summaryNarrativeBody" class="space-y-4">
-                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On Mon 23 Nov, Yvette Cooper took part in House of Commons votes regarding government legislation. She did not deliver any speeches or table written questions during the day&#39;s sitting.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">She voted against a reasoned amendment designed to block the Finance Bill, which was rejected by MPs. Cooper then voted in favour of the Finance Bill&#39;s second reading, helping the measure pass to the next stage.</p>
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On Mon 23 Nov, Yvette Cooper took part in key House of Commons votes regarding government tax and financial policy. She first voted against a reasoned amendment designed to block the Finance Bill.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Following that vote, Yvette Cooper voted in favour of giving the Finance Bill its Second Reading. The legislation passed this stage with 311 votes to 164.</p>
                         <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across the week, Yvette Cooper also cast 2 recorded division votes.</p>
                         </div>
 
@@ -239,7 +239,7 @@
                                 Why this matters
                             </p>
                             <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                                The Finance Bill is a key piece of legislation that turns government budget decisions and tax plans into law. Passing its second reading means Parliament agrees with the overall principles of the bill, allowing MPs to examine the details in future debates.
+                                The Finance Bill is essential because it puts government spending plans and tax changes into law. Approving the bill allows ministers to secure funding for public services across the country.
                             </p>
                         </div>
 
@@ -375,33 +375,29 @@
                             <dd id="profileParty" class="text-ink font-medium">—</dd>
                         </div>
                         <div>
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Member Since</dt>
+                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">First Elected</dt>
                             <dd id="profileMemberSince" class="text-ink font-medium">—</dd>
                         </div>
                         <div class="sm:col-span-2">
                             <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Current Parliamentary / Government Role</dt>
                             <dd id="profileRole" class="text-ink font-medium">—</dd>
                         </div>
-                        <div id="profileEmailWrap" class="hidden">
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Parliamentary Email</dt>
-                            <dd><a id="profileEmailLink" href="#" class="text-ink font-medium hover:text-commonsGreen transition-colors">—</a></dd>
-                        </div>
-                        <div id="profileWebsiteWrap" class="hidden">
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Official Website</dt>
-                            <dd><a id="profileWebsiteLink" href="#" target="_blank" rel="noopener noreferrer" class="text-ink font-medium hover:text-commonsGreen transition-colors">—</a></dd>
-                        </div>
                     </dl>
                 </section>
 
-                <!-- Parliamentary Roles & Committees (Loaded from Parliament Members API) -->
-                <section id="profileCareerSection" class="hidden space-y-8">
-                    <div id="profileCommitteesBlock" class="hidden">
-                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
-                            Select Committees
+                <!-- Election Wins & Majorities -->
+                <section id="profileElectionsSection" class="hidden">
+                    <div class="flex items-baseline justify-between mb-4">
+                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Election Wins &amp; Majorities
                         </h2>
-                        <ul id="profileCommitteesList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
+                        <span class="text-xs text-inkTertiary">Commons General &amp; By-Elections</span>
                     </div>
+                    <ul id="profileElectionsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
+                </section>
 
+                <!-- Select Committees & Parliamentary Roles -->
+                <section id="profileCareerSection" class="hidden space-y-8">
                     <div id="profilePostsBlock" class="hidden">
                         <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
                             Government &amp; Opposition Posts
@@ -409,12 +405,23 @@
                         <ul id="profilePostsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
                     </div>
 
-                    <div id="profileElectionsBlock" class="hidden">
+                    <div id="profileCommitteesBlock" class="hidden">
                         <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
-                            Election History
+                            Select Committees
                         </h2>
-                        <ul id="profileElectionsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
+                        <ul id="profileCommitteesList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
                     </div>
+                </section>
+
+                <!-- Register of Members' Financial Interests -->
+                <section id="profileInterestsSection" class="hidden">
+                    <div class="flex items-baseline justify-between mb-4">
+                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Declared Financial Interests
+                        </h2>
+                        <span id="profileInterestsCount" class="text-xs text-inkTertiary"></span>
+                    </div>
+                    <div id="profileInterestsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></div>
                 </section>
 
                 <section>
@@ -435,7 +442,7 @@
                             <span aria-hidden="true">&rarr;</span>
                         </a>
                         <a id="profileInterestsLink" href="https://members.parliament.uk/" target="_blank" rel="noopener noreferrer" class="py-3.5 flex items-center justify-between text-ink hover:text-commonsGreen transition-colors">
-                            <span>Register of Members' Financial Interests</span>
+                            <span>Full Register of Members' Financial Interests</span>
                             <span aria-hidden="true">&rarr;</span>
                         </a>
                     </div>
@@ -795,7 +802,6 @@
             const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
             const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
             const isMinister = Boolean(mp.role_title && mp.role_title.includes('• MP for '));
-            const postTitle = isMinister ? mp.role_title.split('• MP for ')[0].trim() : null;
 
             let deptInfo = null;
             const deptUpdates = [];
@@ -1095,7 +1101,7 @@
             const seat = getConstituencyName(mp);
             const id = Number(mp.parliament_member_id);
 
-            els.mpProfileAvatar.src = `https://members-api.parliament.uk/api/Members/${id}/Portrait?cropType=ThreeFour&webVersion=true`;
+            els.mpProfileAvatar.src = `https://members-api.parliament.uk/api/Members/${id}/Portrait?cropType=OneOne&webVersion=true`;
             els.mpProfileAvatar.alt = mp.full_name || 'MP Portrait';
             els.mpProfileAvatar.onerror = () => { els.mpProfileAvatar.classList.add('hidden'); };
 
@@ -1112,103 +1118,132 @@
             document.getElementById('profileSpokenLink').href = `https://members.parliament.uk/member/${id}/contributions`;
             document.getElementById('profileInterestsLink').href = `https://members.parliament.uk/member/${id}/registeredinterests`;
 
+            const electionsSection = document.getElementById('profileElectionsSection');
             const careerSection = document.getElementById('profileCareerSection');
-            const committeesBlock = document.getElementById('profileCommitteesBlock');
             const postsBlock = document.getElementById('profilePostsBlock');
-            const electionsBlock = document.getElementById('profileElectionsBlock');
-            const emailWrap = document.getElementById('profileEmailWrap');
-            const websiteWrap = document.getElementById('profileWebsiteWrap');
+            const committeesBlock = document.getElementById('profileCommitteesBlock');
+            const interestsSection = document.getElementById('profileInterestsSection');
 
+            electionsSection.classList.add('hidden');
             careerSection.classList.add('hidden');
-            committeesBlock.classList.add('hidden');
             postsBlock.classList.add('hidden');
-            electionsBlock.classList.add('hidden');
-            emailWrap.classList.add('hidden');
-            websiteWrap.classList.add('hidden');
+            committeesBlock.classList.add('hidden');
+            interestsSection.classList.add('hidden');
 
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
-                    const [bioRes, contactRes] = await Promise.all([
+                    const [bioRes, interestsRes] = await Promise.all([
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Contact`)
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`)
                     ]);
                     const bioJson = bioRes.ok ? await bioRes.json() : null;
-                    const contactJson = contactRes.ok ? await contactRes.json() : null;
+                    const interestsJson = interestsRes.ok ? await interestsRes.json() : null;
                     extra = {
                         bio: bioJson?.value || null,
-                        contacts: Array.isArray(contactJson?.value) ? contactJson.value : []
+                        interests: Array.isArray(interestsJson?.value) ? interestsJson.value : []
                     };
                     state.profileCache.set(id, extra);
                 } catch {
-                    extra = { bio: null, contacts: [] };
+                    extra = { bio: null, interests: [] };
                 }
             }
 
             if (state.currentMp?.parliament_member_id !== mp.parliament_member_id) return;
 
-            const parlOffice = extra.contacts.find(c => /parliamentary/i.test(c.type || '')) || extra.contacts[0];
-            if (parlOffice?.email) {
-                const emailLink = document.getElementById('profileEmailLink');
-                emailLink.href = `mailto:${parlOffice.email}`;
-                emailLink.textContent = parlOffice.email;
-                emailWrap.classList.remove('hidden');
-            }
-            const webContact = extra.contacts.find(c => c.website);
-            if (webContact?.website) {
-                const webLink = document.getElementById('profileWebsiteLink');
-                webLink.href = webContact.website.startsWith('http') ? webContact.website : `https://${webContact.website}`;
-                webLink.textContent = webContact.website.replace(/^https?:\/\//i, '');
-                websiteWrap.classList.remove('hidden');
-            }
-
             const bio = extra.bio;
-            if (!bio) return;
+            if (bio) {
+                const formatYearRange = (s, e) => {
+                    const startY = s ? new Date(s).getFullYear() : '';
+                    const endY = e ? new Date(e).getFullYear() : 'Present';
+                    return startY ? `${startY} – ${endY}` : '';
+                };
 
-            const formatYearRange = (s, e) => {
-                const startY = s ? new Date(s).getFullYear() : '';
-                const endY = e ? new Date(e).getFullYear() : 'Present';
-                return startY ? `${startY} – ${endY}` : '';
-            };
+                const allElections = Array.isArray(bio.electionsContested) ? bio.electionsContested : [];
+                const wins = allElections
+                    .filter(e => e.isWin !== false)
+                    .sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
 
-            const committees = Array.isArray(bio.committeeMemberships) ? bio.committeeMemberships : [];
-            if (committees.length > 0) {
-                document.getElementById('profileCommitteesList').innerHTML = committees.slice(0, 8).map(c => `
-                    <li class="py-3 flex items-center justify-between gap-4">
-                        <span class="font-medium text-ink">${escapeHtmlClient(c.name)}</span>
-                        <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(formatYearRange(c.startDate, c.endDate))}</span>
-                    </li>
-                `).join('');
-                committeesBlock.classList.remove('hidden');
-                careerSection.classList.remove('hidden');
+                if (wins.length > 0) {
+                    document.getElementById('profileElectionsList').innerHTML = wins.map(w => {
+                        const dateLabel = w.electionDate
+                            ? new Date(w.electionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                            : '';
+                        const majorityText = typeof w.majority === 'number'
+                            ? `Majority: ${w.majority.toLocaleString('en-GB')}`
+                            : '';
+                        return `
+                            <li class="py-3.5 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <p class="font-medium text-ink">${escapeHtmlClient(w.constituencyName || seat)}</p>
+                                    <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionTitle || 'General Election')}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
+                                </div>
+                                ${majorityText ? `<span class="px-2.5 py-1 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink">${escapeHtmlClient(majorityText)}</span>` : ''}
+                            </li>
+                        `;
+                    }).join('');
+                    electionsSection.classList.remove('hidden');
+                }
+
+                const posts = [
+                    ...(Array.isArray(bio.governmentPosts) ? bio.governmentPosts : []),
+                    ...(Array.isArray(bio.oppositionPosts) ? bio.oppositionPosts : [])
+                ].sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
+
+                if (posts.length > 0) {
+                    document.getElementById('profilePostsList').innerHTML = posts.slice(0, 8).map(p => `
+                        <li class="py-3 flex items-center justify-between gap-4">
+                            <span class="font-medium text-ink">${escapeHtmlClient(p.name)}</span>
+                            <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(formatYearRange(p.startDate, p.endDate))}</span>
+                        </li>
+                    `).join('');
+                    postsBlock.classList.remove('hidden');
+                    careerSection.classList.remove('hidden');
+                }
+
+                const committees = Array.isArray(bio.committeeMemberships) ? bio.committeeMemberships : [];
+                if (committees.length > 0) {
+                    document.getElementById('profileCommitteesList').innerHTML = committees.slice(0, 8).map(c => `
+                        <li class="py-3 flex items-center justify-between gap-4">
+                            <span class="font-medium text-ink">${escapeHtmlClient(c.name)}</span>
+                            <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(formatYearRange(c.startDate, c.endDate))}</span>
+                        </li>
+                    `).join('');
+                    committeesBlock.classList.remove('hidden');
+                    careerSection.classList.remove('hidden');
+                }
             }
 
-            const posts = [
-                ...(Array.isArray(bio.governmentPosts) ? bio.governmentPosts : []),
-                ...(Array.isArray(bio.oppositionPosts) ? bio.oppositionPosts : [])
-            ].sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
-
-            if (posts.length > 0) {
-                document.getElementById('profilePostsList').innerHTML = posts.slice(0, 8).map(p => `
-                    <li class="py-3 flex items-center justify-between gap-4">
-                        <span class="font-medium text-ink">${escapeHtmlClient(p.name)}</span>
-                        <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(formatYearRange(p.startDate, p.endDate))}</span>
-                    </li>
-                `).join('');
-                postsBlock.classList.remove('hidden');
-                careerSection.classList.remove('hidden');
+            const categories = Array.isArray(extra.interests) ? extra.interests : [];
+            const flatInterests = [];
+            for (const cat of categories) {
+                const items = Array.isArray(cat.interests) ? cat.interests : [];
+                for (const item of items) {
+                    flatInterests.push({
+                        category: cat.name || 'Declared Interest',
+                        summary: item.interest || '',
+                        registeredDate: item.registeredDate || item.createdWhen || ''
+                    });
+                }
             }
 
-            const elections = Array.isArray(bio.electionsContested) ? bio.electionsContested : [];
-            if (elections.length > 0) {
-                document.getElementById('profileElectionsList').innerHTML = elections.slice(0, 6).map(el => `
-                    <li class="py-3 flex items-center justify-between gap-4">
-                        <span class="font-medium text-ink">${escapeHtmlClient(el.constituencyName || seat)}</span>
-                        <span class="text-xs text-inkTertiary shrink-0">${el.electionDate ? new Date(el.electionDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : ''}</span>
-                    </li>
-                `).join('');
-                electionsBlock.classList.remove('hidden');
-                careerSection.classList.remove('hidden');
+            if (flatInterests.length > 0) {
+                document.getElementById('profileInterestsCount').textContent = `${flatInterests.length} ${flatInterests.length === 1 ? 'entry' : 'entries'}`;
+                document.getElementById('profileInterestsList').innerHTML = flatInterests.slice(0, 12).map(entry => {
+                    const regDate = entry.registeredDate
+                        ? new Date(entry.registeredDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                        : '';
+                    return `
+                        <div class="py-4 space-y-1">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-xs font-medium text-commonsGreen">${escapeHtmlClient(entry.category)}</span>
+                                ${regDate ? `<span class="text-xs text-inkTertiary">${escapeHtmlClient(regDate)}</span>` : ''}
+                            </div>
+                            <p class="text-xs sm:text-sm text-ink leading-relaxed">${escapeHtmlClient(entry.summary)}</p>
+                        </div>
+                    `;
+                }).join('');
+                interestsSection.classList.remove('hidden');
             }
         }
 
@@ -1318,7 +1353,6 @@
             els.briefingTabPanel.classList.toggle('hidden', !isBriefing);
             els.profileTabPanel.classList.toggle('hidden', isBriefing);
 
-            // Hide briefing-only controls on Profile tab; show MP portrait on Profile tab
             els.datePillsContainer.classList.toggle('hidden', !isBriefing);
             els.sittingDateDisplay.classList.toggle('hidden', !isBriefing);
             els.activityDot.classList.toggle('hidden', !isBriefing);
@@ -1387,7 +1421,6 @@
 
             updateWatchlistUi();
 
-            // Search & dropdown listeners
             els.heroSearchInput?.addEventListener('input', () => handleSearchInput(els.heroSearchInput, els.heroSearchDropdown, els.heroSearchStatus));
             els.headerSearchInput?.addEventListener('input', () => handleSearchInput(els.headerSearchInput, els.headerSearchDropdown, null));
 
@@ -1433,7 +1466,6 @@
                 els.savedMpsStrip.classList.toggle('hidden');
             });
 
-            // Weekly Sunday Newsletter Signup Handler
             els.mpNewsletterForm?.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const email = (els.mpNewsletterEmail?.value || '').trim().toLowerCase();
@@ -1467,7 +1499,6 @@
                 }
             });
 
-            // Resolve initial MP from static page slug or URL path
             const pathMatch = window.location.pathname.match(/^\/mp\/([^/]+)\/?$/);
             const initialSlug = window.__WHIP_INITIAL_MP_SLUG__ || (pathMatch ? pathMatch[1] : null);
             if (initialSlug && state.mpBySlug.has(initialSlug)) {

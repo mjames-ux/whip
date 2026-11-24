@@ -33,6 +33,8 @@ const envUrl = cleanEnvValue(process.env.SUPABASE_URL, 'SUPABASE_URL');
 const supabaseUrl = /^https?:\/\//i.test(envUrl) ? envUrl : DEFAULT_SUPABASE_URL;
 const supabaseKey = cleanEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
 const geminiApiKey = cleanEnvValue(process.env.GEMINI_API_KEY, 'GEMINI_API_KEY');
+const skipLlm = /^true$/i.test(cleanEnvValue(process.env.SKIP_LLM, 'SKIP_LLM'));
+const forceRegen = /^true$/i.test(cleanEnvValue(process.env.FORCE_REGEN, 'FORCE_REGEN'));
 
 if (!supabaseKey) {
     console.error('Missing SUPABASE_SERVICE_ROLE_KEY.');
@@ -264,6 +266,33 @@ async function fetchJsonWithTimeout(url, timeoutMs = 20000) {
         throw new Error(`HTTP ${res.status} for ${url}`);
     }
     return res.json();
+}
+
+async function fetchExistingBriefingsForDate(sittingDate, mpIds) {
+    const existingByMpId = new Map();
+    const chunkSize = 150;
+
+    for (let i = 0; i < mpIds.length; i += chunkSize) {
+        const chunk = mpIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+            .from('daily_briefings')
+            .select('parliament_member_id, activity_tag, summary_para_1, summary_para_2, verbatim_excerpt, glossary')
+            .eq('sitting_date', sittingDate)
+            .in('parliament_member_id', chunk);
+
+        if (error) {
+            console.warn(`Existing briefings lookup warning: ${error.message}`);
+            continue;
+        }
+
+        for (const row of data || []) {
+            if (row.summary_para_1 && String(row.summary_para_1).trim().length > 0) {
+                existingByMpId.set(Number(row.parliament_member_id), row);
+            }
+        }
+    }
+
+    return existingByMpId;
 }
 
 async function fetchHansardContributionsForDate(dateStr) {
@@ -638,7 +667,7 @@ let geminiWarnCount = 0;
 let activeGeminiModel = 'gemini-3.8-flash';
 
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
-    if (!geminiApiKey) return null;
+    if (skipLlm || !geminiApiKey) return null;
 
     const askedQuestions = writtenQuestions.filter(q => q.direction !== 'answered');
     const answeredQuestions = writtenQuestions.filter(q => q.direction === 'answered');
@@ -774,7 +803,7 @@ export async function generateBriefings() {
 
     console.log(
         `[${new Date().toISOString()}] Generating Whip briefings for ${targetDate} (${readableDate})... ` +
-        `(GEMINI_API_KEY configured: ${geminiApiKey ? 'yes' : 'NO'})`
+        `(GEMINI_API_KEY configured: ${geminiApiKey ? 'yes' : 'NO'}, SKIP_LLM: ${skipLlm}, FORCE_REGEN: ${forceRegen})`
     );
 
     const { data: mps, error: mpError } = await supabase
@@ -785,6 +814,9 @@ export async function generateBriefings() {
     if (mpError || !mps?.length) {
         throw new Error(`Could not fetch active MPs: ${mpError?.message || '0 rows'}`);
     }
+
+    const mpIds = mps.map(m => Number(m.parliament_member_id)).filter(Boolean);
+    const existingByMpId = forceRegen ? new Map() : await fetchExistingBriefingsForDate(targetDate, mpIds);
 
     const [hansardByMember, divisions, writtenQuestionsByMember, committeesByMember] = await Promise.all([
         fetchHansardContributionsForDate(targetDate),
@@ -801,7 +833,8 @@ export async function generateBriefings() {
 
     console.log(
         `Fetched: ${hansardByMember.size} speakers, ${divisions.length} divisions, ` +
-        `${writtenQuestionsByMember.size} MPs with WQs (asked/answered), ${committeesByMember.size} committee participants.`
+        `${writtenQuestionsByMember.size} MPs with WQs (asked/answered), ${committeesByMember.size} committee participants. ` +
+        `Cached existing briefings: ${existingByMpId.size}.`
     );
 
     const deptDigestCache = new Map();
@@ -821,6 +854,7 @@ export async function generateBriefings() {
 
     const rowsToUpsert = [];
     const activeTasks = [];
+    let reusedCount = 0;
     let aiSuccessCount = 0;
 
     for (const mp of mps) {
@@ -959,21 +993,60 @@ export async function generateBriefings() {
                 written_questions: writtenQuestions,
                 committee_sessions: committees
             });
-        } else {
-            activeTasks.push({
-                mp,
-                memberId,
-                govRole,
-                speeches,
-                committees,
-                writtenQuestions,
-                mpVotes,
-                activeVotes
-            });
+            continue;
         }
+
+        // Reuse existing generated summary if already in Supabase for targetDate (0 Gemini credits)
+        const existingRow = existingByMpId.get(memberId);
+        if (existingRow && !forceRegen) {
+            reusedCount += 1;
+            const { hrsRef } = extractBestVerbatimQuote(speeches, 360);
+            const hansardRef = hrsRef ? `HC Deb ${shortRefDate} • ${hrsRef}` : `HC Deb ${shortRefDate}`;
+            let glossary = Array.isArray(existingRow.glossary) ? [...existingRow.glossary] : [];
+
+            if (govRole) {
+                const updatedMeta = {
+                    _type: 'ministerial_meta',
+                    postTitle: govRole.postTitle,
+                    deptSlug: govRole.deptSlug,
+                    deptName: govRole.deptName,
+                    isWhip: govRole.isWhip,
+                    deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
+                };
+                const idx = glossary.findIndex(g => g?._type === 'ministerial_meta');
+                if (idx >= 0) glossary[idx] = updatedMeta;
+                else glossary = [updatedMeta, ...glossary];
+            }
+
+            rowsToUpsert.push({
+                parliament_member_id: memberId,
+                sitting_date: targetDate,
+                activity_tag: existingRow.activity_tag || 'Parliamentary Business',
+                hansard_ref: hansardRef,
+                summary_para_1: existingRow.summary_para_1,
+                summary_para_2: existingRow.summary_para_2 || '',
+                verbatim_excerpt: existingRow.verbatim_excerpt || null,
+                glossary,
+                votes: mpVotes,
+                written_questions: writtenQuestions,
+                committee_sessions: committees
+            });
+            continue;
+        }
+
+        activeTasks.push({
+            mp,
+            memberId,
+            govRole,
+            speeches,
+            committees,
+            writtenQuestions,
+            mpVotes,
+            activeVotes
+        });
     }
 
-    // Process active MPs in concurrent batches of GEMINI_CONCURRENCY
+    // Process remaining MPs in concurrent batches of GEMINI_CONCURRENCY
     for (let i = 0; i < activeTasks.length; i += GEMINI_CONCURRENCY) {
         const batch = activeTasks.slice(i, i + GEMINI_CONCURRENCY);
         const batchResults = await Promise.all(
@@ -1089,7 +1162,7 @@ export async function generateBriefings() {
 
     console.log(
         `[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${targetDate} ` +
-        `(${aiSuccessCount}/${activeTasks.length} Gemini narrative summaries).`
+        `(${reusedCount} reused from cache, ${aiSuccessCount}/${activeTasks.length} new Gemini summaries).`
     );
 }
 

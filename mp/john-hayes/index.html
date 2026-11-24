@@ -4,16 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sir John Hayes (South Holland and The Deepings) — Parliament Briefing | Whip</title>
-    <meta name="description" content="Sir John Hayes (Conservative, MP for South Holland and The Deepings): John Hayes did not speak in the main Commons Chamber during the week of 23 Nov 2026, focus">
+    <meta name="description" content="Sir John Hayes (Conservative, MP for South Holland and The Deepings): On Mon 23 Nov, John Hayes submitted several written questions to government departments on">
     <link rel="canonical" href="https://whipdaily.uk/mp/john-hayes/">
     <meta property="og:type" content="article">
     <meta property="og:site_name" content="Whip">
     <meta property="og:title" content="Sir John Hayes (South Holland and The Deepings) — Parliament Briefing | Whip">
-    <meta property="og:description" content="Sir John Hayes (Conservative, MP for South Holland and The Deepings): John Hayes did not speak in the main Commons Chamber during the week of 23 Nov 2026, focus">
+    <meta property="og:description" content="Sir John Hayes (Conservative, MP for South Holland and The Deepings): On Mon 23 Nov, John Hayes submitted several written questions to government departments on">
     <meta property="og:url" content="https://whipdaily.uk/mp/john-hayes/">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Sir John Hayes (South Holland and The Deepings) — Parliament Briefing | Whip">
-    <meta name="twitter:description" content="Sir John Hayes (Conservative, MP for South Holland and The Deepings): John Hayes did not speak in the main Commons Chamber during the week of 23 Nov 2026, focus">
+    <meta name="twitter:description" content="Sir John Hayes (Conservative, MP for South Holland and The Deepings): On Mon 23 Nov, John Hayes submitted several written questions to government departments on">
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Sir John Hayes","jobTitle":"MP for South Holland and The Deepings","affiliation":{"@type":"Organization","name":"Conservative"},"url":"https://whipdaily.uk/mp/john-hayes/","sameAs":"https://members.parliament.uk/member/350/contact"}</script>
     <script>window.__WHIP_INITIAL_MP_SLUG__ = "john-hayes";</script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Ctext x='9' y='45' font-family='Georgia,serif' font-weight='700' font-size='36' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='42' r='4.5' fill='%23006548'/%3E%3C/svg%3E">
@@ -199,7 +199,7 @@
                         <p class="mt-3 text-sm text-inkSecondary flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span id="mpRole">MP for South Holland and The Deepings</span>
                             <span id="activityDot" class="text-inkTertiary">&middot;</span>
-                            <span id="activityBadge" class="text-inkTertiary">2 Votes</span>
+                            <span id="activityBadge" class="text-inkTertiary">1 Active Day</span>
                         </p>
                     </div>
 
@@ -219,9 +219,9 @@
                 <section aria-label="Parliamentary Briefing" class="py-10 border-b border-hairline">
                     <div class="space-y-6">
                         <div id="summaryNarrativeBody" class="space-y-4">
-                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">John Hayes did not speak in the main Commons Chamber during the week of 23 Nov 2026, focusing on other parliamentary duties.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">They tabled 5 written parliamentary questions to Ministry of Justice and Scotland Office on Written Parliamentary Question.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">In the voting lobbies, John Hayes took part in 2 divisions, voting Aye on Finance Bill: Reasoned Amendment to Second Reading and voting No on Finance Bill.</p>
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On Mon 23 Nov, John Hayes submitted several written questions to government departments on Monday. He asked the Ministry of Justice about payments made to the Duchies of Cornwall and Lancaster for lease charges. He also questioned several departments, including 10 Downing Street, about policies on staff wearing smart glasses.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">In addition to submitting questions, he participated in two votes regarding the Finance Bill. He supported an amendment opposing the legislation and voted against its Second Reading.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across the week, John Hayes also cast 2 recorded division votes.</p>
                         </div>
 
                         <!-- Why this matters -->
@@ -230,7 +230,7 @@
                                 Why this matters
                             </p>
                             <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                                Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.
+                                The Finance Bill sets out the government&#39;s plans for taxation and public spending for the upcoming year. Voting on its early stages allows MPs to debate economic strategy and challenge tax proposals. Submitting written questions gives members a direct way to scrutinize departmental spending and office rules.
                             </p>
                         </div>
 
@@ -1219,10 +1219,58 @@
                             const r = await fetch(`https://members-api.parliament.uk/api/Location/Constituency/${cId}/ElectionResults`);
                             if (r.ok) {
                                 const j = await r.json();
-                                const items = Array.isArray(j?.value)
+                                const rawList = Array.isArray(j?.value)
                                     ? j.value
                                     : (Array.isArray(j?.items) ? j.items.map(it => it.value || it) : []);
-                                electionResultsBySeat.set(cId, items);
+                                electionResultsBySeat.set(cId, rawList);
+                            }
+                        } catch {}
+                    }));
+
+                    const candidateWins = [];
+                    const seenSeatElection = new Set();
+
+                    for (const rep of reps) {
+                        const cId = rep.constituencyId;
+                        const seatResults = electionResultsBySeat.get(cId) || [];
+                        const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
+                        const repEnd = rep.endDate ? new Date(rep.endDate).getTime() : Date.now();
+
+                        for (const er of seatResults) {
+                            if (!er.electionDate) continue;
+                            const t = new Date(er.electionDate).getTime();
+                            if (t >= repStart - 21 * 86400000 && t <= repEnd - 14 * 86400000) {
+                                const key = `${cId}-${er.electionId || String(er.electionDate).slice(0, 10)}`;
+                                if (seenSeatElection.has(key)) continue;
+                                seenSeatElection.add(key);
+                                candidateWins.push({
+                                    constituencyId: cId,
+                                    constituencyName: rep.name || seat,
+                                    electionId: er.electionId || null,
+                                    electionDate: er.electionDate,
+                                    electionTitle: er.electionTitle || '',
+                                    isGeneralElection: er.isGeneralElection,
+                                    majority: typeof er.majority === 'number' ? er.majority : null
+                                });
+                            }
+                        }
+                    }
+
+                    await Promise.all(candidateWins.map(async (w) => {
+                        if (w.majority !== null || !w.constituencyId || !w.electionId) return;
+                        try {
+                            const detailRes = await fetch(
+                                `https://members-api.parliament.uk/api/Location/Constituency/${w.constituencyId}/ElectionResult/${w.electionId}`
+                            );
+                            if (detailRes.ok) {
+                                const detailJson = await detailRes.json();
+                                const val = detailJson?.value || detailJson;
+                                if (typeof val?.majority === 'number') {
+                                    w.majority = val.majority;
+                                }
+                                if (val?.electionDate) w.electionDate = val.electionDate;
+                                if (val?.electionTitle) w.electionTitle = val.electionTitle;
+                                if (typeof val?.isGeneralElection === 'boolean') w.isGeneralElection = val.isGeneralElection;
                             }
                         } catch {}
                     }));
@@ -1231,12 +1279,12 @@
                         bio,
                         reps,
                         latestElection,
-                        electionResultsBySeat,
+                        candidateWins,
                         interests: Array.isArray(interestsJson?.value) ? interestsJson.value : []
                     };
                     state.profileCache.set(id, extra);
                 } catch {
-                    extra = { bio: null, reps: [], latestElection: null, electionResultsBySeat: new Map(), interests: [] };
+                    extra = { bio: null, reps: [], latestElection: null, candidateWins: [], interests: [] };
                 }
             }
 
@@ -1290,100 +1338,51 @@
             }
 
             // Every Election & By-Election Victory with Majorities
-            const winByKey = new Map();
-            const registerWin = (key, candidate) => {
-                const existing = winByKey.get(key);
-                if (!existing) {
-                    winByKey.set(key, candidate);
-                    return;
-                }
-                if (existing.majority === null && typeof candidate.majority === 'number') {
-                    existing.majority = candidate.majority;
-                }
-                if (candidate.electionKind === 'By-Election') {
-                    existing.electionKind = 'By-Election';
-                }
-            };
+            const winRows = [...(extra.candidateWins || [])];
 
-            // 1. Primary source: Constituency ElectionResults bounded by each representation period
-            for (const rep of extra.reps) {
-                const seatResults = extra.electionResultsBySeat.get(rep.constituencyId) || [];
-                const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
-                const repEnd = rep.endDate ? new Date(rep.endDate).getTime() : Date.now();
-
-                const matchingElections = seatResults.filter(er => {
-                    if (!er.electionDate) return false;
-                    const t = new Date(er.electionDate).getTime();
-                    return t >= repStart - 21 * 86400000 && t <= repEnd + 14 * 86400000;
-                });
-
-                if (matchingElections.length > 0) {
-                    for (const er of matchingElections) {
-                        const dateKey = String(er.electionDate).slice(0, 10);
-                        const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
-                        registerWin(dedupeKey, {
-                            electionDate: er.electionDate,
-                            electionKind: classifyElectionType(er),
-                            constituencyName: rep.name || seat,
-                            majority: typeof er.majority === 'number' ? er.majority : null
-                        });
+            if (extra.latestElection?.electionDate) {
+                const latestDateKey = String(extra.latestElection.electionDate).slice(0, 10);
+                const existingLatest = winRows.find(w => String(w.electionDate || '').slice(0, 10) === latestDateKey);
+                if (existingLatest) {
+                    if (existingLatest.majority === null && typeof extra.latestElection.majority === 'number') {
+                        existingLatest.majority = extra.latestElection.majority;
                     }
-                } else if (rep.startDate) {
-                    const dateKey = String(rep.startDate).slice(0, 10);
-                    const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
-                    registerWin(dedupeKey, {
-                        electionDate: rep.startDate,
-                        electionKind: /by-?election/i.test(rep.additionalInfo || '') ? 'By-Election' : 'General Election',
-                        constituencyName: rep.name || seat,
-                        majority: null
+                    existingLatest.electionTitle = extra.latestElection.electionTitle || existingLatest.electionTitle;
+                    if (typeof extra.latestElection.isGeneralElection === 'boolean') {
+                        existingLatest.isGeneralElection = extra.latestElection.isGeneralElection;
+                    }
+                } else {
+                    winRows.push({
+                        constituencyId: extra.latestElection.constituencyId || null,
+                        constituencyName: extra.latestElection.constituencyName || seat,
+                        electionId: extra.latestElection.electionId || null,
+                        electionDate: extra.latestElection.electionDate,
+                        electionTitle: extra.latestElection.electionTitle || '',
+                        isGeneralElection: extra.latestElection.isGeneralElection,
+                        majority: typeof extra.latestElection.majority === 'number' ? extra.latestElection.majority : null
                     });
                 }
             }
 
-            // 2. Supplement from Biography.electionsContested (catches any general elections inside multi-term blocks if seat results weren't returned)
-            const contestedWins = (Array.isArray(bio?.electionsContested) ? bio.electionsContested : [])
-                .filter(e => e.isWin !== false && e.electionDate);
-
-            for (const ew of contestedWins) {
-                const dateKey = String(ew.electionDate).slice(0, 10);
-                const ewTime = new Date(ew.electionDate).getTime();
-                const matchingRep = extra.reps.find(r => {
-                    const s = r.startDate ? new Date(r.startDate).getTime() : 0;
-                    const e = r.endDate ? new Date(r.endDate).getTime() : Date.now();
-                    return ewTime >= s - 21 * 86400000 && ewTime <= e + 14 * 86400000;
-                });
-                const cId = ew.constituencyId || matchingRep?.constituencyId;
-                const cName = ew.constituencyName || matchingRep?.name || seat;
-                const dedupeKey = `${cId || cName}-${dateKey}`;
-
-                let majority = typeof ew.majority === 'number' ? ew.majority : null;
-                if (majority === null && cId && extra.electionResultsBySeat.has(cId)) {
-                    const hit = extra.electionResultsBySeat.get(cId).find(er => String(er.electionDate || '').slice(0, 10) === dateKey);
-                    if (hit && typeof hit.majority === 'number') majority = hit.majority;
+            if (winRows.length === 0) {
+                for (const rep of extra.reps) {
+                    if (rep.startDate) {
+                        winRows.push({
+                            constituencyName: rep.name || seat,
+                            electionDate: rep.startDate,
+                            electionTitle: rep.additionalInfo || '',
+                            isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
+                            majority: null
+                        });
+                    }
                 }
-
-                registerWin(dedupeKey, {
-                    electionDate: ew.electionDate,
-                    electionKind: classifyElectionType(ew),
-                    constituencyName: cName,
-                    majority
-                });
             }
 
-            // 3. Ensure LatestElectionResult majority and date are attached to the most recent victory
-            const winRows = [...winByKey.values()].sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
-            if (winRows.length > 0 && extra.latestElection) {
-                if (winRows[0].majority === null && typeof extra.latestElection.majority === 'number') {
-                    winRows[0].majority = extra.latestElection.majority;
-                }
-                if (extra.latestElection.electionDate) {
-                    winRows[0].electionDate = extra.latestElection.electionDate;
-                }
-                winRows[0].electionKind = classifyElectionType(extra.latestElection);
-            }
+            winRows.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
 
             if (winRows.length > 0) {
                 document.getElementById('profileElectionsList').innerHTML = winRows.map(w => {
+                    const kind = classifyElectionType(w);
                     const dateLabel = w.electionDate
                         ? new Date(w.electionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
                         : '';
@@ -1394,7 +1393,7 @@
                         <li class="py-3.5 flex flex-wrap items-center justify-between gap-2">
                             <div>
                                 <p class="font-medium text-ink">${escapeHtmlClient(w.constituencyName || seat)}</p>
-                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionKind)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
+                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(kind)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
                             </div>
                             ${majorityText ? `<span class="px-2.5 py-1 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink">${escapeHtmlClient(majorityText)}</span>` : ''}
                         </li>

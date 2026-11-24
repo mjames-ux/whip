@@ -229,7 +229,7 @@
                                 Why this matters
                             </p>
                             <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
-                                Second Reading is the first major Commons vote on the core principles of Finance Bill.
+                                The Finance Bill is the official legislation that turns the government&#39;s budget proposals and tax plans into law. Second Reading votes allow MPs to decide whether the core ideas behind these financial measures should proceed.
                             </p>
                         </div>
 
@@ -1218,10 +1218,58 @@
                             const r = await fetch(`https://members-api.parliament.uk/api/Location/Constituency/${cId}/ElectionResults`);
                             if (r.ok) {
                                 const j = await r.json();
-                                const items = Array.isArray(j?.value)
+                                const rawList = Array.isArray(j?.value)
                                     ? j.value
                                     : (Array.isArray(j?.items) ? j.items.map(it => it.value || it) : []);
-                                electionResultsBySeat.set(cId, items);
+                                electionResultsBySeat.set(cId, rawList);
+                            }
+                        } catch {}
+                    }));
+
+                    const candidateWins = [];
+                    const seenSeatElection = new Set();
+
+                    for (const rep of reps) {
+                        const cId = rep.constituencyId;
+                        const seatResults = electionResultsBySeat.get(cId) || [];
+                        const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
+                        const repEnd = rep.endDate ? new Date(rep.endDate).getTime() : Date.now();
+
+                        for (const er of seatResults) {
+                            if (!er.electionDate) continue;
+                            const t = new Date(er.electionDate).getTime();
+                            if (t >= repStart - 21 * 86400000 && t <= repEnd - 14 * 86400000) {
+                                const key = `${cId}-${er.electionId || String(er.electionDate).slice(0, 10)}`;
+                                if (seenSeatElection.has(key)) continue;
+                                seenSeatElection.add(key);
+                                candidateWins.push({
+                                    constituencyId: cId,
+                                    constituencyName: rep.name || seat,
+                                    electionId: er.electionId || null,
+                                    electionDate: er.electionDate,
+                                    electionTitle: er.electionTitle || '',
+                                    isGeneralElection: er.isGeneralElection,
+                                    majority: typeof er.majority === 'number' ? er.majority : null
+                                });
+                            }
+                        }
+                    }
+
+                    await Promise.all(candidateWins.map(async (w) => {
+                        if (w.majority !== null || !w.constituencyId || !w.electionId) return;
+                        try {
+                            const detailRes = await fetch(
+                                `https://members-api.parliament.uk/api/Location/Constituency/${w.constituencyId}/ElectionResult/${w.electionId}`
+                            );
+                            if (detailRes.ok) {
+                                const detailJson = await detailRes.json();
+                                const val = detailJson?.value || detailJson;
+                                if (typeof val?.majority === 'number') {
+                                    w.majority = val.majority;
+                                }
+                                if (val?.electionDate) w.electionDate = val.electionDate;
+                                if (val?.electionTitle) w.electionTitle = val.electionTitle;
+                                if (typeof val?.isGeneralElection === 'boolean') w.isGeneralElection = val.isGeneralElection;
                             }
                         } catch {}
                     }));
@@ -1230,12 +1278,12 @@
                         bio,
                         reps,
                         latestElection,
-                        electionResultsBySeat,
+                        candidateWins,
                         interests: Array.isArray(interestsJson?.value) ? interestsJson.value : []
                     };
                     state.profileCache.set(id, extra);
                 } catch {
-                    extra = { bio: null, reps: [], latestElection: null, electionResultsBySeat: new Map(), interests: [] };
+                    extra = { bio: null, reps: [], latestElection: null, candidateWins: [], interests: [] };
                 }
             }
 
@@ -1289,100 +1337,51 @@
             }
 
             // Every Election & By-Election Victory with Majorities
-            const winByKey = new Map();
-            const registerWin = (key, candidate) => {
-                const existing = winByKey.get(key);
-                if (!existing) {
-                    winByKey.set(key, candidate);
-                    return;
-                }
-                if (existing.majority === null && typeof candidate.majority === 'number') {
-                    existing.majority = candidate.majority;
-                }
-                if (candidate.electionKind === 'By-Election') {
-                    existing.electionKind = 'By-Election';
-                }
-            };
+            const winRows = [...(extra.candidateWins || [])];
 
-            // 1. Primary source: Constituency ElectionResults bounded by each representation period
-            for (const rep of extra.reps) {
-                const seatResults = extra.electionResultsBySeat.get(rep.constituencyId) || [];
-                const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
-                const repEnd = rep.endDate ? new Date(rep.endDate).getTime() : Date.now();
-
-                const matchingElections = seatResults.filter(er => {
-                    if (!er.electionDate) return false;
-                    const t = new Date(er.electionDate).getTime();
-                    return t >= repStart - 21 * 86400000 && t <= repEnd + 14 * 86400000;
-                });
-
-                if (matchingElections.length > 0) {
-                    for (const er of matchingElections) {
-                        const dateKey = String(er.electionDate).slice(0, 10);
-                        const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
-                        registerWin(dedupeKey, {
-                            electionDate: er.electionDate,
-                            electionKind: classifyElectionType(er),
-                            constituencyName: rep.name || seat,
-                            majority: typeof er.majority === 'number' ? er.majority : null
-                        });
+            if (extra.latestElection?.electionDate) {
+                const latestDateKey = String(extra.latestElection.electionDate).slice(0, 10);
+                const existingLatest = winRows.find(w => String(w.electionDate || '').slice(0, 10) === latestDateKey);
+                if (existingLatest) {
+                    if (existingLatest.majority === null && typeof extra.latestElection.majority === 'number') {
+                        existingLatest.majority = extra.latestElection.majority;
                     }
-                } else if (rep.startDate) {
-                    const dateKey = String(rep.startDate).slice(0, 10);
-                    const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
-                    registerWin(dedupeKey, {
-                        electionDate: rep.startDate,
-                        electionKind: /by-?election/i.test(rep.additionalInfo || '') ? 'By-Election' : 'General Election',
-                        constituencyName: rep.name || seat,
-                        majority: null
+                    existingLatest.electionTitle = extra.latestElection.electionTitle || existingLatest.electionTitle;
+                    if (typeof extra.latestElection.isGeneralElection === 'boolean') {
+                        existingLatest.isGeneralElection = extra.latestElection.isGeneralElection;
+                    }
+                } else {
+                    winRows.push({
+                        constituencyId: extra.latestElection.constituencyId || null,
+                        constituencyName: extra.latestElection.constituencyName || seat,
+                        electionId: extra.latestElection.electionId || null,
+                        electionDate: extra.latestElection.electionDate,
+                        electionTitle: extra.latestElection.electionTitle || '',
+                        isGeneralElection: extra.latestElection.isGeneralElection,
+                        majority: typeof extra.latestElection.majority === 'number' ? extra.latestElection.majority : null
                     });
                 }
             }
 
-            // 2. Supplement from Biography.electionsContested (catches any general elections inside multi-term blocks if seat results weren't returned)
-            const contestedWins = (Array.isArray(bio?.electionsContested) ? bio.electionsContested : [])
-                .filter(e => e.isWin !== false && e.electionDate);
-
-            for (const ew of contestedWins) {
-                const dateKey = String(ew.electionDate).slice(0, 10);
-                const ewTime = new Date(ew.electionDate).getTime();
-                const matchingRep = extra.reps.find(r => {
-                    const s = r.startDate ? new Date(r.startDate).getTime() : 0;
-                    const e = r.endDate ? new Date(r.endDate).getTime() : Date.now();
-                    return ewTime >= s - 21 * 86400000 && ewTime <= e + 14 * 86400000;
-                });
-                const cId = ew.constituencyId || matchingRep?.constituencyId;
-                const cName = ew.constituencyName || matchingRep?.name || seat;
-                const dedupeKey = `${cId || cName}-${dateKey}`;
-
-                let majority = typeof ew.majority === 'number' ? ew.majority : null;
-                if (majority === null && cId && extra.electionResultsBySeat.has(cId)) {
-                    const hit = extra.electionResultsBySeat.get(cId).find(er => String(er.electionDate || '').slice(0, 10) === dateKey);
-                    if (hit && typeof hit.majority === 'number') majority = hit.majority;
+            if (winRows.length === 0) {
+                for (const rep of extra.reps) {
+                    if (rep.startDate) {
+                        winRows.push({
+                            constituencyName: rep.name || seat,
+                            electionDate: rep.startDate,
+                            electionTitle: rep.additionalInfo || '',
+                            isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
+                            majority: null
+                        });
+                    }
                 }
-
-                registerWin(dedupeKey, {
-                    electionDate: ew.electionDate,
-                    electionKind: classifyElectionType(ew),
-                    constituencyName: cName,
-                    majority
-                });
             }
 
-            // 3. Ensure LatestElectionResult majority and date are attached to the most recent victory
-            const winRows = [...winByKey.values()].sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
-            if (winRows.length > 0 && extra.latestElection) {
-                if (winRows[0].majority === null && typeof extra.latestElection.majority === 'number') {
-                    winRows[0].majority = extra.latestElection.majority;
-                }
-                if (extra.latestElection.electionDate) {
-                    winRows[0].electionDate = extra.latestElection.electionDate;
-                }
-                winRows[0].electionKind = classifyElectionType(extra.latestElection);
-            }
+            winRows.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
 
             if (winRows.length > 0) {
                 document.getElementById('profileElectionsList').innerHTML = winRows.map(w => {
+                    const kind = classifyElectionType(w);
                     const dateLabel = w.electionDate
                         ? new Date(w.electionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
                         : '';
@@ -1393,7 +1392,7 @@
                         <li class="py-3.5 flex flex-wrap items-center justify-between gap-2">
                             <div>
                                 <p class="font-medium text-ink">${escapeHtmlClient(w.constituencyName || seat)}</p>
-                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionKind)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
+                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(kind)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
                             </div>
                             ${majorityText ? `<span class="px-2.5 py-1 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink">${escapeHtmlClient(majorityText)}</span>` : ''}
                         </li>

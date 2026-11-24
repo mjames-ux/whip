@@ -198,8 +198,10 @@
 
                         <p class="mt-3 text-sm text-inkSecondary flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span id="mpRole">MP for Harrow West</span>
-                            <span id="activityDot" class="text-inkTertiary">&middot;</span>
-                            <span id="activityBadge" class="text-inkTertiary">1 Active Day</span>
+                            <span id="activityWrap" class="inline-flex items-center gap-x-2">
+                                <span id="activityDot" class="text-inkTertiary">&middot;</span>
+                                <span id="activityBadge" class="text-inkTertiary whitespace-nowrap">—</span>
+                            </span>
                         </p>
                     </div>
 
@@ -490,6 +492,7 @@
             mpConstituency: document.getElementById('mpConstituency'),
             mpName: document.getElementById('mpName'),
             mpRole: document.getElementById('mpRole'),
+            activityWrap: document.getElementById('activityWrap'),
             activityDot: document.getElementById('activityDot'),
             activityBadge: document.getElementById('activityBadge'),
             watchlistToggleBtn: document.getElementById('watchlistToggleBtn'),
@@ -615,9 +618,9 @@
             if (!Array.isArray(activeDates) || activeDates.length === 0) return [];
             const currentMonday = getMondayOfWeek(referenceTodayIso);
             const completedDates = activeDates.filter(d => getMondayOfWeek(d) < currentMonday);
-            const pool = completedDates.length > 0 ? completedDates : activeDates;
-            const latestCompletedMonday = getMondayOfWeek(pool[0]);
-            return pool.filter(d => getMondayOfWeek(d) === latestCompletedMonday);
+            if (completedDates.length === 0) return [];
+            const latestCompletedMonday = getMondayOfWeek(completedDates[0]);
+            return completedDates.filter(d => getMondayOfWeek(d) === latestCompletedMonday);
         }
 
         function formatFullDate(isoDate) {
@@ -1304,7 +1307,6 @@
                     const candidateWins = [];
                     const seenSeatElection = new Set();
 
-                    // Match elections against each representation period
                     for (const rep of reps) {
                         const cId = Number(rep?.constituencyId);
                         const repName = rep?.name || seatMetaById.get(cId) || seat;
@@ -1332,7 +1334,6 @@
                         }
                     }
 
-                    // Also match elections in any historical/predecessor seat with the same name within overall MP career window
                     if (reps.length > 0) {
                         const careerStart = Math.min(...reps.map(r => r.startDate ? new Date(r.startDate).getTime() : Date.now()));
                         const careerEnd = Math.max(...reps.map(r => r.endDate ? new Date(r.endDate).getTime() : Date.now()));
@@ -1360,7 +1361,6 @@
                         }
                     }
 
-                    // Fetch full ElectionResult/{electionId} for any win missing its majority number
                     await Promise.all(candidateWins.map(async (w) => {
                         if (w.majority !== null || !w.constituencyId || !w.electionId) return;
                         try {
@@ -1413,7 +1413,6 @@
                 serviceSubtitleEl.textContent = mp.role_title || `Member of Parliament for ${seat}.`;
             }
 
-            // Current Roles only
             const bio = extra.bio;
             const currentRoles = [];
             if (bio) {
@@ -1442,7 +1441,6 @@
                 currentRolesSection.classList.remove('hidden');
             }
 
-            // Every Election & By-Election Victory with Majorities
             const winRows = [...(extra.candidateWins || [])];
 
             if (extra.latestElection?.electionDate) {
@@ -1507,7 +1505,6 @@
                 electionsSection.classList.remove('hidden');
             }
 
-            // Register of Members' Financial Interests
             const flatInterests = extra.interests || [];
             if (flatInterests.length > 0) {
                 document.getElementById('profileInterestsCount').textContent = `${flatInterests.length} ${flatInterests.length === 1 ? 'entry' : 'entries'}`;
@@ -1606,7 +1603,9 @@
 
         async function selectMp(mp, { pushUrl = false } = {}) {
             state.currentMp = mp;
-            state.selectedDate = 'WEEK';
+            state.selectedDate = state.latestWeekDates.length > 0
+                ? 'WEEK'
+                : (state.activeDates[0] || 'WEEK');
 
             if (els.mpNewsletterStatus) {
                 els.mpNewsletterStatus.className = 'hidden mt-3 text-xs font-medium';
@@ -1637,8 +1636,7 @@
 
             els.datePillsContainer.classList.toggle('hidden', !isBriefing);
             els.sittingDateDisplay.classList.toggle('hidden', !isBriefing);
-            els.activityDot.classList.toggle('hidden', !isBriefing);
-            els.activityBadge.classList.toggle('hidden', !isBriefing);
+            els.activityWrap?.classList.toggle('hidden', !isBriefing);
 
             els.tabBriefingBtn.className = isBriefing
                 ? 'px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors'
@@ -1686,7 +1684,7 @@
                     .select('sitting_date, activity_tag')
                     .eq('parliament_member_id', probeId)
                     .order('sitting_date', { ascending: false })
-                    .limit(20);
+                    .limit(30);
 
                 const activeDates = [...new Set(
                     (recentDates || [])
@@ -1703,6 +1701,9 @@
                 }).format(new Date());
 
                 state.latestWeekDates = selectLastCompletedWeekDates(activeDates, londonToday);
+                if (state.latestWeekDates.length === 0 && activeDates.length > 0) {
+                    state.selectedDate = activeDates[0];
+                }
             }
 
             updateWatchlistUi();

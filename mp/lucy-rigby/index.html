@@ -220,6 +220,7 @@
                     <div class="space-y-6">
                         <div id="summaryNarrativeBody" class="space-y-4">
                             <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Lucy Rigby did not speak in the main Commons Chamber during the week of 23 Nov 2026, focusing on other parliamentary duties.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On behalf of Treasury, Lucy Rigby answered 4 written parliamentary questions on Economic Crime: Accountancy and Audit and Development Aid: Finance.</p>
                         <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">In the voting lobbies, Lucy Rigby took part in 2 divisions, voting Aye on Finance Bill and voting No on Finance Bill: Reasoned Amendment to Second Reading.</p>
                         </div>
 
@@ -314,7 +315,7 @@
                 </section>
 
                 <!-- 4. Written Parliamentary Questions -->
-                <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden py-10 border-b border-hairline">
+                <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="py-10 border-b border-hairline">
                     <div class="flex items-baseline justify-between mb-6">
                         <h2 id="wqSectionTitle" class="font-editorial text-2xl font-bold text-ink tracking-tight">
                             Written Questions
@@ -1106,7 +1107,6 @@
                 return { headline: 'Current Member', currentRepStart: null };
             }
 
-            // Merge overlapping/adjacent stints (gap <= 60 days) for total cumulative service as an MP
             const mergedStints = [[sorted[0].start, sorted[0].end]];
             for (let i = 1; i < sorted.length; i++) {
                 const last = mergedStints[mergedStints.length - 1];
@@ -1120,7 +1120,6 @@
             const totalMs = mergedStints.reduce((sum, [s, e]) => sum + (e - s), 0);
             const totalStr = formatDurationUnits(totalMs);
 
-            // Continuous service in current constituency (merges consecutive terms in the same seat)
             const currentEntry = sorted.find(r => r.isCurrent) || sorted[sorted.length - 1];
             const currentSeatName = currentEntry.name || fallbackSeat || '';
             const currentSeatLower = currentSeatName.toLowerCase();
@@ -1141,7 +1140,6 @@
             const currentStr = formatDurationUnits(currentMs);
             const seatLabel = currentSeatName ? ` as MP for ${currentSeatName}` : ' as an MP';
 
-            // Show total MP service in brackets whenever it differs from continuous current-seat service
             const showTotal = currentStr !== totalStr;
             const headline = showTotal
                 ? `${currentStr} continuous service${seatLabel} (${totalStr} total service as an MP)`
@@ -1193,23 +1191,23 @@
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
-                    const [bioRes, historyRes, latestRes, interestsRes] = await Promise.all([
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/History`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`)
+                    const [bioRes, latestRes, electionsRes, interestsRes] = await Promise.all([
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`).catch(() => null),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`).catch(() => null),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Elections`).catch(() => null),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`).catch(() => null)
                     ]);
-                    const bioJson = bioRes.ok ? await bioRes.json() : null;
-                    const historyJson = historyRes.ok ? await historyRes.json() : null;
-                    const latestJson = latestRes.ok ? await latestRes.json() : null;
-                    const interestsJson = interestsRes.ok ? await interestsRes.json() : null;
+                    const bioJson = bioRes && bioRes.ok ? await bioRes.json() : null;
+                    const latestJson = latestRes && latestRes.ok ? await latestRes.json() : null;
+                    const electionsJson = electionsRes && electionsRes.ok ? await electionsRes.json() : null;
+                    const interestsJson = interestsRes && interestsRes.ok ? await interestsRes.json() : null;
 
                     const bio = bioJson?.value || null;
-                    const history = historyJson?.value || null;
                     const latestElection = latestJson?.value || null;
-                    const reps = Array.isArray(history?.representations)
-                        ? history.representations
-                        : (Array.isArray(bio?.representations) ? bio.representations : []);
+                    const reps = Array.isArray(bio?.representations) ? bio.representations : [];
+                    const memberElections = Array.isArray(electionsJson?.value)
+                        ? electionsJson.value
+                        : (Array.isArray(electionsJson?.items) ? electionsJson.items.map(it => it.value || it) : []);
 
                     const uniqueConstituencyIds = [...new Set(reps.map(r => r.constituencyId).filter(Boolean))];
                     const electionResultsBySeat = new Map();
@@ -1253,6 +1251,25 @@
                                 });
                             }
                         }
+                    }
+
+                    for (const me of memberElections) {
+                        const eDate = me?.electionDate || me?.date;
+                        if (!eDate) continue;
+                        const cId = me?.constituencyId || me?.constituency?.id || null;
+                        const cName = me?.constituencyName || me?.constituency?.name || seat;
+                        const key = `${cId || cName}-${me?.electionId || String(eDate).slice(0, 10)}`;
+                        if (seenSeatElection.has(key)) continue;
+                        seenSeatElection.add(key);
+                        candidateWins.push({
+                            constituencyId: cId,
+                            constituencyName: cName,
+                            electionId: me?.electionId || null,
+                            electionDate: eDate,
+                            electionTitle: me?.electionTitle || me?.title || '',
+                            isGeneralElection: me?.isGeneralElection,
+                            majority: typeof me?.majority === 'number' ? me.majority : null
+                        });
                     }
 
                     await Promise.all(candidateWins.map(async (w) => {

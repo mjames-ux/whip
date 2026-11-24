@@ -1108,7 +1108,6 @@
                 return { headline: 'Current Member', currentRepStart: null };
             }
 
-            // Merge overlapping/adjacent stints (gap <= 60 days) for total cumulative service as an MP
             const mergedStints = [[sorted[0].start, sorted[0].end]];
             for (let i = 1; i < sorted.length; i++) {
                 const last = mergedStints[mergedStints.length - 1];
@@ -1122,7 +1121,6 @@
             const totalMs = mergedStints.reduce((sum, [s, e]) => sum + (e - s), 0);
             const totalStr = formatDurationUnits(totalMs);
 
-            // Continuous service in current constituency (merges consecutive terms in the same seat)
             const currentEntry = sorted.find(r => r.isCurrent) || sorted[sorted.length - 1];
             const currentSeatName = currentEntry.name || fallbackSeat || '';
             const currentSeatLower = currentSeatName.toLowerCase();
@@ -1143,7 +1141,6 @@
             const currentStr = formatDurationUnits(currentMs);
             const seatLabel = currentSeatName ? ` as MP for ${currentSeatName}` : ' as an MP';
 
-            // Show total MP service in brackets whenever it differs from continuous current-seat service
             const showTotal = currentStr !== totalStr;
             const headline = showTotal
                 ? `${currentStr} continuous service${seatLabel} (${totalStr} total service as an MP)`
@@ -1195,23 +1192,23 @@
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
-                    const [bioRes, historyRes, latestRes, interestsRes] = await Promise.all([
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/History`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`)
+                    const [bioRes, latestRes, electionsRes, interestsRes] = await Promise.all([
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`).catch(() => null),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`).catch(() => null),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Elections`).catch(() => null),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`).catch(() => null)
                     ]);
-                    const bioJson = bioRes.ok ? await bioRes.json() : null;
-                    const historyJson = historyRes.ok ? await historyRes.json() : null;
-                    const latestJson = latestRes.ok ? await latestRes.json() : null;
-                    const interestsJson = interestsRes.ok ? await interestsRes.json() : null;
+                    const bioJson = bioRes && bioRes.ok ? await bioRes.json() : null;
+                    const latestJson = latestRes && latestRes.ok ? await latestRes.json() : null;
+                    const electionsJson = electionsRes && electionsRes.ok ? await electionsRes.json() : null;
+                    const interestsJson = interestsRes && interestsRes.ok ? await interestsRes.json() : null;
 
                     const bio = bioJson?.value || null;
-                    const history = historyJson?.value || null;
                     const latestElection = latestJson?.value || null;
-                    const reps = Array.isArray(history?.representations)
-                        ? history.representations
-                        : (Array.isArray(bio?.representations) ? bio.representations : []);
+                    const reps = Array.isArray(bio?.representations) ? bio.representations : [];
+                    const memberElections = Array.isArray(electionsJson?.value)
+                        ? electionsJson.value
+                        : (Array.isArray(electionsJson?.items) ? electionsJson.items.map(it => it.value || it) : []);
 
                     const uniqueConstituencyIds = [...new Set(reps.map(r => r.constituencyId).filter(Boolean))];
                     const electionResultsBySeat = new Map();
@@ -1255,6 +1252,25 @@
                                 });
                             }
                         }
+                    }
+
+                    for (const me of memberElections) {
+                        const eDate = me?.electionDate || me?.date;
+                        if (!eDate) continue;
+                        const cId = me?.constituencyId || me?.constituency?.id || null;
+                        const cName = me?.constituencyName || me?.constituency?.name || seat;
+                        const key = `${cId || cName}-${me?.electionId || String(eDate).slice(0, 10)}`;
+                        if (seenSeatElection.has(key)) continue;
+                        seenSeatElection.add(key);
+                        candidateWins.push({
+                            constituencyId: cId,
+                            constituencyName: cName,
+                            electionId: me?.electionId || null,
+                            electionDate: eDate,
+                            electionTitle: me?.electionTitle || me?.title || '',
+                            isGeneralElection: me?.isGeneralElection,
+                            majority: typeof me?.majority === 'number' ? me.majority : null
+                        });
                     }
 
                     await Promise.all(candidateWins.map(async (w) => {

@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search.json';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
+const BILLS_SEARCH_API = 'https://bills-api.parliament.uk/api/v1/Bills';
 const WRITTEN_QUESTIONS_API = 'https://writtenquestions-api.parliament.uk/api/writtenquestions/questions';
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
 const COMMITTEES_FALLBACK_API = 'https://committees-api.parliament.uk/api/Events';
@@ -348,7 +349,54 @@ async function fetchHansardContributionsForDate(dateStr) {
     return byMember;
 }
 
-function buildDivisionExplainer(title, divisionId) {
+const billLookupCache = new Map();
+
+async function fetchBillSummaryFromParliament(billTitle) {
+    const cleanBill = String(billTitle || '')
+        .replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '')
+        .trim();
+    if (!cleanBill || cleanBill.length < 4) return null;
+
+    const cacheKey = cleanBill.toLowerCase();
+    if (billLookupCache.has(cacheKey)) {
+        return billLookupCache.get(cacheKey);
+    }
+
+    try {
+        const url = new URL(BILLS_SEARCH_API);
+        url.searchParams.set('SearchTerm', cleanBill);
+        url.searchParams.set('Take', '5');
+
+        const data = await fetchJsonWithTimeout(url.toString(), 12000);
+        const items = Array.isArray(data?.items) ? data.items : [];
+
+        const matched = items.find(it => {
+            const apiTitle = stripHtml(it?.title || '').toLowerCase();
+            return apiTitle === cacheKey || apiTitle.includes(cacheKey) || cacheKey.includes(apiTitle);
+        }) || null;
+
+        if (!matched) {
+            billLookupCache.set(cacheKey, null);
+            return null;
+        }
+
+        const summary = stripHtml(matched?.summary || '');
+        const longTitle = stripHtml(matched?.longTitle || '');
+        const result = {
+            billId: matched?.billId || null,
+            billSummary: summary || null,
+            billAims: longTitle && longTitle !== summary ? longTitle : null
+        };
+
+        billLookupCache.set(cacheKey, result);
+        return result;
+    } catch {
+        billLookupCache.set(cacheKey, null);
+        return null;
+    }
+}
+
+function buildDivisionExplainer(title, divisionId, billInfo = null) {
     const cleanTitle = (title || 'House of Commons Division').trim();
     const lower = cleanTitle.toLowerCase();
     const parliamentUrl = divisionId
@@ -359,58 +407,52 @@ function buildDivisionExplainer(title, divisionId) {
         .replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '')
         .trim();
 
+    let stageObj;
     const clauseMatch = cleanTitle.match(/\b(New Clause|New Schedule|Amendment)\s+([A-Z0-9]+)/i);
     if (clauseMatch) {
         const label = `${clauseMatch[1]} ${clauseMatch[2]}`;
-        return {
+        stageObj = {
             whatItDoes: `${label} was a proposed addition or amendment to ${billBase} debated during its Commons scrutiny.`,
             whatAyeMeans: `Supported adding ${label} into ${billBase}.`,
-            whatNoMeans: `Voted against adding ${label} to the Bill.`,
-            parliamentUrl
+            whatNoMeans: `Voted against adding ${label} to the Bill.`
         };
-    }
-
-    if (lower.includes('second reading')) {
-        return {
+    } else if (lower.includes('second reading')) {
+        stageObj = {
             whatItDoes: `Second Reading is the first major Commons vote on the core principles of ${billBase}.`,
             whatAyeMeans: `Supported the general principles of ${billBase} so it could advance to detailed line-by-line scrutiny.`,
-            whatNoMeans: `Opposed ${billBase} progressing further in the House of Commons.`,
-            parliamentUrl
+            whatNoMeans: `Opposed ${billBase} progressing further in the House of Commons.`
         };
-    }
-
-    if (lower.includes('third reading')) {
-        return {
+    } else if (lower.includes('third reading')) {
+        stageObj = {
             whatItDoes: `Third Reading is the final Commons vote on the amended text of ${billBase} before it moves to the House of Lords.`,
             whatAyeMeans: `Approved the final Commons version of ${billBase}.`,
-            whatNoMeans: `Voted to reject the final Commons version of ${billBase}.`,
-            parliamentUrl
+            whatNoMeans: `Voted to reject the final Commons version of ${billBase}.`
         };
-    }
-
-    if (lower.includes('opposition day')) {
+    } else if (lower.includes('opposition day')) {
         const topic = cleanTitle.replace(/^Opposition [Dd]ay:\s*/i, '').replace(/:\s*Opposition motion$/i, '').trim();
-        return {
+        stageObj = {
             whatItDoes: `An Opposition Day motion putting forward a policy position or call to action on ${topic || 'a chosen policy topic'}.`,
             whatAyeMeans: `Backed the Opposition motion on ${topic || 'the debate topic'}.`,
-            whatNoMeans: `Voted against the Opposition motion.`,
-            parliamentUrl
+            whatNoMeans: `Voted against the Opposition motion.`
         };
-    }
-
-    if (lower.includes('regulations') || lower.includes('order')) {
-        return {
+    } else if (lower.includes('regulations') || lower.includes('order')) {
+        stageObj = {
             whatItDoes: `${cleanTitle} is secondary legislation (a Statutory Instrument) brought forward by ministers under powers granted by an existing Act of Parliament.`,
             whatAyeMeans: `Approved the regulations or order so they can take legal effect.`,
-            whatNoMeans: `Voted to reject the regulations or order.`,
-            parliamentUrl
+            whatNoMeans: `Voted to reject the regulations or order.`
+        };
+    } else {
+        stageObj = {
+            whatItDoes: `${cleanTitle} was put to a formal House of Commons division to test MPs' support for the proposed measure or motion.`,
+            whatAyeMeans: `Supported the motion or legislative proposal.`,
+            whatNoMeans: `Opposed the motion or legislative proposal.`
         };
     }
 
     return {
-        whatItDoes: `${cleanTitle} was put to a formal House of Commons division to test MPs' support for the proposed measure or motion.`,
-        whatAyeMeans: `Supported the motion or legislative proposal.`,
-        whatNoMeans: `Opposed the motion or legislative proposal.`,
+        ...stageObj,
+        ...(billInfo?.billSummary ? { billSummary: billInfo.billSummary } : {}),
+        ...(billInfo?.billAims ? { billAims: billInfo.billAims } : {}),
         parliamentUrl
     };
 }
@@ -449,6 +491,7 @@ async function fetchDivisionsForDate(dateStr) {
             const ayeCount = Number(detail?.AyeCount ?? ayeIds.size);
             const noCount = Number(detail?.NoCount ?? noIds.size);
             const title = stripHtml(detail?.Title || div?.Title || `Division #${divId}`);
+            const billInfo = await fetchBillSummaryFromParliament(title);
 
             detailedDivisions.push({
                 divisionId: divId,
@@ -456,7 +499,7 @@ async function fetchDivisionsForDate(dateStr) {
                 houseResult: `Ayes ${ayeCount} – Noes ${noCount}`,
                 ayeIds,
                 noIds,
-                explainer: buildDivisionExplainer(title, divId)
+                explainer: buildDivisionExplainer(title, divId, billInfo)
             });
         } catch (err) {
             console.warn(`Division ${divId} detail warning: ${err.message}`);

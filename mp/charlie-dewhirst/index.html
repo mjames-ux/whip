@@ -362,7 +362,7 @@
                             <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-1.5">
                                 Parliamentary Service
                             </p>
-                            <h2 id="profileServiceDuration" class="font-editorial text-3xl sm:text-4xl font-bold text-ink tracking-[-0.02em] leading-[1.12]">
+                            <h2 id="profileServiceDuration" class="font-editorial text-2xl sm:text-4xl font-bold text-ink tracking-[-0.02em] leading-[1.15]">
                                 —
                             </h2>
                             <p id="profileServiceSubtitle" class="mt-2 text-sm text-inkSecondary">
@@ -1075,43 +1075,73 @@
             renderVotingSection(briefing.votes);
         }
 
-        function formatCumulativeService(representations, fallbackStart) {
-            const intervals = (Array.isArray(representations) ? representations : [])
-                .map(r => {
-                    const start = r.startDate ? new Date(r.startDate).getTime() : NaN;
-                    const end = r.endDate ? new Date(r.endDate).getTime() : Date.now();
-                    return Number.isFinite(start) && end > start ? [start, end] : null;
-                })
-                .filter(Boolean)
-                .sort((a, b) => a[0] - b[0]);
-
-            if (intervals.length === 0 && fallbackStart) {
-                const start = new Date(fallbackStart).getTime();
-                if (Number.isFinite(start) && Date.now() > start) {
-                    intervals.push([start, Date.now()]);
-                }
-            }
-
-            if (intervals.length === 0) return 'Current Member';
-
-            const merged = [intervals[0]];
-            for (let i = 1; i < intervals.length; i++) {
-                const last = merged[merged.length - 1];
-                if (intervals[i][0] <= last[1]) {
-                    last[1] = Math.max(last[1], intervals[i][1]);
-                } else {
-                    merged.push(intervals[i]);
-                }
-            }
-
-            const totalMs = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
-            const totalMonths = Math.floor(totalMs / (1000 * 60 * 60 * 24 * 30.4375));
+        function formatDurationUnits(totalMs) {
+            const totalMonths = Math.max(1, Math.floor(totalMs / (1000 * 60 * 60 * 24 * 30.4375)));
             const years = Math.floor(totalMonths / 12);
             const months = totalMonths % 12;
 
-            if (years === 0) return `MP for ${Math.max(1, months)} ${months === 1 ? 'month' : 'months'}`;
-            if (months === 0) return `MP for ${years} ${years === 1 ? 'year' : 'years'}`;
-            return `MP for ${years} ${years === 1 ? 'year' : 'years'}, ${months} ${months === 1 ? 'month' : 'months'}`;
+            if (years === 0) return `${months} ${months === 1 ? 'month' : 'months'}`;
+            if (months === 0) return `${years} ${years === 1 ? 'year' : 'years'}`;
+            return `${years} ${years === 1 ? 'year' : 'years'}, ${months} ${months === 1 ? 'month' : 'months'}`;
+        }
+
+        function computeServiceStrings(representations, fallbackStart) {
+            const sorted = (Array.isArray(representations) ? representations : [])
+                .map(r => ({
+                    name: r.name || '',
+                    start: r.startDate ? new Date(r.startDate).getTime() : NaN,
+                    end: r.endDate ? new Date(r.endDate).getTime() : Date.now(),
+                    isCurrent: !r.endDate
+                }))
+                .filter(r => Number.isFinite(r.start) && r.end > r.start)
+                .sort((a, b) => a.start - b.start);
+
+            if (sorted.length === 0 && fallbackStart) {
+                const start = new Date(fallbackStart).getTime();
+                if (Number.isFinite(start) && Date.now() > start) {
+                    sorted.push({ name: '', start, end: Date.now(), isCurrent: true });
+                }
+            }
+
+            if (sorted.length === 0) {
+                return { headline: 'Current Member', currentRepStart: null };
+            }
+
+            // Merge overlapping intervals for total cumulative service across all seats/terms
+            const merged = [[sorted[0].start, sorted[0].end]];
+            for (let i = 1; i < sorted.length; i++) {
+                const last = merged[merged.length - 1];
+                if (sorted[i].start <= last[1]) {
+                    last[1] = Math.max(last[1], sorted[i].end);
+                } else {
+                    merged.push([sorted[i].start, sorted[i].end]);
+                }
+            }
+            const totalMs = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
+            const totalStr = formatDurationUnits(totalMs);
+
+            // Continuous service in current constituency (merges consecutive back-to-back terms in same seat)
+            const currentEntry = sorted.find(r => r.isCurrent) || sorted[sorted.length - 1];
+            const currentSeatName = currentEntry.name.toLowerCase();
+            let currentStart = currentEntry.start;
+            for (let i = sorted.length - 2; i >= 0; i--) {
+                const prev = sorted[i];
+                const sameSeat = !currentSeatName || prev.name.toLowerCase() === currentSeatName;
+                const gapDays = (currentStart - prev.end) / 86400000;
+                if (sameSeat && gapDays <= 60) {
+                    currentStart = Math.min(currentStart, prev.start);
+                } else {
+                    break;
+                }
+            }
+            const currentMs = Math.max(0, Date.now() - currentStart);
+            const currentStr = formatDurationUnits(currentMs);
+
+            const headline = currentStr !== totalStr
+                ? `MP for ${currentStr} (${totalStr} in total)`
+                : `MP for ${currentStr}`;
+
+            return { headline, currentRepStart: new Date(currentStart).toISOString() };
         }
 
         function isCurrentRoleItem(item) {
@@ -1119,6 +1149,14 @@
             if (!item.endDate) return true;
             const endTime = new Date(item.endDate).getTime();
             return Number.isFinite(endTime) && endTime > Date.now();
+        }
+
+        function classifyElectionType(er) {
+            const title = String(er?.electionTitle || '');
+            if (er?.isGeneralElection === false || /by-?election/i.test(title)) {
+                return 'By-Election';
+            }
+            return 'General Election';
         }
 
         async function loadAndRenderProfile(mp) {
@@ -1149,17 +1187,20 @@
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
-                    const [bioRes, historyRes, interestsRes] = await Promise.all([
+                    const [bioRes, historyRes, latestRes, interestsRes] = await Promise.all([
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`),
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/History`),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`),
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`)
                     ]);
                     const bioJson = bioRes.ok ? await bioRes.json() : null;
                     const historyJson = historyRes.ok ? await historyRes.json() : null;
+                    const latestJson = latestRes.ok ? await latestRes.json() : null;
                     const interestsJson = interestsRes.ok ? await interestsRes.json() : null;
 
                     const bio = bioJson?.value || null;
                     const history = historyJson?.value || null;
+                    const latestElection = latestJson?.value || null;
                     const reps = Array.isArray(history?.representations)
                         ? history.representations
                         : (Array.isArray(bio?.representations) ? bio.representations : []);
@@ -1171,7 +1212,10 @@
                             const r = await fetch(`https://members-api.parliament.uk/api/Location/Constituency/${cId}/ElectionResults`);
                             if (r.ok) {
                                 const j = await r.json();
-                                electionResultsBySeat.set(cId, Array.isArray(j?.value) ? j.value : []);
+                                const items = Array.isArray(j?.value)
+                                    ? j.value
+                                    : (Array.isArray(j?.items) ? j.items.map(it => it.value || it) : []);
+                                electionResultsBySeat.set(cId, items);
                             }
                         } catch {}
                     }));
@@ -1179,34 +1223,37 @@
                     extra = {
                         bio,
                         reps,
+                        latestElection,
                         electionResultsBySeat,
                         interests: Array.isArray(interestsJson?.value) ? interestsJson.value : []
                     };
                     state.profileCache.set(id, extra);
                 } catch {
-                    extra = { bio: null, reps: [], electionResultsBySeat: new Map(), interests: [] };
+                    extra = { bio: null, reps: [], latestElection: null, electionResultsBySeat: new Map(), interests: [] };
                 }
             }
 
             if (state.currentMp?.parliament_member_id !== mp.parliament_member_id) return;
 
-            serviceDurationEl.textContent = formatCumulativeService(extra.reps, mp.member_since);
+            const serviceInfo = computeServiceStrings(extra.reps, mp.member_since);
+            serviceDurationEl.textContent = serviceInfo.headline;
 
             const sortedReps = [...extra.reps].sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
             const currentRep = sortedReps.find(r => !r.endDate) || sortedReps[0];
-            if (currentRep?.startDate) {
-                const startFormatted = new Date(currentRep.startDate).toLocaleDateString('en-GB', {
+            const startIso = serviceInfo.currentRepStart || currentRep?.startDate;
+            if (startIso) {
+                const startFormatted = new Date(startIso).toLocaleDateString('en-GB', {
                     day: 'numeric',
                     month: 'long',
                     year: 'numeric'
                 });
-                const repSeat = currentRep.name || seat;
+                const repSeat = currentRep?.name || seat;
                 serviceSubtitleEl.textContent = `Current term for ${repSeat} began on ${startFormatted}.`;
             } else {
                 serviceSubtitleEl.textContent = mp.role_title || `Member of Parliament for ${seat}.`;
             }
 
-            // Current Roles only (active government/opposition posts & active committees)
+            // Current Roles only
             const bio = extra.bio;
             const currentRoles = [];
             if (bio) {
@@ -1235,8 +1282,10 @@
                 currentRolesSection.classList.remove('hidden');
             }
 
-            // Election Wins & Majorities
+            // Individual Election & By-Election Wins with Majorities
+            const seenElectionKeys = new Set();
             const winRows = [];
+
             for (const rep of extra.reps) {
                 const seatResults = extra.electionResultsBySeat.get(rep.constituencyId) || [];
                 const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
@@ -1245,29 +1294,47 @@
                 const matchingElections = seatResults.filter(er => {
                     if (!er.electionDate) return false;
                     const t = new Date(er.electionDate).getTime();
-                    return t >= repStart - 14 * 86400000 && t <= repEnd;
+                    return t >= repStart - 21 * 86400000 && t <= repEnd - 14 * 86400000;
                 });
 
                 if (matchingElections.length > 0) {
                     for (const er of matchingElections) {
+                        const dateKey = String(er.electionDate).slice(0, 10);
+                        const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
+                        if (seenElectionKeys.has(dedupeKey)) continue;
+                        seenElectionKeys.add(dedupeKey);
+
                         winRows.push({
                             electionDate: er.electionDate,
-                            electionTitle: er.electionTitle || 'General Election',
+                            electionKind: classifyElectionType(er),
                             constituencyName: rep.name || seat,
                             majority: typeof er.majority === 'number' ? er.majority : null
                         });
                     }
                 } else if (rep.startDate) {
-                    winRows.push({
-                        electionDate: rep.startDate,
-                        electionTitle: rep.additionalInfo || 'Elected to House of Commons',
-                        constituencyName: rep.name || seat,
-                        majority: null
-                    });
+                    const dateKey = String(rep.startDate).slice(0, 10);
+                    const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
+                    if (!seenElectionKeys.has(dedupeKey)) {
+                        seenElectionKeys.add(dedupeKey);
+                        const isLatestSeat = extra.latestElection &&
+                            (!rep.endDate || (extra.latestElection.constituencyName || '').toLowerCase() === (rep.name || '').toLowerCase());
+                        winRows.push({
+                            electionDate: isLatestSeat && extra.latestElection.electionDate ? extra.latestElection.electionDate : rep.startDate,
+                            electionKind: isLatestSeat ? classifyElectionType(extra.latestElection) : (/by-?election/i.test(rep.additionalInfo || '') ? 'By-Election' : 'General Election'),
+                            constituencyName: rep.name || seat,
+                            majority: isLatestSeat && typeof extra.latestElection.majority === 'number' ? extra.latestElection.majority : null
+                        });
+                    }
                 }
             }
 
             winRows.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
+
+            if (winRows.length > 0 && winRows[0].majority === null && typeof extra.latestElection?.majority === 'number') {
+                winRows[0].majority = extra.latestElection.majority;
+                if (extra.latestElection.electionDate) winRows[0].electionDate = extra.latestElection.electionDate;
+                winRows[0].electionKind = classifyElectionType(extra.latestElection);
+            }
 
             if (winRows.length > 0) {
                 document.getElementById('profileElectionsList').innerHTML = winRows.map(w => {
@@ -1281,7 +1348,7 @@
                         <li class="py-3.5 flex flex-wrap items-center justify-between gap-2">
                             <div>
                                 <p class="font-medium text-ink">${escapeHtmlClient(w.constituencyName || seat)}</p>
-                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionTitle)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
+                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionKind)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
                             </div>
                             ${majorityText ? `<span class="px-2.5 py-1 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink">${escapeHtmlClient(majorityText)}</span>` : ''}
                         </li>

@@ -8,6 +8,8 @@
  */
 
 import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 
 const MEMBERS_SEARCH_API = 'https://members-api.parliament.uk/api/Members/Search';
@@ -36,6 +38,15 @@ if (!supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Optional static historical majorities map (e.g. {"leigh-2001-06-07": 9549}) for pre-2010 results
+let historicalMajorities = {};
+try {
+    const histPath = path.resolve(process.cwd(), 'historical_majorities.json');
+    if (fs.existsSync(histPath)) {
+        historicalMajorities = JSON.parse(fs.readFileSync(histPath, 'utf8'));
+    }
+} catch {}
+
 const PARTY_COLORS = {
     'Labour': '#E4003B',
     'Labour (Co-op)': '#E4003B',
@@ -55,14 +66,19 @@ const PARTY_COLORS = {
     'Speaker': '#111827'
 };
 
-const PRE_2010_GENERAL_ELECTIONS = [
+const UK_GENERAL_ELECTIONS = [
     '1979-05-03',
     '1983-06-09',
     '1987-06-11',
     '1992-04-09',
     '1997-05-01',
     '2001-06-07',
-    '2005-05-05'
+    '2005-05-05',
+    '2010-05-06',
+    '2015-05-07',
+    '2017-06-08',
+    '2019-12-12',
+    '2024-07-04'
 ];
 
 function sleep(ms) {
@@ -132,6 +148,12 @@ function normalizeSeatBaseName(name) {
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase();
+}
+
+function lookupStaticMajority(seatLower, dateKey) {
+    const key = `${seatLower}-${dateKey}`;
+    const val = historicalMajorities[key];
+    return typeof val === 'number' ? val : null;
 }
 
 const constituencyResultsCache = new Map();
@@ -244,6 +266,10 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
                 const winner = candidates.find(c => c?.rank === 1 || c?.isWinner);
                 if (winner?.memberId && Number(winner.memberId) !== id) continue;
 
+                const resolvedMajority = typeof detail?.majority === 'number'
+                    ? detail.majority
+                    : (typeof er.majority === 'number' ? er.majority : lookupStaticMajority(seatLower, dateKey));
+
                 seen.add(dedupeKey);
                 wins.push({
                     constituencyName: displaySeatName,
@@ -252,14 +278,12 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
                     isGeneralElection: typeof detail?.isGeneralElection === 'boolean'
                         ? detail.isGeneralElection
                         : Boolean(er.isGeneralElection),
-                    majority: typeof detail?.majority === 'number'
-                        ? detail.majority
-                        : (typeof er.majority === 'number' ? er.majority : null)
+                    majority: resolvedMajority
                 });
             }
         }
 
-        // Ensure the representation start election is captured even if pre-2010 ElectionResults omits it
+        // Ensure the representation start election (e.g. a by-election) is captured
         const startDateKey = String(rep.startDate).slice(0, 10);
         if (!seen.has(`${seatLower}-${startDateKey}`)) {
             seen.add(`${seatLower}-${startDateKey}`);
@@ -267,13 +291,13 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
                 constituencyName: displaySeatName,
                 electionDate: rep.startDate,
                 electionTitle: '',
-                isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
-                majority: null
+                isGeneralElection: UK_GENERAL_ELECTIONS.includes(startDateKey),
+                majority: lookupStaticMajority(seatLower, startDateKey)
             });
         }
 
-        // Expand any pre-2010 general elections won during the same boundary-era representation stint
-        for (const geDate of PRE_2010_GENERAL_ELECTIONS) {
+        // Expand every UK General Election won during this continuous representation stint
+        for (const geDate of UK_GENERAL_ELECTIONS) {
             const geTime = new Date(`${geDate}T00:00:00Z`).getTime();
             if (geTime >= repStart - 21 * 86400000 && geTime <= repEnd + 3 * 86400000) {
                 const dedupeKey = `${seatLower}-${geDate}`;
@@ -284,7 +308,7 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
                         electionDate: `${geDate}T00:00:00`,
                         electionTitle: '',
                         isGeneralElection: true,
-                        majority: null
+                        majority: lookupStaticMajority(seatLower, geDate)
                     });
                 }
             }
@@ -303,12 +327,15 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
                 existing.isGeneralElection = latest.isGeneralElection;
             }
         } else {
+            const seatClean = (latest.constituencyName || fallbackSeatName || '').replace(/\s*\[[^\]]+\]\s*/g, ' ').trim();
             wins.push({
-                constituencyName: (latest.constituencyName || fallbackSeatName || '').replace(/\s*\[[^\]]+\]\s*/g, ' ').trim(),
+                constituencyName: seatClean,
                 electionDate: latest.electionDate,
                 electionTitle: latest.electionTitle || '',
                 isGeneralElection: Boolean(latest.isGeneralElection),
-                majority: typeof latest.majority === 'number' ? latest.majority : null
+                majority: typeof latest.majority === 'number'
+                    ? latest.majority
+                    : lookupStaticMajority(normalizeSeatBaseName(seatClean), dateKey)
             });
         }
     }

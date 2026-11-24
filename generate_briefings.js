@@ -21,6 +21,8 @@ const COMMITTEES_FALLBACK_API = 'https://committees-api.parliament.uk/api/Events
 const GOVUK_SEARCH_API = 'https://www.gov.uk/api/search.json';
 
 const GEMINI_CONCURRENCY = 3;
+const PRIMARY_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const FALLBACK_GEMINI_MODEL = 'gemini-3.8-flash';
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -731,7 +733,34 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
 }
 
 let geminiWarnCount = 0;
-let activeGeminiModel = 'gemini-3.5-flash-lite';
+
+async function callGeminiModel(modelName, prompt) {
+    const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 650,
+                    responseMimeType: 'application/json'
+                }
+            }),
+            signal: AbortSignal.timeout(30000)
+        }
+    );
+
+    if (!res.ok) {
+        const errPreview = await res.text().catch(() => '');
+        const err = new Error(`HTTP ${res.status}: ${errPreview.slice(0, 180)}`);
+        err.status = res.status;
+        throw err;
+    }
+
+    return res.json();
+}
 
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
     if (skipLlm || !geminiApiKey) return null;
@@ -741,121 +770,86 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
 
     const rankedSpeeches = [...speeches].sort((a, b) => b.text.length - a.text.length);
 
+    // Keep context concise to minimize input tokens while preserving substantive detail
     const speechDigest = rankedSpeeches
-        .slice(0, 4)
-        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 1200)}"`)
+        .slice(0, 3)
+        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 700)}"`)
         .join('\n');
 
     const committeeDigest = committees
-        .slice(0, 4)
+        .slice(0, 3)
         .map(c => `- ${c.committeeName} (${c.role}): ${c.title}`)
         .join('\n');
 
     const wqDigest = [
-        ...askedQuestions.slice(0, 5).map(q => `- Tabled to ${q.department} (${q.heading}): "${q.questionText.slice(0, 320)}"`),
-        ...answeredQuestions.slice(0, 5).map(q => `- Answered for ${q.department} (asked by ${q.askingMemberName || 'an MP'} on ${q.heading}): "${(q.answerText || q.questionText).slice(0, 320)}"`)
+        ...askedQuestions.slice(0, 4).map(q => `- Tabled to ${q.department} (${q.heading}): "${q.questionText.slice(0, 220)}"`),
+        ...answeredQuestions.slice(0, 4).map(q => `- Answered for ${q.department} (asked by ${q.askingMemberName || 'an MP'} on ${q.heading}): "${(q.answerText || q.questionText).slice(0, 220)}"`)
     ].join('\n');
 
     const voteDigest = mpVotes
-        .slice(0, 6)
+        .slice(0, 5)
         .map(v => `- ${v.title}: Voted ${v.mpVote} (${v.houseResult})`)
         .join('\n');
 
-    const prompt = `You are an impartial, strictly factual UK parliamentary correspondent writing for Whip.
-Write a clear, accessible briefing on ${mp.full_name} (${mp.party}, ${mp.role_title}) on ${readableDate}.
+    const prompt = `Impartial UK parliamentary correspondent for Whip. Brief on ${mp.full_name} (${mp.party}, ${mp.role_title}) on ${readableDate}.
+Rules:
+- Plain English for all readers. Short paragraphs (2–3 sentences each), separated by \\n\\n.
+- Strictly neutral, non-partisan tone. Never praise, criticise, or speculate.
+- Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
+- If Chamber Speeches exist, include ONE exact, word-for-word complete sentence from the speech in "summary_para_1" inside double quotes ("..."). Never alter or cut off words inside quotes.
 
-Audience & Tone Rules:
-- Write so anyone from a school politics student to an older adult without further education can read it effortlessly.
-- Use short, easily digestible paragraphs (2–3 short sentences per paragraph), separated by a blank line (\\n\\n).
-- Strictly neutral, non-partisan tone. Do not praise, criticize, or editorialize.
-- Use "${mp.short_name}" (never include constituency in parentheses after their name).
-- Never guess or assume specific topics of constituency work—if mentioning local work, refer only to "handling urgent constituent casework".
+Return ONLY valid JSON:
+{"activity_tag":"2-4 word label","summary_para_1":"2-3 short paragraphs separated by \\n\\n","summary_para_2":"1 short 2-3 sentence Why this matters paragraph","glossary":[{"term":"...","plain":"..."}]}
 
-Verbatim Hansard Quote Rules (CRITICAL):
-- If Chamber Speeches are provided below, weave ONE exact, word-for-word complete substantive sentence (or two consecutive complete sentences) from the speech transcript into "summary_para_1", enclosed in double quotation marks ("...").
-- Choose a substantive policy point rather than a procedural pleasantry, eye-catching remark, or point of order.
-- NEVER paraphrase, alter, or shorten words inside the quotation marks, and NEVER cut off a quote mid-word or mid-sentence.
-- Introduce the quote naturally so it flows smoothly within the surrounding sentences.
+Context:
+${govRole ? `Role: ${govRole.postTitle}` : ''}
+${speechDigest ? `Speeches:\n${speechDigest}` : ''}
+${committeeDigest ? `Committees:\n${committeeDigest}` : ''}
+${wqDigest ? `Written Questions:\n${wqDigest}` : ''}
+${voteDigest ? `Votes:\n${voteDigest}` : ''}`;
 
-Return ONLY valid JSON with keys: "activity_tag", "summary_para_1", "summary_para_2", "glossary".
-- "activity_tag": short 2–4 word badge (e.g., "AI Risk Debate", "Answered 4 Written Questions", "Select Committee Evidence", "3 Division Votes").
-- "summary_para_1": 2 to 3 short, well-paced paragraphs separated by \\n\\n covering speeches (with the exact verbatim quote), committee work, written questions tabled or answered as a minister, and/or division votes.
-- "summary_para_2": 1 short paragraph (2–3 clear sentences) explaining "Why this matters"—specifically explaining in everyday language the bill, debate topic (e.g. AI risks, transport, local services), or policy issue the MP engaged with.
-- "glossary": array of 1–2 objects {"term": "...", "plain": "..."} explaining any parliamentary term mentioned (or [] if none).
+    const modelsToTry = [PRIMARY_GEMINI_MODEL, FALLBACK_GEMINI_MODEL];
 
-Data for ${readableDate}:
-${govRole ? `Government Role: ${govRole.postTitle}` : ''}
-${speechDigest ? `Chamber Speeches:\n${speechDigest}` : 'Chamber Speeches: None'}
-${committeeDigest ? `Committee Sessions:\n${committeeDigest}` : 'Committee Sessions: None'}
-${wqDigest ? `Written Parliamentary Questions:\n${wqDigest}` : 'Written Parliamentary Questions: None'}
-${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Votes: None'}`;
-
-    for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-            if (attempt > 1) {
-                await sleep(800);
-            }
-
-            const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${activeGeminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: {
-                            temperature: 0.2,
-                            responseMimeType: 'application/json'
-                        }
-                    }),
-                    signal: AbortSignal.timeout(30000)
+    for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
+        const modelName = modelsToTry[mIdx];
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                if (attempt > 1) {
+                    await sleep(900);
                 }
-            );
 
-            if ((res.status === 404 || res.status === 429 || res.status === 503) && attempt === 1) {
-                const errPreview = await res.text().catch(() => '');
-                if (geminiWarnCount < 3) {
+                const payload = await callGeminiModel(modelName, prompt);
+                const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!rawText) break;
+
+                const parsed = JSON.parse(rawText);
+                if (!parsed?.summary_para_1 || !parsed?.summary_para_2) break;
+
+                const verifiedNarrative = ensureVerbatimQuoteIntegrity(
+                    parsed.summary_para_1,
+                    rankedSpeeches,
+                    verbatimExcerpt
+                );
+
+                return {
+                    activity_tag: String(parsed.activity_tag || 'Parliamentary Business').slice(0, 60),
+                    summary_para_1: verifiedNarrative,
+                    summary_para_2: String(parsed.summary_para_2).trim(),
+                    glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 2) : []
+                };
+            } catch (err) {
+                const retryable = err?.name === 'TimeoutError' || err?.status === 429 || err?.status === 503 || err?.status === 404;
+                if (!retryable) {
+                    if (geminiWarnCount < 5) {
+                        geminiWarnCount += 1;
+                        console.warn(`Gemini (${modelName}) error for ${mp.short_name}: ${err.message}`);
+                    }
+                    break;
+                }
+                if (attempt === 2 && geminiWarnCount < 5) {
                     geminiWarnCount += 1;
-                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status}, switching to gemini-3.8-flash: ${errPreview.slice(0, 180)}`);
+                    console.warn(`Gemini (${modelName}) warning for ${mp.short_name}: ${err.message}`);
                 }
-                activeGeminiModel = 'gemini-3.8-flash';
-                continue;
-            }
-
-            if (!res.ok) {
-                const errPreview = await res.text().catch(() => '');
-                if (geminiWarnCount < 5) {
-                    geminiWarnCount += 1;
-                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status} for ${mp.short_name}: ${errPreview.slice(0, 220)}`);
-                }
-                return null;
-            }
-
-            const payload = await res.json();
-            const rawText = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!rawText) return null;
-
-            const parsed = JSON.parse(rawText);
-            if (!parsed?.summary_para_1 || !parsed?.summary_para_2) return null;
-
-            const verifiedNarrative = ensureVerbatimQuoteIntegrity(
-                parsed.summary_para_1,
-                rankedSpeeches,
-                verbatimExcerpt
-            );
-
-            return {
-                activity_tag: String(parsed.activity_tag || 'Parliamentary Business').slice(0, 60),
-                summary_para_1: verifiedNarrative,
-                summary_para_2: String(parsed.summary_para_2).trim(),
-                glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 3) : []
-            };
-        } catch (err) {
-            if (attempt === 1) {
-                activeGeminiModel = 'gemini-3.8-flash';
-            } else if (geminiWarnCount < 5) {
-                geminiWarnCount += 1;
-                console.warn(`Gemini error for ${mp.short_name}: ${err.message}`);
             }
         }
     }
@@ -870,7 +864,7 @@ export async function generateBriefings() {
 
     console.log(
         `[${new Date().toISOString()}] Generating Whip briefings for ${targetDate} (${readableDate})... ` +
-        `(GEMINI_API_KEY configured: ${geminiApiKey ? 'yes' : 'NO'}, SKIP_LLM: ${skipLlm}, FORCE_REGEN: ${forceRegen})`
+        `(MODEL: ${PRIMARY_GEMINI_MODEL}, GEMINI_API_KEY configured: ${geminiApiKey ? 'yes' : 'NO'}, SKIP_LLM: ${skipLlm}, FORCE_REGEN: ${forceRegen})`
     );
 
     const { data: mps, error: mpError } = await supabase

@@ -1,79 +1,90 @@
-name: Daily Whip Parliamentary Briefing
+name: Whip Parliamentary Pipeline
 
 on:
   schedule:
-    # Runs at 6:30 AM UTC (6:30 AM GMT / 7:30 AM BST) Tuesday–Saturday
-    - cron: '30 6 * * 2-6'
+    # Daily at 06:30 UTC (before 7:00 AM UK morning briefings)
+    - cron: '30 6 * * 1-6'
+    # Sunday at 07:30 UTC for the weekly digest
+    - cron: '30 7 * * 0'
   workflow_dispatch:
     inputs:
-      target_date:
-        description: 'Optional YYYY-MM-DD sitting date (leave blank for yesterday)'
-        required: false
-        type: string
-      skip_llm:
-        description: 'Skip Gemini generation completely (rebuild static pages / sync only)'
-        required: false
+      sync_roster:
+        description: 'Sync active MPs and election wins/majorities into Supabase'
         type: boolean
-        default: false
-      force_regen:
-        description: 'Force regenerating existing Gemini summaries for target_date'
-        required: false
+        default: true
+      skip_llm:
+        description: 'Skip LLM generation (useful for roster/election syncs)'
+        type: boolean
+        default: true
+      rebuild_pages:
+        description: 'Rebuild static /mp/ pages'
+        type: boolean
+        default: true
+      send_digest:
+        description: 'Send weekly newsletter digest'
         type: boolean
         default: false
 
 permissions:
   contents: write
 
-concurrency:
-  group: whip-daily-pipeline
-  cancel-in-progress: false
-
 jobs:
-  build-and-deploy:
+  run-pipeline:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Sync MP roster
+      - name: Build historical majorities & sync roster
+        if: github.event_name == 'schedule' || inputs.sync_roster
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node sync_roster.js
+        run: |
+          node build_historical_majorities.js
+          node sync_roster.js
 
       - name: Generate daily briefings
+        if: github.event_name == 'schedule' && !inputs.skip_llm
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TARGET_DATE: ${{ inputs.target_date }}
-          SKIP_LLM: ${{ inputs.skip_llm }}
-          FORCE_REGEN: ${{ inputs.force_regen }}
         run: node generate_briefings.js
 
-      - name: Build static MP pages & sitemap
+      - name: Build static MP pages
+        if: github.event_name == 'schedule' || inputs.rebuild_pages
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node build_pages.js
 
-      - name: Commit and push updated static pages
+      - name: Send weekly digest
+        if: (github.event_name == 'schedule' && github.event.schedule == '30 7 * * 0') || inputs.send_digest
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          NEWSLETTER_FROM_EMAIL: ${{ secrets.NEWSLETTER_FROM_EMAIL }}
+          SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
+        run: node send_weekly_digest.js
+
+      - name: Commit generated files if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mp/ sitemap.xml
-          if git diff --staged --quiet; then
-            echo "No static page changes to commit."
-          else
-            git commit -m "chore: update static MP pages & sitemap"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: sync roster, election wins, and static pages [skip ci]"
             git push
           fi

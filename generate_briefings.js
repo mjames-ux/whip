@@ -20,7 +20,7 @@ const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcas
 const COMMITTEES_FALLBACK_API = 'https://committees-api.parliament.uk/api/Events';
 const GOVUK_SEARCH_API = 'https://www.gov.uk/api/search.json';
 
-const GEMINI_CONCURRENCY = 5;
+const GEMINI_CONCURRENCY = 3;
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -731,7 +731,7 @@ async function fetchGovUkDigestForDepartment(deptSlug, deptName, dateStr) {
 }
 
 let geminiWarnCount = 0;
-let activeGeminiModel = 'gemini-3.8-flash';
+let activeGeminiModel = 'gemini-3.5-flash-lite';
 
 async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
     if (skipLlm || !geminiApiKey) return null;
@@ -808,7 +808,7 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                             responseMimeType: 'application/json'
                         }
                     }),
-                    signal: AbortSignal.timeout(12000)
+                    signal: AbortSignal.timeout(30000)
                 }
             );
 
@@ -816,9 +816,9 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
                 const errPreview = await res.text().catch(() => '');
                 if (geminiWarnCount < 3) {
                     geminiWarnCount += 1;
-                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status}, switching to gemini-3.6-flash: ${errPreview.slice(0, 180)}`);
+                    console.warn(`Gemini (${activeGeminiModel}) HTTP ${res.status}, switching to gemini-3.8-flash: ${errPreview.slice(0, 180)}`);
                 }
-                activeGeminiModel = 'gemini-3.6-flash';
+                activeGeminiModel = 'gemini-3.8-flash';
                 continue;
             }
 
@@ -852,7 +852,7 @@ ${voteDigest ? `Commons Division Votes:\n${voteDigest}` : 'Commons Division Vote
             };
         } catch (err) {
             if (attempt === 1) {
-                activeGeminiModel = 'gemini-3.6-flash';
+                activeGeminiModel = 'gemini-3.8-flash';
             } else if (geminiWarnCount < 5) {
                 geminiWarnCount += 1;
                 console.warn(`Gemini error for ${mp.short_name}: ${err.message}`);
@@ -1112,7 +1112,9 @@ export async function generateBriefings() {
         });
     }
 
+    const totalBatches = Math.ceil(activeTasks.length / GEMINI_CONCURRENCY);
     for (let i = 0; i < activeTasks.length; i += GEMINI_CONCURRENCY) {
+        const batchNum = Math.floor(i / GEMINI_CONCURRENCY) + 1;
         const batch = activeTasks.slice(i, i + GEMINI_CONCURRENCY);
         const batchResults = await Promise.all(
             batch.map(async (task) => {
@@ -1213,6 +1215,9 @@ export async function generateBriefings() {
             })
         );
         rowsToUpsert.push(...batchResults);
+        if (batchNum % 10 === 0 || batchNum === totalBatches) {
+            console.log(`Processed LLM batch ${batchNum}/${totalBatches} (${rowsToUpsert.length} rows ready)...`);
+        }
     }
 
     for (let i = 0; i < rowsToUpsert.length; i += 100) {

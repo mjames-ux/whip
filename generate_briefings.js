@@ -16,6 +16,7 @@ const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 const WRITTEN_QUESTIONS_API = 'https://writtenquestions-api.parliament.uk/api/writtenquestions/questions';
 const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcast/Meetings';
+const COMMITTEES_FALLBACK_API = 'https://committees-api.parliament.uk/api/Events';
 const GOVUK_SEARCH_API = 'https://www.gov.uk/api/search.json';
 
 const GEMINI_CONCURRENCY = 5;
@@ -479,13 +480,21 @@ async function fetchWrittenQuestionsPage(params) {
         url.searchParams.set('skip', String(skip));
         url.searchParams.set('take', String(take));
 
-        let data;
-        try {
-            data = await fetchJsonWithTimeout(url.toString(), 30000);
-        } catch (err) {
-            console.warn(`Written Questions fetch warning at skip=${skip}: ${err.message}`);
-            break;
+        let data = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                data = await fetchJsonWithTimeout(url.toString(), 45000);
+                break;
+            } catch (err) {
+                if (attempt === 2) {
+                    console.warn(`Written Questions fetch warning at skip=${skip}: ${err.message}`);
+                } else {
+                    await sleep(1200);
+                }
+            }
         }
+
+        if (!data) break;
 
         const results = data?.results || data?.Results || [];
         if (results.length === 0) break;
@@ -502,10 +511,8 @@ async function fetchWrittenQuestionsPage(params) {
 async function fetchWrittenQuestionsForDate(dateStr) {
     const byMember = new Map();
 
-    const [tabledItems, answeredItems] = await Promise.all([
-        fetchWrittenQuestionsPage({ tabledWhenFrom: dateStr, tabledWhenTo: dateStr }),
-        fetchWrittenQuestionsPage({ answeredWhenFrom: dateStr, answeredWhenTo: dateStr })
-    ]);
+    const tabledItems = await fetchWrittenQuestionsPage({ tabledWhenFrom: dateStr, tabledWhenTo: dateStr });
+    const answeredItems = await fetchWrittenQuestionsPage({ answeredWhenFrom: dateStr, answeredWhenTo: dateStr });
 
     const seenKeys = new Set();
 
@@ -576,28 +583,45 @@ async function fetchWrittenQuestionsForDate(dateStr) {
 
 async function fetchCommitteeSessionsForDate(dateStr) {
     const byMember = new Map();
-    const url = new URL(COMMITTEES_EVENTS_API);
-    url.searchParams.set('StartDate', dateStr);
-    url.searchParams.set('EndDate', dateStr);
+    const startIso = `${dateStr}T00:00:00Z`;
+    const endIso = `${dateStr}T23:59:59Z`;
 
     let meetings = [];
     try {
-        const data = await fetchJsonWithTimeout(url.toString(), 20000);
+        const broadcastUrl = new URL(COMMITTEES_EVENTS_API);
+        broadcastUrl.searchParams.set('StartDate', startIso);
+        broadcastUrl.searchParams.set('EndDate', endIso);
+        const data = await fetchJsonWithTimeout(broadcastUrl.toString(), 20000);
         meetings = Array.isArray(data) ? data : (data?.items || data?.value || []);
     } catch (err) {
-        console.warn(`Committees API warning: ${err.message}`);
-        return byMember;
+        console.warn(`Committees Broadcast warning (${dateStr}): ${err.message}`);
+        try {
+            const eventsUrl = new URL(COMMITTEES_FALLBACK_API);
+            eventsUrl.searchParams.set('StartDate', dateStr);
+            eventsUrl.searchParams.set('EndDate', dateStr);
+            const fallbackData = await fetchJsonWithTimeout(eventsUrl.toString(), 20000);
+            meetings = Array.isArray(fallbackData) ? fallbackData : (fallbackData?.items || fallbackData?.value || []);
+        } catch (fallbackErr) {
+            console.warn(`Committees Events fallback warning (${dateStr}): ${fallbackErr.message}`);
+            return byMember;
+        }
     }
 
     for (const meeting of meetings) {
-        const committeeName = stripHtml(meeting?.committee?.name || meeting?.committeeName || 'Select Committee');
-        const title = stripHtml(meeting?.title || meeting?.subject || committeeName);
-        const eventId = meeting?.id || meeting?.eventId;
+        const m = meeting?.value || meeting;
+        const committeeName = stripHtml(
+            (Array.isArray(m?.committees) && m.committees[0]?.name) ||
+            m?.committee?.name ||
+            m?.committeeName ||
+            'Select Committee'
+        );
+        const title = stripHtml(m?.title || m?.subject || committeeName);
+        const eventId = m?.id || m?.eventId;
         const eventUrl = eventId
             ? `https://committees.parliament.uk/event/${eventId}/formal-meeting-oral-evidence-session/`
             : 'https://committees.parliament.uk/';
 
-        const attendees = Array.isArray(meeting?.attendees) ? meeting.attendees : [];
+        const attendees = Array.isArray(m?.attendees) ? m.attendees : [];
         for (const att of attendees) {
             const memberId = Number(att?.memberId ?? att?.member?.id);
             if (!memberId) continue;
@@ -611,7 +635,7 @@ async function fetchCommitteeSessionsForDate(dateStr) {
             });
         }
 
-        const activities = Array.isArray(meeting?.activities) ? meeting.activities : [];
+        const activities = Array.isArray(m?.activities) ? m.activities : [];
         for (const act of activities) {
             const witnesses = Array.isArray(act?.witnesses) ? act.witnesses : [];
             for (const w of witnesses) {
@@ -996,7 +1020,6 @@ export async function generateBriefings() {
             continue;
         }
 
-        // Reuse existing generated summary if already in Supabase for targetDate (0 Gemini credits)
         const existingRow = existingByMpId.get(memberId);
         if (existingRow && !forceRegen) {
             reusedCount += 1;
@@ -1046,7 +1069,6 @@ export async function generateBriefings() {
         });
     }
 
-    // Process remaining MPs in concurrent batches of GEMINI_CONCURRENCY
     for (let i = 0; i < activeTasks.length; i += GEMINI_CONCURRENCY) {
         const batch = activeTasks.slice(i, i + GEMINI_CONCURRENCY);
         const batchResults = await Promise.all(

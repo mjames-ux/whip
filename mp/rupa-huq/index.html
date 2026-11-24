@@ -362,7 +362,7 @@
                             <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-1.5">
                                 Parliamentary Service
                             </p>
-                            <h2 id="profileServiceDuration" class="font-editorial text-2xl sm:text-4xl font-bold text-ink tracking-[-0.02em] leading-[1.15]">
+                            <h2 id="profileServiceDuration" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-[-0.02em] leading-[1.2]">
                                 —
                             </h2>
                             <p id="profileServiceSubtitle" class="mt-2 text-sm text-inkSecondary">
@@ -1085,10 +1085,10 @@
             return `${years} ${years === 1 ? 'year' : 'years'}, ${months} ${months === 1 ? 'month' : 'months'}`;
         }
 
-        function computeServiceStrings(representations, fallbackStart) {
+        function computeServiceStrings(representations, fallbackStart, fallbackSeat) {
             const sorted = (Array.isArray(representations) ? representations : [])
                 .map(r => ({
-                    name: r.name || '',
+                    name: r.name || fallbackSeat || '',
                     start: r.startDate ? new Date(r.startDate).getTime() : NaN,
                     end: r.endDate ? new Date(r.endDate).getTime() : Date.now(),
                     isCurrent: !r.endDate
@@ -1099,7 +1099,7 @@
             if (sorted.length === 0 && fallbackStart) {
                 const start = new Date(fallbackStart).getTime();
                 if (Number.isFinite(start) && Date.now() > start) {
-                    sorted.push({ name: '', start, end: Date.now(), isCurrent: true });
+                    sorted.push({ name: fallbackSeat || '', start, end: Date.now(), isCurrent: true });
                 }
             }
 
@@ -1107,26 +1107,29 @@
                 return { headline: 'Current Member', currentRepStart: null };
             }
 
-            // Merge overlapping intervals for total cumulative service across all seats/terms
-            const merged = [[sorted[0].start, sorted[0].end]];
+            // Merge overlapping/adjacent stints (gap <= 60 days) for total cumulative service as an MP
+            const mergedStints = [[sorted[0].start, sorted[0].end]];
             for (let i = 1; i < sorted.length; i++) {
-                const last = merged[merged.length - 1];
-                if (sorted[i].start <= last[1]) {
+                const last = mergedStints[mergedStints.length - 1];
+                if (sorted[i].start - last[1] <= 60 * 86400000) {
                     last[1] = Math.max(last[1], sorted[i].end);
                 } else {
-                    merged.push([sorted[i].start, sorted[i].end]);
+                    mergedStints.push([sorted[i].start, sorted[i].end]);
                 }
             }
-            const totalMs = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
+
+            const totalMs = mergedStints.reduce((sum, [s, e]) => sum + (e - s), 0);
             const totalStr = formatDurationUnits(totalMs);
 
-            // Continuous service in current constituency (merges consecutive back-to-back terms in same seat)
+            // Continuous service in current constituency (merges consecutive terms in the same seat)
             const currentEntry = sorted.find(r => r.isCurrent) || sorted[sorted.length - 1];
-            const currentSeatName = currentEntry.name.toLowerCase();
+            const currentSeatName = currentEntry.name || fallbackSeat || '';
+            const currentSeatLower = currentSeatName.toLowerCase();
             let currentStart = currentEntry.start;
+
             for (let i = sorted.length - 2; i >= 0; i--) {
                 const prev = sorted[i];
-                const sameSeat = !currentSeatName || prev.name.toLowerCase() === currentSeatName;
+                const sameSeat = !currentSeatLower || prev.name.toLowerCase() === currentSeatLower;
                 const gapDays = (currentStart - prev.end) / 86400000;
                 if (sameSeat && gapDays <= 60) {
                     currentStart = Math.min(currentStart, prev.start);
@@ -1134,12 +1137,16 @@
                     break;
                 }
             }
+
             const currentMs = Math.max(0, Date.now() - currentStart);
             const currentStr = formatDurationUnits(currentMs);
+            const seatLabel = currentSeatName ? ` as MP for ${currentSeatName}` : ' as an MP';
 
-            const headline = currentStr !== totalStr
-                ? `MP for ${currentStr} (${totalStr} in total)`
-                : `MP for ${currentStr}`;
+            // Show total MP service in brackets whenever it differs from continuous current-seat service
+            const showTotal = currentStr !== totalStr;
+            const headline = showTotal
+                ? `${currentStr} continuous service${seatLabel} (${totalStr} total service as an MP)`
+                : `${currentStr} continuous service${seatLabel}`;
 
             return { headline, currentRepStart: new Date(currentStart).toISOString() };
         }
@@ -1152,7 +1159,7 @@
         }
 
         function classifyElectionType(er) {
-            const title = String(er?.electionTitle || '');
+            const title = String(er?.electionTitle || er?.title || '');
             if (er?.isGeneralElection === false || /by-?election/i.test(title)) {
                 return 'By-Election';
             }
@@ -1235,7 +1242,7 @@
 
             if (state.currentMp?.parliament_member_id !== mp.parliament_member_id) return;
 
-            const serviceInfo = computeServiceStrings(extra.reps, mp.member_since);
+            const serviceInfo = computeServiceStrings(extra.reps, mp.member_since, seat);
             serviceDurationEl.textContent = serviceInfo.headline;
 
             const sortedReps = [...extra.reps].sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
@@ -1282,10 +1289,23 @@
                 currentRolesSection.classList.remove('hidden');
             }
 
-            // Individual Election & By-Election Wins with Majorities
-            const seenElectionKeys = new Set();
-            const winRows = [];
+            // Every Election & By-Election Victory with Majorities
+            const winByKey = new Map();
+            const registerWin = (key, candidate) => {
+                const existing = winByKey.get(key);
+                if (!existing) {
+                    winByKey.set(key, candidate);
+                    return;
+                }
+                if (existing.majority === null && typeof candidate.majority === 'number') {
+                    existing.majority = candidate.majority;
+                }
+                if (candidate.electionKind === 'By-Election') {
+                    existing.electionKind = 'By-Election';
+                }
+            };
 
+            // 1. Primary source: Constituency ElectionResults bounded by each representation period
             for (const rep of extra.reps) {
                 const seatResults = extra.electionResultsBySeat.get(rep.constituencyId) || [];
                 const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
@@ -1294,17 +1314,14 @@
                 const matchingElections = seatResults.filter(er => {
                     if (!er.electionDate) return false;
                     const t = new Date(er.electionDate).getTime();
-                    return t >= repStart - 21 * 86400000 && t <= repEnd - 14 * 86400000;
+                    return t >= repStart - 21 * 86400000 && t <= repEnd + 14 * 86400000;
                 });
 
                 if (matchingElections.length > 0) {
                     for (const er of matchingElections) {
                         const dateKey = String(er.electionDate).slice(0, 10);
                         const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
-                        if (seenElectionKeys.has(dedupeKey)) continue;
-                        seenElectionKeys.add(dedupeKey);
-
-                        winRows.push({
+                        registerWin(dedupeKey, {
                             electionDate: er.electionDate,
                             electionKind: classifyElectionType(er),
                             constituencyName: rep.name || seat,
@@ -1314,25 +1331,54 @@
                 } else if (rep.startDate) {
                     const dateKey = String(rep.startDate).slice(0, 10);
                     const dedupeKey = `${rep.constituencyId || rep.name}-${dateKey}`;
-                    if (!seenElectionKeys.has(dedupeKey)) {
-                        seenElectionKeys.add(dedupeKey);
-                        const isLatestSeat = extra.latestElection &&
-                            (!rep.endDate || (extra.latestElection.constituencyName || '').toLowerCase() === (rep.name || '').toLowerCase());
-                        winRows.push({
-                            electionDate: isLatestSeat && extra.latestElection.electionDate ? extra.latestElection.electionDate : rep.startDate,
-                            electionKind: isLatestSeat ? classifyElectionType(extra.latestElection) : (/by-?election/i.test(rep.additionalInfo || '') ? 'By-Election' : 'General Election'),
-                            constituencyName: rep.name || seat,
-                            majority: isLatestSeat && typeof extra.latestElection.majority === 'number' ? extra.latestElection.majority : null
-                        });
-                    }
+                    registerWin(dedupeKey, {
+                        electionDate: rep.startDate,
+                        electionKind: /by-?election/i.test(rep.additionalInfo || '') ? 'By-Election' : 'General Election',
+                        constituencyName: rep.name || seat,
+                        majority: null
+                    });
                 }
             }
 
-            winRows.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
+            // 2. Supplement from Biography.electionsContested (catches any general elections inside multi-term blocks if seat results weren't returned)
+            const contestedWins = (Array.isArray(bio?.electionsContested) ? bio.electionsContested : [])
+                .filter(e => e.isWin !== false && e.electionDate);
 
-            if (winRows.length > 0 && winRows[0].majority === null && typeof extra.latestElection?.majority === 'number') {
-                winRows[0].majority = extra.latestElection.majority;
-                if (extra.latestElection.electionDate) winRows[0].electionDate = extra.latestElection.electionDate;
+            for (const ew of contestedWins) {
+                const dateKey = String(ew.electionDate).slice(0, 10);
+                const ewTime = new Date(ew.electionDate).getTime();
+                const matchingRep = extra.reps.find(r => {
+                    const s = r.startDate ? new Date(r.startDate).getTime() : 0;
+                    const e = r.endDate ? new Date(r.endDate).getTime() : Date.now();
+                    return ewTime >= s - 21 * 86400000 && ewTime <= e + 14 * 86400000;
+                });
+                const cId = ew.constituencyId || matchingRep?.constituencyId;
+                const cName = ew.constituencyName || matchingRep?.name || seat;
+                const dedupeKey = `${cId || cName}-${dateKey}`;
+
+                let majority = typeof ew.majority === 'number' ? ew.majority : null;
+                if (majority === null && cId && extra.electionResultsBySeat.has(cId)) {
+                    const hit = extra.electionResultsBySeat.get(cId).find(er => String(er.electionDate || '').slice(0, 10) === dateKey);
+                    if (hit && typeof hit.majority === 'number') majority = hit.majority;
+                }
+
+                registerWin(dedupeKey, {
+                    electionDate: ew.electionDate,
+                    electionKind: classifyElectionType(ew),
+                    constituencyName: cName,
+                    majority
+                });
+            }
+
+            // 3. Ensure LatestElectionResult majority and date are attached to the most recent victory
+            const winRows = [...winByKey.values()].sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
+            if (winRows.length > 0 && extra.latestElection) {
+                if (winRows[0].majority === null && typeof extra.latestElection.majority === 'number') {
+                    winRows[0].majority = extra.latestElection.majority;
+                }
+                if (extra.latestElection.electionDate) {
+                    winRows[0].electionDate = extra.latestElection.electionDate;
+                }
                 winRows[0].electionKind = classifyElectionType(extra.latestElection);
             }
 

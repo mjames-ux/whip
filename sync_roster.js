@@ -1,17 +1,20 @@
 /**
- * Whip — Step 1: Active Commons Roster & Full Government Payroll Sync (`sync_roster.js`)
+ * Whip — Step 1: Active Commons MP & Constituency Roster Sync (`sync_roster.js`)
  *
- * Fetches all 650 sitting House of Commons MPs and all active Government payroll posts
- * (Cabinet, Ministers of State, Parliamentary Under-Secretaries, Law Officers, and Whips)
- * from the official UK Parliament Members API and upserts them into Supabase.
+ * Fetches all currently sitting Members of Parliament from the official UK Parliament
+ * Members API, upserts constituencies (`constituencies`), resolves each MP's current
+ * ministerial/opposition/Speaker title plus their complete career election wins and
+ * majorities (`election_wins`), and upserts all active MPs into Supabase (`mps`).
  */
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
 const MEMBERS_SEARCH_API = 'https://members-api.parliament.uk/api/Members/Search';
-const GOVERNMENT_POSTS_API = 'https://members-api.parliament.uk/api/Posts/GovernmentPosts';
-const MEMBER_BIOGRAPHY_API = 'https://members-api.parliament.uk/api/Members';
+const MEMBER_BASE_API = 'https://members-api.parliament.uk/api/Members';
+const CONSTITUENCY_BASE_API = 'https://members-api.parliament.uk/api/Location/Constituency';
+
+const SYNC_CONCURRENCY = 8;
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -48,253 +51,364 @@ const PARTY_COLORS = {
     'Alliance': '#F6CB2F',
     'Ulster Unionist Party': '#48A5EE',
     'Traditional Unionist Voice': '#0C3A6A',
-    'Speaker': '#111111',
-    'Independent': '#6B7280'
+    'Independent': '#6B7280',
+    'Speaker': '#111827'
 };
 
-function isActiveHolder(holder) {
-    if (!holder) return false;
-    if (!holder.endDate) return true;
-    const endMs = new Date(holder.endDate).getTime();
-    return !Number.isNaN(endMs) && endMs > Date.now();
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function formatPostWithDept(postName, deptName) {
-    const cleanPost = String(postName || '').trim();
-    const cleanDept = String(deptName || '').trim();
-    if (!cleanPost) return '';
-    if (!cleanDept) return cleanPost;
-
-    const shortDept = cleanDept
-        .replace(/^department (for|of)\s+/i, '')
-        .replace(/^ministry of\s+/i, '')
-        .trim();
-
-    const alreadyHasDept =
-        cleanPost.toLowerCase().includes(cleanDept.toLowerCase()) ||
-        (shortDept.length > 3 && cleanPost.toLowerCase().includes(shortDept.toLowerCase())) ||
-        /\b(prime minister|chancellor of the exchequer|home secretary|foreign secretary)\b/i.test(cleanPost);
-
-    return alreadyHasDept ? cleanPost : `${cleanPost} (${cleanDept})`;
-}
-
-async function fetchJson(url) {
-    const res = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(20000)
-    });
-    if (!res.ok) {
-        throw new Error(`HTTP ${res.status} for ${url}`);
+async function fetchJsonWithRetry(url, timeoutMs = 20000) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            const res = await fetch(url, {
+                headers: { 'Accept': 'application/json' },
+                signal: AbortSignal.timeout(timeoutMs)
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            return await res.json();
+        } catch (err) {
+            if (attempt === 2) throw err;
+            await sleep(750);
+        }
     }
-    return res.json();
+    return null;
 }
 
-async function fetchAllCommonsMembers() {
-    const allMembers = [];
+function isCurrentRoleItem(item) {
+    if (!item || !item.name) return false;
+    if (!item.endDate) return true;
+    const endTime = new Date(item.endDate).getTime();
+    return Number.isFinite(endTime) && endTime > Date.now();
+}
+
+function buildRoleTitle(bio, seatName) {
+    const cleanSeat = (seatName || 'UK Constituency').trim();
+    if (!bio) return `MP for ${cleanSeat}`;
+
+    const govPosts = (Array.isArray(bio.governmentPosts) ? bio.governmentPosts : []).filter(isCurrentRoleItem);
+    if (govPosts.length > 0) {
+        return `${govPosts[0].name.trim()} • MP for ${cleanSeat}`;
+    }
+
+    const oppPosts = (Array.isArray(bio.oppositionPosts) ? bio.oppositionPosts : []).filter(isCurrentRoleItem);
+    if (oppPosts.length > 0) {
+        return `${oppPosts[0].name.trim()} • MP for ${cleanSeat}`;
+    }
+
+    const otherPosts = (Array.isArray(bio.otherPosts) ? bio.otherPosts : []).filter(isCurrentRoleItem);
+    const speakerPost = otherPosts.find(p => /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(p.name));
+    if (speakerPost) {
+        return `${speakerPost.name.trim()} • MP for ${cleanSeat}`;
+    }
+
+    return `MP for ${cleanSeat}`;
+}
+
+function getEarliestRepresentationStart(reps, fallbackDate) {
+    const starts = (Array.isArray(reps) ? reps : [])
+        .map(r => r?.startDate)
+        .filter(Boolean)
+        .sort();
+    return starts[0] ? String(starts[0]).slice(0, 10) : (fallbackDate ? String(fallbackDate).slice(0, 10) : null);
+}
+
+const constituencyResultsCache = new Map();
+const electionDetailCache = new Map();
+const seatSearchCache = new Map();
+
+async function searchConstituencyIdsByName(seatName) {
+    const key = String(seatName || '').trim().toLowerCase();
+    if (!key || key === 'uk constituency') return [];
+    if (seatSearchCache.has(key)) return seatSearchCache.get(key);
+
+    try {
+        const url = `${CONSTITUENCY_BASE_API}/Search?searchText=${encodeURIComponent(seatName)}&take=15`;
+        const json = await fetchJsonWithRetry(url, 15000);
+        const items = Array.isArray(json?.items)
+            ? json.items.map(it => it?.value || it).filter(Boolean)
+            : (Array.isArray(json?.value) ? json.value : []);
+
+        const ids = items
+            .filter(s => String(s?.name || '').trim().toLowerCase() === key)
+            .map(s => Number(s.id))
+            .filter(Boolean);
+
+        seatSearchCache.set(key, ids);
+        return ids;
+    } catch {
+        seatSearchCache.set(key, []);
+        return [];
+    }
+}
+
+async function getConstituencyElectionResults(constituencyId) {
+    const cId = Number(constituencyId);
+    if (!cId) return [];
+    if (constituencyResultsCache.has(cId)) return constituencyResultsCache.get(cId);
+
+    try {
+        const json = await fetchJsonWithRetry(`${CONSTITUENCY_BASE_API}/${cId}/ElectionResults`, 15000);
+        const list = Array.isArray(json?.value)
+            ? json.value
+            : (Array.isArray(json?.items) ? json.items.map(it => it?.value || it) : []);
+        constituencyResultsCache.set(cId, list);
+        return list;
+    } catch {
+        constituencyResultsCache.set(cId, []);
+        return [];
+    }
+}
+
+async function getElectionResultDetail(constituencyId, electionId) {
+    const key = `${constituencyId}-${electionId}`;
+    if (electionDetailCache.has(key)) return electionDetailCache.get(key);
+
+    try {
+        const json = await fetchJsonWithRetry(`${CONSTITUENCY_BASE_API}/${constituencyId}/ElectionResult/${electionId}`, 15000);
+        const val = json?.value || json || null;
+        electionDetailCache.set(key, val);
+        return val;
+    } catch {
+        electionDetailCache.set(key, null);
+        return null;
+    }
+}
+
+async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
+    const id = Number(memberId);
+    const [bioJson, latestJson] = await Promise.all([
+        fetchJsonWithRetry(`${MEMBER_BASE_API}/${id}/Biography`, 15000).catch(() => null),
+        fetchJsonWithRetry(`${MEMBER_BASE_API}/${id}/LatestElectionResult`, 15000).catch(() => null)
+    ]);
+
+    const bio = bioJson?.value || null;
+    const latest = latestJson?.value || null;
+    const reps = Array.isArray(bio?.representations) ? bio.representations : [];
+
+    const wins = [];
+    const seen = new Set();
+
+    for (const rep of reps) {
+        const seatName = (rep?.name || fallbackSeatName || '').trim();
+        const seatLower = seatName.toLowerCase();
+        const repStart = rep?.startDate ? new Date(rep.startDate).getTime() : NaN;
+        const repEnd = rep?.endDate ? new Date(rep.endDate).getTime() : Date.now();
+        if (!Number.isFinite(repStart)) continue;
+
+        const candidateSeatIds = new Set();
+        if (Number(rep?.constituencyId)) candidateSeatIds.add(Number(rep.constituencyId));
+        const searchedIds = await searchConstituencyIdsByName(seatName);
+        for (const sId of searchedIds) candidateSeatIds.add(sId);
+
+        let matchedThisRep = 0;
+
+        for (const cId of candidateSeatIds) {
+            const seatResults = await getConstituencyElectionResults(cId);
+            for (const er of seatResults) {
+                if (!er?.electionDate) continue;
+                const t = new Date(er.electionDate).getTime();
+                const isWithinTerm = t >= repStart - 21 * 86400000 && t <= repEnd + 3 * 86400000;
+                if (!isWithinTerm) continue;
+
+                const dateKey = String(er.electionDate).slice(0, 10);
+                const dedupeKey = `${seatLower}-${dateKey}`;
+                if (seen.has(dedupeKey)) continue;
+
+                let detail = null;
+                if (cId && er.electionId) {
+                    detail = await getElectionResultDetail(cId, er.electionId);
+                }
+
+                const candidates = Array.isArray(detail?.candidates) ? detail.candidates : [];
+                const winner = candidates.find(c => c?.rank === 1 || c?.isWinner);
+                if (winner?.memberId && Number(winner.memberId) !== id) continue;
+
+                seen.add(dedupeKey);
+                matchedThisRep += 1;
+                wins.push({
+                    constituencyName: seatName,
+                    electionDate: detail?.electionDate || er.electionDate,
+                    electionTitle: detail?.electionTitle || er.electionTitle || '',
+                    isGeneralElection: typeof detail?.isGeneralElection === 'boolean'
+                        ? detail.isGeneralElection
+                        : Boolean(er.isGeneralElection),
+                    majority: typeof detail?.majority === 'number'
+                        ? detail.majority
+                        : (typeof er.majority === 'number' ? er.majority : null)
+                });
+            }
+        }
+
+        if (matchedThisRep === 0) {
+            const dateKey = String(rep.startDate).slice(0, 10);
+            const dedupeKey = `${seatLower}-${dateKey}`;
+            if (!seen.has(dedupeKey)) {
+                seen.add(dedupeKey);
+                wins.push({
+                    constituencyName: seatName,
+                    electionDate: rep.startDate,
+                    electionTitle: rep.additionalInfo || '',
+                    isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
+                    majority: null
+                });
+            }
+        }
+    }
+
+    if (latest?.electionDate) {
+        const dateKey = String(latest.electionDate).slice(0, 10);
+        const existing = wins.find(w => String(w.electionDate).slice(0, 10) === dateKey);
+        if (existing) {
+            if (existing.majority === null && typeof latest.majority === 'number') {
+                existing.majority = latest.majority;
+            }
+            existing.electionTitle = latest.electionTitle || existing.electionTitle;
+            if (typeof latest.isGeneralElection === 'boolean') {
+                existing.isGeneralElection = latest.isGeneralElection;
+            }
+        } else {
+            wins.push({
+                constituencyName: (latest.constituencyName || fallbackSeatName || '').trim(),
+                electionDate: latest.electionDate,
+                electionTitle: latest.electionTitle || '',
+                isGeneralElection: Boolean(latest.isGeneralElection),
+                majority: typeof latest.majority === 'number' ? latest.majority : null
+            });
+        }
+    }
+
+    wins.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
+
+    return { bio, reps, electionWins: wins };
+}
+
+async function fetchAllCurrentCommonsMembers() {
+    const members = [];
     let skip = 0;
     const take = 20;
 
     while (true) {
         const url = new URL(MEMBERS_SEARCH_API);
-        url.searchParams.set('House', '1');
+        url.searchParams.set('House', '1'); // 1 = Commons
         url.searchParams.set('IsCurrentMember', 'true');
         url.searchParams.set('skip', String(skip));
         url.searchParams.set('take', String(take));
 
-        const data = await fetchJson(url.toString());
-        const items = data?.items || [];
+        const data = await fetchJsonWithRetry(url.toString(), 25000);
+        const items = Array.isArray(data?.items) ? data.items : [];
         if (items.length === 0) break;
 
         for (const item of items) {
-            if (item?.value) {
-                allMembers.push(item.value);
-            }
+            if (item?.value) members.push(item.value);
         }
 
         skip += items.length;
-        const totalResults = data?.totalResults ?? 0;
-        if (skip >= totalResults) break;
+        const total = Number(data?.totalResults ?? 0);
+        if (skip >= total) break;
     }
 
-    return allMembers;
-}
-
-function addPostForMember(postsByMember, memberId, formattedTitle) {
-    if (!memberId || !formattedTitle) return;
-    if (!postsByMember.has(memberId)) {
-        postsByMember.set(memberId, []);
-    }
-    const list = postsByMember.get(memberId);
-    if (!list.includes(formattedTitle)) {
-        list.push(formattedTitle);
-    }
-}
-
-async function fetchGovernmentPostsByMemberId() {
-    const postsByMember = new Map();
-
-    try {
-        const data = await fetchJson(GOVERNMENT_POSTS_API);
-        const rawList = Array.isArray(data) ? data : (data?.items || data?.value || []);
-
-        for (const entry of rawList) {
-            const post = entry?.post || entry?.value || entry;
-            const postName = (post?.name || post?.postName || entry?.name || '').trim();
-            const deptName = (
-                post?.governmentDepartments?.[0]?.name ||
-                post?.department?.name ||
-                entry?.governmentDepartments?.[0]?.name ||
-                ''
-            ).trim();
-            const holders = Array.isArray(post?.postHolders)
-                ? post.postHolders
-                : (Array.isArray(entry?.postHolders) ? entry.postHolders : []);
-
-            for (const holder of holders) {
-                if (!isActiveHolder(holder)) continue;
-                const memberId = Number(
-                    holder?.member?.id ??
-                    holder?.member?.value?.id ??
-                    holder?.memberId
-                );
-                if (!memberId || !postName) continue;
-                addPostForMember(postsByMember, memberId, formatPostWithDept(postName, deptName));
-            }
-        }
-    } catch (err) {
-        console.warn(`GovernmentPosts fetch warning: ${err.message}`);
-    }
-
-    return postsByMember;
-}
-
-async function enrichFromMemberBiography(memberIds, postsByMember) {
-    const batchSize = 25;
-    for (let i = 0; i < memberIds.length; i += batchSize) {
-        const batch = memberIds.slice(i, i + batchSize);
-        await Promise.all(
-            batch.map(async (memberId) => {
-                try {
-                    const bio = await fetchJson(`${MEMBER_BIOGRAPHY_API}/${memberId}/Biography`);
-                    const val = bio?.value || bio || {};
-                    const govPosts = Array.isArray(val.governmentPosts) ? val.governmentPosts : [];
-                    for (const gp of govPosts) {
-                        if (!isActiveHolder(gp)) continue;
-                        const postName = (gp?.name || gp?.postName || '').trim();
-                        const deptName = (gp?.governmentDepartments?.[0]?.name || gp?.department?.name || '').trim();
-                        addPostForMember(postsByMember, memberId, formatPostWithDept(postName, deptName));
-                    }
-                } catch {
-                    // Ignore individual member biography misses
-                }
-            })
-        );
-    }
+    return members;
 }
 
 export async function syncRoster() {
-    console.log(`[${new Date().toISOString()}] Syncing active House of Commons MPs & full Government payroll...`);
+    console.log(`[${new Date().toISOString()}] Fetching active House of Commons roster...`);
+    const rawMembers = await fetchAllCurrentCommonsMembers();
 
-    const [members, govPostsByMember] = await Promise.all([
-        fetchAllCommonsMembers(),
-        fetchGovernmentPostsByMemberId()
-    ]);
-
-    if (members.length === 0) {
-        console.warn('No active MPs returned from Parliament API — aborting sync to avoid clearing roster.');
-        return;
+    if (!rawMembers.length) {
+        throw new Error('Parliament Members API returned 0 active Commons members.');
     }
 
-    const memberIds = members.map(m => Number(m.id)).filter(Boolean);
-    await enrichFromMemberBiography(memberIds, govPostsByMember);
-
-    console.log(`Fetched ${members.length} active MPs and ${govPostsByMember.size} Government payroll postholders.`);
+    console.log(`Fetched ${rawMembers.length} active Commons members. Resolving roles & election histories...`);
 
     const constituencyMap = new Map();
-    for (const m of members) {
-        const membership = m.latestHouseMembership || {};
-        const seatName = (membership.membershipFrom || '').trim();
-        const seatId = Number(membership.membershipFromId) || null;
-        if (seatName && !constituencyMap.has(seatName)) {
-            constituencyMap.set(seatName, {
-                name: seatName,
-                parliament_constituency_id: seatId
+    for (const m of rawMembers) {
+        const membership = m?.latestHouseMembership;
+        const cId = Number(membership?.membershipFromId);
+        const cName = (membership?.membershipFrom || '').trim();
+        if (cId && cName) {
+            constituencyMap.set(cId, {
+                parliament_constituency_id: cId,
+                name: cName
             });
         }
     }
 
-    const constituencyRows = Array.from(constituencyMap.values());
-    if (constituencyRows.length > 0) {
-        const { error: constErr } = await supabase
-            .from('constituencies')
-            .upsert(constituencyRows, { onConflict: 'name' });
-        if (constErr) {
-            console.warn(`Constituency upsert warning: ${constErr.message}`);
+    if (constituencyMap.size > 0) {
+        const constituenciesToUpsert = Array.from(constituencyMap.values());
+        for (let i = 0; i < constituenciesToUpsert.length; i += 100) {
+            const chunk = constituenciesToUpsert.slice(i, i + 100);
+            const { error: constErr } = await supabase
+                .from('constituencies')
+                .upsert(chunk, { onConflict: 'parliament_constituency_id' });
+            if (constErr) {
+                console.warn(`Constituencies upsert warning: ${constErr.message}`);
+            }
         }
     }
 
-    const { data: dbConstituencies } = await supabase
-        .from('constituencies')
-        .select('id, name');
-    const constIdByName = new Map((dbConstituencies || []).map(c => [c.name, c.id]));
+    const activeIds = rawMembers.map(m => Number(m.id)).filter(Boolean);
+    const mpRows = [];
 
-    const activeIds = new Set();
-    const mpRows = members.map(m => {
-        const memberId = Number(m.id);
-        activeIds.add(memberId);
+    for (let i = 0; i < rawMembers.length; i += SYNC_CONCURRENCY) {
+        const batch = rawMembers.slice(i, i + SYNC_CONCURRENCY);
+        const batchRows = await Promise.all(
+            batch.map(async (m) => {
+                const memberId = Number(m.id);
+                const membership = m?.latestHouseMembership || {};
+                const seatId = Number(membership?.membershipFromId) || null;
+                const seatName = (membership?.membershipFrom || 'UK Constituency').trim();
+                const partyName = (m?.latestParty?.name || 'Independent').trim();
+                const partyColor = PARTY_COLORS[partyName]
+                    || (m?.latestParty?.backgroundColour ? `#${m.latestParty.backgroundColour.replace(/^#/, '')}` : '#6B7280');
 
-        const membership = m.latestHouseMembership || {};
-        const seatName = (membership.membershipFrom || 'UK Constituency').trim();
-        const partyName = (m.latestParty?.name || 'Independent').trim();
-        const partyColor = PARTY_COLORS[partyName]
-            || (m.latestParty?.backgroundColour ? `#${m.latestParty.backgroundColour.replace(/^#/, '')}` : '#6B7280');
+                const { bio, reps, electionWins } = await fetchMemberBioAndWins(memberId, seatName);
+                const roleTitle = buildRoleTitle(bio, seatName);
+                const memberSince = getEarliestRepresentationStart(reps, membership?.membershipStartDate);
 
-        const govTitles = govPostsByMember.get(memberId) || [];
-        const roleTitle = govTitles.length > 0
-            ? `${govTitles.join(' & ')} • MP for ${seatName}`
-            : `MP for ${seatName}`;
+                return {
+                    parliament_member_id: memberId,
+                    full_name: (m.nameDisplayAs || m.nameListAs || `Member ${memberId}`).trim(),
+                    short_name: (m.nameDisplayAs || `Member ${memberId}`).replace(/^(Rt Hon|Sir|Dame|Dr|Mr|Mrs|Ms|Mx)\s+/i, '').trim(),
+                    party: partyName,
+                    party_color: partyColor,
+                    role_title: roleTitle,
+                    constituency_id: seatId,
+                    member_since: memberSince,
+                    election_wins: electionWins,
+                    is_current_member: true
+                };
+            })
+        );
+        mpRows.push(...batchRows);
+    }
 
-        return {
-            parliament_member_id: memberId,
-            full_name: (m.nameDisplayAs || m.nameListAs || '').trim(),
-            short_name: (m.nameDisplayAs || '').replace(/^(Rt Hon\s+|Sir\s+|Dame\s+|Dr\s+|Mr\s+|Mrs\s+|Ms\s+|Mx\s+)/gi, '').trim(),
-            party: partyName,
-            party_color: partyColor,
-            role_title: roleTitle,
-            constituency_id: constIdByName.get(seatName) || null,
-            member_since: membership.membershipStartDate ? String(membership.membershipStartDate).slice(0, 10) : null,
-            is_current_member: true
-        };
-    });
-
-    for (let i = 0; i < mpRows.length; i += 200) {
-        const chunk = mpRows.slice(i, i + 200);
-        const { error: upsertErr } = await supabase
+    for (let i = 0; i < mpRows.length; i += 100) {
+        const chunk = mpRows.slice(i, i + 100);
+        const { error: mpErr } = await supabase
             .from('mps')
             .upsert(chunk, { onConflict: 'parliament_member_id' });
-        if (upsertErr) {
-            throw new Error(`MP upsert failed at batch ${i}: ${upsertErr.message}`);
+        if (mpErr) {
+            throw new Error(`Failed upserting mps batch ${i}: ${mpErr.message}`);
         }
     }
 
-    const { data: existingCurrent } = await supabase
-        .from('mps')
-        .select('parliament_member_id')
-        .eq('is_current_member', true);
-
-    const retiredIds = (existingCurrent || [])
-        .map(r => r.parliament_member_id)
-        .filter(id => !activeIds.has(id));
-
-    if (retiredIds.length > 0) {
-        await supabase
+    // Mark any former MPs no longer in the active Commons roster as inactive
+    if (activeIds.length > 0) {
+        const { error: deactivateErr } = await supabase
             .from('mps')
             .update({ is_current_member: false })
-            .in('parliament_member_id', retiredIds);
-        console.log(`Marked ${retiredIds.length} former MPs as inactive.`);
+            .not('parliament_member_id', 'in', `(${activeIds.join(',')})`);
+
+        if (deactivateErr) {
+            console.warn(`Former MP deactivation warning: ${deactivateErr.message}`);
+        }
     }
 
-    console.log(`[${new Date().toISOString()}] Roster sync complete (${mpRows.length} active MPs).`);
+    console.log(`[${new Date().toISOString()}] Roster sync complete: ${mpRows.length} active MPs synced with full election histories.`);
 }
 
 syncRoster();

@@ -1305,7 +1305,6 @@
                     const latestElection = latestJson?.value || null;
                     const reps = Array.isArray(bio?.representations) ? bio.representations : [];
 
-                    // Look up all constituency IDs (current + historical boundary versions) for every seat this MP has represented
                     const uniqueSeatNames = [...new Set(
                         [seat, ...reps.map(r => r?.name).filter(Boolean)]
                             .filter(s => s && s !== 'UK Constituency')
@@ -1354,7 +1353,7 @@
                     const candidateWins = [];
                     const seenSeatElection = new Set();
 
-                    // Match elections that fell within each representation period (repStart - 21d to repEnd + 3d)
+                    // 1. Match detailed election results within each representation period (repStart - 21d to repEnd + 3d)
                     for (const rep of reps) {
                         const repSeatName = (rep?.name || seat).trim();
                         const repSeatLower = repSeatName.toLowerCase();
@@ -1370,6 +1369,7 @@
                             }
                         }
 
+                        let matchedThisRep = 0;
                         for (const cId of candidateSeatIds) {
                             const seatResults = electionResultsBySeat.get(cId) || [];
                             for (const er of seatResults) {
@@ -1380,6 +1380,7 @@
                                     const key = `${repSeatLower}-${dateKey}`;
                                     if (seenSeatElection.has(key)) continue;
                                     seenSeatElection.add(key);
+                                    matchedThisRep += 1;
                                     candidateWins.push({
                                         constituencyId: cId,
                                         constituencyName: repSeatName,
@@ -1390,6 +1391,24 @@
                                         majority: typeof er.majority === 'number' ? er.majority : null
                                     });
                                 }
+                            }
+                        }
+
+                        // 2. Fallback for older historical representations where ElectionResults has no records for that period
+                        if (matchedThisRep === 0) {
+                            const dateKey = String(rep.startDate).slice(0, 10);
+                            const key = `${repSeatLower}-${dateKey}`;
+                            if (!seenSeatElection.has(key)) {
+                                seenSeatElection.add(key);
+                                candidateWins.push({
+                                    constituencyId: Number(rep?.constituencyId) || null,
+                                    constituencyName: repSeatName,
+                                    electionId: null,
+                                    electionDate: rep.startDate,
+                                    electionTitle: rep.additionalInfo || '',
+                                    isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
+                                    majority: null
+                                });
                             }
                         }
                     }
@@ -1497,20 +1516,6 @@
                         isGeneralElection: extra.latestElection.isGeneralElection,
                         majority: typeof extra.latestElection.majority === 'number' ? extra.latestElection.majority : null
                     });
-                }
-            }
-
-            if (winRows.length === 0) {
-                for (const rep of extra.reps) {
-                    if (rep.startDate) {
-                        winRows.push({
-                            constituencyName: rep.name || seat,
-                            electionDate: rep.startDate,
-                            electionTitle: rep.additionalInfo || '',
-                            isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
-                            majority: null
-                        });
-                    }
                 }
             }
 

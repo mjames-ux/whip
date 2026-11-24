@@ -184,34 +184,23 @@
             <!-- 1. MP Identity Header -->
             <header class="pb-8 border-b border-hairline">
                 <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                    <div class="flex items-center gap-5 sm:gap-6">
-                        <!-- Circular Portrait (Shown on Profile tab) -->
-                        <img
-                            id="mpProfileAvatar"
-                            src=""
-                            alt=""
-                            class="hidden w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover object-top border border-hairline bg-surfaceSubtle shrink-0"
-                        >
-                        <div>
-                            <div class="flex items-center gap-2 text-xs font-medium text-inkSecondary mb-2.5">
-                                <span id="mpPartyDot" class="w-2 h-2 rounded-full bg-commonsGreen"></span>
-                                <span id="mpPartyName" class="text-ink">Liberal Democrat</span>
-                                <span class="text-inkTertiary">/</span>
-                                <span id="mpConstituency">Chelmsford</span>
-                            </div>
-
-                            <h1 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
-                                Loading MP...
-                            </h1>
-
-                            <p class="mt-3 text-sm text-inkSecondary flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span id="mpRole">MP for Chelmsford</span>
-                                <span id="activityDot" class="text-inkTertiary">&middot;</span>
-                                <span id="activityBadge" class="text-inkTertiary">1 Vote</span>
-                                <span id="profileServiceDot" class="hidden text-inkTertiary">&middot;</span>
-                                <span id="profileServiceBadge" class="hidden text-inkSecondary"></span>
-                            </p>
+                    <div>
+                        <div class="flex items-center gap-2 text-xs font-medium text-inkSecondary mb-2.5">
+                            <span id="mpPartyDot" class="w-2 h-2 rounded-full bg-commonsGreen"></span>
+                            <span id="mpPartyName" class="text-ink">Liberal Democrat</span>
+                            <span class="text-inkTertiary">/</span>
+                            <span id="mpConstituency">Chelmsford</span>
                         </div>
+
+                        <h1 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
+                            Marie Goldman
+                        </h1>
+
+                        <p class="mt-3 text-sm text-inkSecondary flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span id="mpRole">MP for Chelmsford</span>
+                            <span id="activityDot" class="text-inkTertiary">&middot;</span>
+                            <span id="activityBadge" class="text-inkTertiary">1 Vote</span>
+                        </p>
                     </div>
 
                     <button id="watchlistToggleBtn" type="button" class="self-start inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-hairline text-xs font-medium text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors shrink-0">
@@ -358,7 +347,38 @@
             </div>
 
             <!-- TAB 2: MP PROFILE VIEW -->
-            <div id="profileTabPanel" class="hidden py-10 space-y-10 fade-in">
+            <div id="profileTabPanel" class="hidden space-y-10 fade-in">
+
+                <!-- Parliamentary Service & Circular Portrait Block -->
+                <section aria-label="Parliamentary Service" class="py-8 border-b border-hairline">
+                    <div class="flex items-center gap-6 sm:gap-8">
+                        <img
+                            id="mpProfileAvatar"
+                            src=""
+                            alt=""
+                            class="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover object-top border border-hairline bg-surfaceSubtle shrink-0"
+                        >
+                        <div>
+                            <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-1.5">
+                                Parliamentary Service
+                            </p>
+                            <h2 id="profileServiceDuration" class="font-editorial text-3xl sm:text-4xl font-bold text-ink tracking-[-0.02em] leading-[1.12]">
+                                —
+                            </h2>
+                            <p id="profileServiceSubtitle" class="mt-2 text-sm text-inkSecondary">
+                                —
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Current Roles -->
+                <section id="profileCurrentRolesSection" class="hidden">
+                    <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
+                        Current Roles
+                    </h2>
+                    <ul id="profileCurrentRolesList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
+                </section>
 
                 <!-- Election Wins & Majorities -->
                 <section id="profileElectionsSection" class="hidden">
@@ -369,23 +389,6 @@
                         <span class="text-xs text-inkTertiary">Commons General &amp; By-Elections</span>
                     </div>
                     <ul id="profileElectionsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
-                </section>
-
-                <!-- Select Committees & Parliamentary Roles -->
-                <section id="profileCareerSection" class="hidden space-y-8">
-                    <div id="profilePostsBlock" class="hidden">
-                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
-                            Government &amp; Opposition Posts
-                        </h2>
-                        <ul id="profilePostsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
-                    </div>
-
-                    <div id="profileCommitteesBlock" class="hidden">
-                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
-                            Select Committees
-                        </h2>
-                        <ul id="profileCommitteesList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
-                    </div>
                 </section>
 
                 <!-- Register of Members' Financial Interests -->
@@ -488,8 +491,6 @@
             mpRole: document.getElementById('mpRole'),
             activityDot: document.getElementById('activityDot'),
             activityBadge: document.getElementById('activityBadge'),
-            profileServiceDot: document.getElementById('profileServiceDot'),
-            profileServiceBadge: document.getElementById('profileServiceBadge'),
             watchlistToggleBtn: document.getElementById('watchlistToggleBtn'),
             watchlistIcon: document.getElementById('watchlistIcon'),
             watchlistLabel: document.getElementById('watchlistLabel'),
@@ -1074,7 +1075,7 @@
             renderVotingSection(briefing.votes);
         }
 
-        function formatCumulativeService(representations) {
+        function formatCumulativeService(representations, fallbackStart) {
             const intervals = (Array.isArray(representations) ? representations : [])
                 .map(r => {
                     const start = r.startDate ? new Date(r.startDate).getTime() : NaN;
@@ -1084,7 +1085,14 @@
                 .filter(Boolean)
                 .sort((a, b) => a[0] - b[0]);
 
-            if (intervals.length === 0) return '';
+            if (intervals.length === 0 && fallbackStart) {
+                const start = new Date(fallbackStart).getTime();
+                if (Number.isFinite(start) && Date.now() > start) {
+                    intervals.push([start, Date.now()]);
+                }
+            }
+
+            if (intervals.length === 0) return 'Current Member';
 
             const merged = [intervals[0]];
             for (let i = 1; i < intervals.length; i++) {
@@ -1101,9 +1109,16 @@
             const years = Math.floor(totalMonths / 12);
             const months = totalMonths % 12;
 
-            if (years === 0) return `${Math.max(1, months)} ${months === 1 ? 'month' : 'months'} in Parliament`;
-            if (months === 0) return `${years} ${years === 1 ? 'year' : 'years'} in Parliament`;
-            return `${years} ${years === 1 ? 'year' : 'years'}, ${months} ${months === 1 ? 'month' : 'months'} in Parliament`;
+            if (years === 0) return `MP for ${Math.max(1, months)} ${months === 1 ? 'month' : 'months'}`;
+            if (months === 0) return `MP for ${years} ${years === 1 ? 'year' : 'years'}`;
+            return `MP for ${years} ${years === 1 ? 'year' : 'years'}, ${months} ${months === 1 ? 'month' : 'months'}`;
+        }
+
+        function isCurrentRoleItem(item) {
+            if (!item || !item.name) return false;
+            if (!item.endDate) return true;
+            const endTime = new Date(item.endDate).getTime();
+            return Number.isFinite(endTime) && endTime > Date.now();
         }
 
         async function loadAndRenderProfile(mp) {
@@ -1119,17 +1134,16 @@
             document.getElementById('profileSpokenLink').href = `https://members.parliament.uk/member/${id}/contributions`;
             document.getElementById('profileInterestsLink').href = `https://members.parliament.uk/member/${id}/registeredinterests`;
 
+            const serviceDurationEl = document.getElementById('profileServiceDuration');
+            const serviceSubtitleEl = document.getElementById('profileServiceSubtitle');
+            const currentRolesSection = document.getElementById('profileCurrentRolesSection');
             const electionsSection = document.getElementById('profileElectionsSection');
-            const careerSection = document.getElementById('profileCareerSection');
-            const postsBlock = document.getElementById('profilePostsBlock');
-            const committeesBlock = document.getElementById('profileCommitteesBlock');
             const interestsSection = document.getElementById('profileInterestsSection');
 
-            els.profileServiceBadge.textContent = '';
+            serviceDurationEl.textContent = 'Loading...';
+            serviceSubtitleEl.textContent = '';
+            currentRolesSection.classList.add('hidden');
             electionsSection.classList.add('hidden');
-            careerSection.classList.add('hidden');
-            postsBlock.classList.add('hidden');
-            committeesBlock.classList.add('hidden');
             interestsSection.classList.add('hidden');
 
             let extra = state.profileCache.get(id);
@@ -1176,15 +1190,52 @@
 
             if (state.currentMp?.parliament_member_id !== mp.parliament_member_id) return;
 
-            const serviceText = formatCumulativeService(extra.reps);
-            if (serviceText) {
-                els.profileServiceBadge.textContent = serviceText;
-                if (state.currentTab === 'profile') {
-                    els.profileServiceDot.classList.remove('hidden');
-                    els.profileServiceBadge.classList.remove('hidden');
-                }
+            serviceDurationEl.textContent = formatCumulativeService(extra.reps, mp.member_since);
+
+            const sortedReps = [...extra.reps].sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
+            const currentRep = sortedReps.find(r => !r.endDate) || sortedReps[0];
+            if (currentRep?.startDate) {
+                const startFormatted = new Date(currentRep.startDate).toLocaleDateString('en-GB', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric'
+                });
+                const repSeat = currentRep.name || seat;
+                serviceSubtitleEl.textContent = `Current term for ${repSeat} began on ${startFormatted}.`;
+            } else {
+                serviceSubtitleEl.textContent = mp.role_title || `Member of Parliament for ${seat}.`;
             }
 
+            // Current Roles only (active government/opposition posts & active committees)
+            const bio = extra.bio;
+            const currentRoles = [];
+            if (bio) {
+                for (const p of (Array.isArray(bio.governmentPosts) ? bio.governmentPosts : [])) {
+                    if (isCurrentRoleItem(p)) currentRoles.push({ title: p.name, type: 'Government Role' });
+                }
+                for (const p of (Array.isArray(bio.oppositionPosts) ? bio.oppositionPosts : [])) {
+                    if (isCurrentRoleItem(p)) currentRoles.push({ title: p.name, type: 'Opposition Role' });
+                }
+                for (const c of (Array.isArray(bio.committeeMemberships) ? bio.committeeMemberships : [])) {
+                    if (isCurrentRoleItem(c)) currentRoles.push({ title: c.name, type: 'Select Committee' });
+                }
+            }
+            if (currentRoles.length === 0 && mp.role_title && !mp.role_title.startsWith('MP for ')) {
+                const cleanTitle = mp.role_title.split('• MP for ')[0].trim();
+                if (cleanTitle) currentRoles.push({ title: cleanTitle, type: 'Current Role' });
+            }
+
+            if (currentRoles.length > 0) {
+                document.getElementById('profileCurrentRolesList').innerHTML = currentRoles.map(r => `
+                    <li class="py-3.5 flex items-center justify-between gap-4">
+                        <span class="font-medium text-ink">${escapeHtmlClient(r.title)}</span>
+                        <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(r.type)}</span>
+                    </li>
+                `).join('');
+                currentRolesSection.classList.remove('hidden');
+            }
+
+            // Election Wins & Majorities
             const winRows = [];
             for (const rep of extra.reps) {
                 const seatResults = extra.electionResultsBySeat.get(rep.constituencyId) || [];
@@ -1239,43 +1290,7 @@
                 electionsSection.classList.remove('hidden');
             }
 
-            const bio = extra.bio;
-            if (bio) {
-                const formatYearRange = (s, e) => {
-                    const startY = s ? new Date(s).getFullYear() : '';
-                    const endY = e ? new Date(e).getFullYear() : 'Present';
-                    return startY ? `${startY} – ${endY}` : '';
-                };
-
-                const posts = [
-                    ...(Array.isArray(bio.governmentPosts) ? bio.governmentPosts : []),
-                    ...(Array.isArray(bio.oppositionPosts) ? bio.oppositionPosts : [])
-                ].sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
-
-                if (posts.length > 0) {
-                    document.getElementById('profilePostsList').innerHTML = posts.slice(0, 8).map(p => `
-                        <li class="py-3 flex items-center justify-between gap-4">
-                            <span class="font-medium text-ink">${escapeHtmlClient(p.name)}</span>
-                            <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(formatYearRange(p.startDate, p.endDate))}</span>
-                        </li>
-                    `).join('');
-                    postsBlock.classList.remove('hidden');
-                    careerSection.classList.remove('hidden');
-                }
-
-                const committees = Array.isArray(bio.committeeMemberships) ? bio.committeeMemberships : [];
-                if (committees.length > 0) {
-                    document.getElementById('profileCommitteesList').innerHTML = committees.slice(0, 8).map(c => `
-                        <li class="py-3 flex items-center justify-between gap-4">
-                            <span class="font-medium text-ink">${escapeHtmlClient(c.name)}</span>
-                            <span class="text-xs text-inkTertiary shrink-0">${escapeHtmlClient(formatYearRange(c.startDate, c.endDate))}</span>
-                        </li>
-                    `).join('');
-                    committeesBlock.classList.remove('hidden');
-                    careerSection.classList.remove('hidden');
-                }
-            }
-
+            // Register of Members' Financial Interests
             const categories = Array.isArray(extra.interests) ? extra.interests : [];
             const flatInterests = [];
             for (const cat of categories) {
@@ -1419,11 +1434,6 @@
             els.sittingDateDisplay.classList.toggle('hidden', !isBriefing);
             els.activityDot.classList.toggle('hidden', !isBriefing);
             els.activityBadge.classList.toggle('hidden', !isBriefing);
-            els.mpProfileAvatar.classList.toggle('hidden', isBriefing);
-
-            const hasService = Boolean(els.profileServiceBadge.textContent);
-            els.profileServiceDot.classList.toggle('hidden', isBriefing || !hasService);
-            els.profileServiceBadge.classList.toggle('hidden', isBriefing || !hasService);
 
             els.tabBriefingBtn.className = isBriefing
                 ? 'px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors'

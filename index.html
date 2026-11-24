@@ -161,7 +161,7 @@
                     </button>
                 </div>
 
-                <!-- Day Selector Pills (Last Week + Recent Sitting Days — hidden on Profile tab) -->
+                <!-- Day Selector Pills (Last Week + This Week's Sitting Days — hidden on Profile tab) -->
                 <div id="datePillsContainer" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
             </div>
 
@@ -600,6 +600,15 @@
             return d.toISOString().slice(0, 10);
         }
 
+        function getLondonTodayIso() {
+            return new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Europe/London',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(new Date());
+        }
+
         function selectLastCompletedWeekDates(activeDates, referenceTodayIso) {
             if (!Array.isArray(activeDates) || activeDates.length === 0) return [];
             const currentMonday = getMondayOfWeek(referenceTodayIso);
@@ -762,8 +771,10 @@
                 `);
             }
 
-            const recentSingleDays = state.activeDates.slice(0, 5);
-            for (const d of recentSingleDays) {
+            const currentMonday = getMondayOfWeek(getLondonTodayIso());
+            const thisWeekSingleDays = state.activeDates.filter(d => getMondayOfWeek(d) >= currentMonday);
+
+            for (const d of thisWeekSingleDays) {
                 const isSelected = state.selectedDate === d;
                 pills.push(`
                     <button type="button" data-date-pill="${d}" class="px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${isSelected ? 'bg-ink text-canvas' : 'bg-surfaceSubtle text-inkSecondary hover:text-ink'}">
@@ -1293,49 +1304,35 @@
                     const candidateWins = [];
                     const seenSeatElection = new Set();
 
+                    // Only attribute an election win when it corresponds to the start of one of the MP's actual representation stints
                     for (const rep of reps) {
-                        const cId = Number(rep?.constituencyId);
-                        const repName = rep?.name || seatMetaById.get(cId) || seat;
-                        const seatResults = electionResultsBySeat.get(cId) || [];
-                        const repStart = rep?.startDate ? new Date(rep.startDate).getTime() : 0;
-                        const repEnd = rep?.endDate ? new Date(rep.endDate).getTime() : Date.now();
+                        const repSeatName = (rep?.name || seat).trim();
+                        const repSeatLower = repSeatName.toLowerCase();
+                        const repStart = rep?.startDate ? new Date(rep.startDate).getTime() : NaN;
+                        if (!Number.isFinite(repStart)) continue;
 
-                        for (const er of seatResults) {
-                            if (!er?.electionDate) continue;
-                            const t = new Date(er.electionDate).getTime();
-                            if (t >= repStart - 21 * 86400000 && t <= repEnd + 14 * 86400000) {
-                                const key = `${cId}-${er.electionId || String(er.electionDate).slice(0, 10)}`;
-                                if (seenSeatElection.has(key)) continue;
-                                seenSeatElection.add(key);
-                                candidateWins.push({
-                                    constituencyId: cId,
-                                    constituencyName: repName,
-                                    electionId: er.electionId || null,
-                                    electionDate: er.electionDate,
-                                    electionTitle: er.electionTitle || '',
-                                    isGeneralElection: er.isGeneralElection,
-                                    majority: typeof er.majority === 'number' ? er.majority : null
-                                });
+                        const candidateSeatIds = new Set();
+                        if (Number(rep?.constituencyId)) candidateSeatIds.add(Number(rep.constituencyId));
+                        for (const [cId, cName] of seatMetaById.entries()) {
+                            if (cName.trim().toLowerCase() === repSeatLower) {
+                                candidateSeatIds.add(cId);
                             }
                         }
-                    }
 
-                    if (reps.length > 0) {
-                        const careerStart = Math.min(...reps.map(r => r.startDate ? new Date(r.startDate).getTime() : Date.now()));
-                        const careerEnd = Math.max(...reps.map(r => r.endDate ? new Date(r.endDate).getTime() : Date.now()));
-
-                        for (const [cId, seatResults] of electionResultsBySeat.entries()) {
-                            const cName = seatMetaById.get(cId) || seat;
+                        for (const cId of candidateSeatIds) {
+                            const seatResults = electionResultsBySeat.get(cId) || [];
                             for (const er of seatResults) {
                                 if (!er?.electionDate) continue;
                                 const t = new Date(er.electionDate).getTime();
-                                const key = `${cId}-${er.electionId || String(er.electionDate).slice(0, 10)}`;
-                                if (seenSeatElection.has(key)) continue;
-                                if (t >= careerStart - 21 * 86400000 && t <= careerEnd + 14 * 86400000) {
+                                // Election win that started this representation occurs within 21 days before or up to 3 days after rep.startDate
+                                if (t >= repStart - 21 * 86400000 && t <= repStart + 3 * 86400000) {
+                                    const dateKey = String(er.electionDate).slice(0, 10);
+                                    const key = `${repSeatLower}-${dateKey}`;
+                                    if (seenSeatElection.has(key)) continue;
                                     seenSeatElection.add(key);
                                     candidateWins.push({
                                         constituencyId: cId,
-                                        constituencyName: cName,
+                                        constituencyName: repSeatName,
                                         electionId: er.electionId || null,
                                         electionDate: er.electionDate,
                                         electionTitle: er.electionTitle || '',
@@ -1679,13 +1676,7 @@
                 )];
                 state.activeDates = activeDates;
 
-                const londonToday = new Intl.DateTimeFormat('en-CA', {
-                    timeZone: 'Europe/London',
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                }).format(new Date());
-
+                const londonToday = getLondonTodayIso();
                 state.latestWeekDates = selectLastCompletedWeekDates(activeDates, londonToday);
                 if (state.latestWeekDates.length === 0 && activeDates.length > 0) {
                     state.selectedDate = activeDates[0];

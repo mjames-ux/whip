@@ -55,6 +55,16 @@ const PARTY_COLORS = {
     'Speaker': '#111827'
 };
 
+const PRE_2010_GENERAL_ELECTIONS = [
+    '1979-05-03',
+    '1983-06-09',
+    '1987-06-11',
+    '1992-04-09',
+    '1997-05-01',
+    '2001-06-07',
+    '2005-05-05'
+];
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -116,31 +126,39 @@ function getEarliestRepresentationStart(reps, fallbackDate) {
     return starts[0] ? String(starts[0]).slice(0, 10) : (fallbackDate ? String(fallbackDate).slice(0, 10) : null);
 }
 
+function normalizeSeatBaseName(name) {
+    return String(name || '')
+        .replace(/\s*\[[^\]]+\]\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
 const constituencyResultsCache = new Map();
 const electionDetailCache = new Map();
 const seatSearchCache = new Map();
 
 async function searchConstituencyIdsByName(seatName) {
-    const key = String(seatName || '').trim().toLowerCase();
-    if (!key || key === 'uk constituency') return [];
-    if (seatSearchCache.has(key)) return seatSearchCache.get(key);
+    const cleanBase = normalizeSeatBaseName(seatName);
+    if (!cleanBase || cleanBase === 'uk constituency') return [];
+    if (seatSearchCache.has(cleanBase)) return seatSearchCache.get(cleanBase);
 
     try {
-        const url = `${CONSTITUENCY_BASE_API}/Search?searchText=${encodeURIComponent(seatName)}&take=15`;
+        const url = `${CONSTITUENCY_BASE_API}/Search?searchText=${encodeURIComponent(cleanBase)}&take=25`;
         const json = await fetchJsonWithRetry(url, 15000);
         const items = Array.isArray(json?.items)
             ? json.items.map(it => it?.value || it).filter(Boolean)
             : (Array.isArray(json?.value) ? json.value : []);
 
         const ids = items
-            .filter(s => String(s?.name || '').trim().toLowerCase() === key)
+            .filter(s => normalizeSeatBaseName(s?.name) === cleanBase)
             .map(s => Number(s.id))
             .filter(Boolean);
 
-        seatSearchCache.set(key, ids);
+        seatSearchCache.set(cleanBase, ids);
         return ids;
     } catch {
-        seatSearchCache.set(key, []);
+        seatSearchCache.set(cleanBase, []);
         return [];
     }
 }
@@ -193,18 +211,17 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
     const seen = new Set();
 
     for (const rep of reps) {
-        const seatName = (rep?.name || fallbackSeatName || '').trim();
-        const seatLower = seatName.toLowerCase();
+        const rawSeatName = (rep?.name || fallbackSeatName || '').trim();
+        const displaySeatName = rawSeatName.replace(/\s*\[[^\]]+\]\s*/g, ' ').trim();
+        const seatLower = normalizeSeatBaseName(rawSeatName);
         const repStart = rep?.startDate ? new Date(rep.startDate).getTime() : NaN;
         const repEnd = rep?.endDate ? new Date(rep.endDate).getTime() : Date.now();
         if (!Number.isFinite(repStart)) continue;
 
         const candidateSeatIds = new Set();
         if (Number(rep?.constituencyId)) candidateSeatIds.add(Number(rep.constituencyId));
-        const searchedIds = await searchConstituencyIdsByName(seatName);
+        const searchedIds = await searchConstituencyIdsByName(displaySeatName);
         for (const sId of searchedIds) candidateSeatIds.add(sId);
-
-        let matchedThisRep = 0;
 
         for (const cId of candidateSeatIds) {
             const seatResults = await getConstituencyElectionResults(cId);
@@ -228,9 +245,8 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
                 if (winner?.memberId && Number(winner.memberId) !== id) continue;
 
                 seen.add(dedupeKey);
-                matchedThisRep += 1;
                 wins.push({
-                    constituencyName: seatName,
+                    constituencyName: displaySeatName,
                     electionDate: detail?.electionDate || er.electionDate,
                     electionTitle: detail?.electionTitle || er.electionTitle || '',
                     isGeneralElection: typeof detail?.isGeneralElection === 'boolean'
@@ -243,18 +259,34 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
             }
         }
 
-        if (matchedThisRep === 0) {
-            const dateKey = String(rep.startDate).slice(0, 10);
-            const dedupeKey = `${seatLower}-${dateKey}`;
-            if (!seen.has(dedupeKey)) {
-                seen.add(dedupeKey);
-                wins.push({
-                    constituencyName: seatName,
-                    electionDate: rep.startDate,
-                    electionTitle: rep.additionalInfo || '',
-                    isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
-                    majority: null
-                });
+        // Ensure the representation start election is captured even if pre-2010 ElectionResults omits it
+        const startDateKey = String(rep.startDate).slice(0, 10);
+        if (!seen.has(`${seatLower}-${startDateKey}`)) {
+            seen.add(`${seatLower}-${startDateKey}`);
+            wins.push({
+                constituencyName: displaySeatName,
+                electionDate: rep.startDate,
+                electionTitle: '',
+                isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
+                majority: null
+            });
+        }
+
+        // Expand any pre-2010 general elections won during the same boundary-era representation stint
+        for (const geDate of PRE_2010_GENERAL_ELECTIONS) {
+            const geTime = new Date(`${geDate}T00:00:00Z`).getTime();
+            if (geTime >= repStart - 21 * 86400000 && geTime <= repEnd + 3 * 86400000) {
+                const dedupeKey = `${seatLower}-${geDate}`;
+                if (!seen.has(dedupeKey)) {
+                    seen.add(dedupeKey);
+                    wins.push({
+                        constituencyName: displaySeatName,
+                        electionDate: `${geDate}T00:00:00`,
+                        electionTitle: '',
+                        isGeneralElection: true,
+                        majority: null
+                    });
+                }
             }
         }
     }
@@ -272,7 +304,7 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
             }
         } else {
             wins.push({
-                constituencyName: (latest.constituencyName || fallbackSeatName || '').trim(),
+                constituencyName: (latest.constituencyName || fallbackSeatName || '').replace(/\s*\[[^\]]+\]\s*/g, ' ').trim(),
                 electionDate: latest.electionDate,
                 electionTitle: latest.electionTitle || '',
                 isGeneralElection: Boolean(latest.isGeneralElection),

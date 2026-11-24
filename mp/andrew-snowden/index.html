@@ -4,17 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mr Andrew Snowden (Fylde) — Parliament Briefing | Whip</title>
-    <meta name="description" content="Mr Andrew Snowden (Conservative, MP for Fylde): On Mon 23 Nov, Andrew Snowden took part in parliamentary votes regarding the government&#39;s Finance Bill. He voted">
+    <meta name="description" content="Mr Andrew Snowden (Conservative, Shadow Minister (Work and Pensions) • MP for Fylde): On Mon 23 Nov, Andrew Snowden took part in parliamentary votes regarding t">
     <link rel="canonical" href="https://whipdaily.uk/mp/andrew-snowden/">
     <meta property="og:type" content="article">
     <meta property="og:site_name" content="Whip">
     <meta property="og:title" content="Mr Andrew Snowden (Fylde) — Parliament Briefing | Whip">
-    <meta property="og:description" content="Mr Andrew Snowden (Conservative, MP for Fylde): On Mon 23 Nov, Andrew Snowden took part in parliamentary votes regarding the government&#39;s Finance Bill. He voted">
+    <meta property="og:description" content="Mr Andrew Snowden (Conservative, Shadow Minister (Work and Pensions) • MP for Fylde): On Mon 23 Nov, Andrew Snowden took part in parliamentary votes regarding t">
     <meta property="og:url" content="https://whipdaily.uk/mp/andrew-snowden/">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Mr Andrew Snowden (Fylde) — Parliament Briefing | Whip">
-    <meta name="twitter:description" content="Mr Andrew Snowden (Conservative, MP for Fylde): On Mon 23 Nov, Andrew Snowden took part in parliamentary votes regarding the government&#39;s Finance Bill. He voted">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Mr Andrew Snowden","jobTitle":"MP for Fylde","affiliation":{"@type":"Organization","name":"Conservative"},"url":"https://whipdaily.uk/mp/andrew-snowden/","sameAs":"https://members.parliament.uk/member/5072/contact"}</script>
+    <meta name="twitter:description" content="Mr Andrew Snowden (Conservative, Shadow Minister (Work and Pensions) • MP for Fylde): On Mon 23 Nov, Andrew Snowden took part in parliamentary votes regarding t">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Mr Andrew Snowden","jobTitle":"Shadow Minister (Work and Pensions) • MP for Fylde","affiliation":{"@type":"Organization","name":"Conservative"},"url":"https://whipdaily.uk/mp/andrew-snowden/","sameAs":"https://members.parliament.uk/member/5072/contact"}</script>
     <script>window.__WHIP_INITIAL_MP_SLUG__ = "andrew-snowden";</script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Ctext x='9' y='45' font-family='Georgia,serif' font-weight='700' font-size='36' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='42' r='4.5' fill='%23006548'/%3E%3C/svg%3E">
 
@@ -197,7 +197,7 @@
                         </h1>
 
                         <p class="mt-3 text-sm text-inkSecondary flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span id="mpRole">MP for Fylde</span>
+                            <span id="mpRole">Shadow Minister (Work and Pensions) • MP for Fylde</span>
                             <span id="activityWrap" class="inline-flex items-center gap-x-2">
                                 <span id="activityDot" class="text-inkTertiary">&middot;</span>
                                 <span id="activityBadge" class="text-inkTertiary whitespace-nowrap">—</span>
@@ -1301,12 +1301,16 @@
             electionsSection.classList.add('hidden');
             interestsSection.classList.add('hidden');
 
+            const cachedWins = Array.isArray(mp.election_wins) ? mp.election_wins : [];
+
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
                     const [bioRes, latestRes, interestsRes] = await Promise.all([
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`).catch(() => null),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`).catch(() => null),
+                        cachedWins.length === 0
+                            ? fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`).catch(() => null)
+                            : Promise.resolve(null),
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`).catch(() => null)
                     ]);
 
@@ -1315,108 +1319,15 @@
                     const interestsJson = interestsRes && interestsRes.ok ? await interestsRes.json() : null;
 
                     const bio = bioJson?.value || null;
-                    const latestElection = latestJson?.value || null;
                     const reps = Array.isArray(bio?.representations) ? bio.representations : [];
+                    const latestElection = latestJson?.value || null;
 
-                    const uniqueSeatNames = [...new Set(
-                        [seat, ...reps.map(r => r?.name).filter(Boolean)]
-                            .filter(s => s && s !== 'UK Constituency')
-                    )];
-
-                    const seatMetaById = new Map();
-                    for (const rep of reps) {
-                        const cId = Number(rep?.constituencyId);
-                        if (cId) seatMetaById.set(cId, rep.name || seat);
-                    }
-
-                    await Promise.all(uniqueSeatNames.map(async (seatQuery) => {
-                        try {
-                            const sRes = await fetch(
-                                `https://members-api.parliament.uk/api/Location/Constituency/Search?searchText=${encodeURIComponent(seatQuery)}&take=10`
-                            );
-                            if (sRes.ok) {
-                                const sJson = await sRes.json();
-                                const matchedSeats = Array.isArray(sJson?.items)
-                                    ? sJson.items.map(it => it?.value || it).filter(Boolean)
-                                    : (Array.isArray(sJson?.value) ? sJson.value : []);
-                                for (const s of matchedSeats) {
-                                    const sId = Number(s?.id);
-                                    if (sId && !seatMetaById.has(sId)) {
-                                        seatMetaById.set(sId, s.name || seatQuery);
-                                    }
-                                }
-                            }
-                        } catch {}
-                    }));
-
-                    const electionResultsBySeat = new Map();
-                    await Promise.all(Array.from(seatMetaById.keys()).map(async (cId) => {
-                        try {
-                            const r = await fetch(`https://members-api.parliament.uk/api/Location/Constituency/${cId}/ElectionResults`);
-                            if (r.ok) {
-                                const j = await r.json();
-                                const rawList = Array.isArray(j?.value)
-                                    ? j.value
-                                    : (Array.isArray(j?.items) ? j.items.map(it => it?.value || it) : []);
-                                electionResultsBySeat.set(cId, rawList);
-                            }
-                        } catch {}
-                    }));
-
-                    const candidateWins = [];
-                    const seenSeatElection = new Set();
-
-                    // 1. Match detailed election results within each representation period (repStart - 21d to repEnd + 3d)
-                    for (const rep of reps) {
-                        const repSeatName = (rep?.name || seat).trim();
-                        const repSeatLower = repSeatName.toLowerCase();
-                        const repStart = rep?.startDate ? new Date(rep.startDate).getTime() : NaN;
-                        const repEnd = rep?.endDate ? new Date(rep.endDate).getTime() : Date.now();
-                        if (!Number.isFinite(repStart)) continue;
-
-                        const candidateSeatIds = new Set();
-                        if (Number(rep?.constituencyId)) candidateSeatIds.add(Number(rep.constituencyId));
-                        for (const [cId, cName] of seatMetaById.entries()) {
-                            if (cName.trim().toLowerCase() === repSeatLower) {
-                                candidateSeatIds.add(cId);
-                            }
-                        }
-
-                        let matchedThisRep = 0;
-                        for (const cId of candidateSeatIds) {
-                            const seatResults = electionResultsBySeat.get(cId) || [];
-                            for (const er of seatResults) {
-                                if (!er?.electionDate) continue;
-                                const t = new Date(er.electionDate).getTime();
-                                if (t >= repStart - 21 * 86400000 && t <= repEnd + 3 * 86400000) {
-                                    const dateKey = String(er.electionDate).slice(0, 10);
-                                    const key = `${repSeatLower}-${dateKey}`;
-                                    if (seenSeatElection.has(key)) continue;
-                                    seenSeatElection.add(key);
-                                    matchedThisRep += 1;
-                                    candidateWins.push({
-                                        constituencyId: cId,
-                                        constituencyName: repSeatName,
-                                        electionId: er.electionId || null,
-                                        electionDate: er.electionDate,
-                                        electionTitle: er.electionTitle || '',
-                                        isGeneralElection: er.isGeneralElection,
-                                        majority: typeof er.majority === 'number' ? er.majority : null
-                                    });
-                                }
-                            }
-                        }
-
-                        // 2. Fallback for older historical representations where ElectionResults has no records for that period
-                        if (matchedThisRep === 0) {
-                            const dateKey = String(rep.startDate).slice(0, 10);
-                            const key = `${repSeatLower}-${dateKey}`;
-                            if (!seenSeatElection.has(key)) {
-                                seenSeatElection.add(key);
-                                candidateWins.push({
-                                    constituencyId: Number(rep?.constituencyId) || null,
-                                    constituencyName: repSeatName,
-                                    electionId: null,
+                    let winRows = [...cachedWins];
+                    if (winRows.length === 0) {
+                        for (const rep of reps) {
+                            if (rep?.startDate) {
+                                winRows.push({
+                                    constituencyName: rep.name || seat,
                                     electionDate: rep.startDate,
                                     electionTitle: rep.additionalInfo || '',
                                     isGeneralElection: !/by-?election/i.test(rep.additionalInfo || ''),
@@ -1424,37 +1335,34 @@
                                 });
                             }
                         }
-                    }
-
-                    await Promise.all(candidateWins.map(async (w) => {
-                        if (w.majority !== null || !w.constituencyId || !w.electionId) return;
-                        try {
-                            const detailRes = await fetch(
-                                `https://members-api.parliament.uk/api/Location/Constituency/${w.constituencyId}/ElectionResult/${w.electionId}`
-                            );
-                            if (detailRes.ok) {
-                                const detailJson = await detailRes.json();
-                                const val = detailJson?.value || detailJson;
-                                if (typeof val?.majority === 'number') {
-                                    w.majority = val.majority;
-                                }
-                                if (val?.electionDate) w.electionDate = val.electionDate;
-                                if (val?.electionTitle) w.electionTitle = val.electionTitle;
-                                if (typeof val?.isGeneralElection === 'boolean') w.isGeneralElection = val.isGeneralElection;
+                        if (latestElection?.electionDate) {
+                            const dateKey = String(latestElection.electionDate).slice(0, 10);
+                            const existing = winRows.find(w => String(w.electionDate || '').slice(0, 10) === dateKey);
+                            if (existing) {
+                                existing.majority = typeof latestElection.majority === 'number' ? latestElection.majority : existing.majority;
+                                existing.electionTitle = latestElection.electionTitle || existing.electionTitle;
+                                if (typeof latestElection.isGeneralElection === 'boolean') existing.isGeneralElection = latestElection.isGeneralElection;
+                            } else {
+                                winRows.push({
+                                    constituencyName: latestElection.constituencyName || seat,
+                                    electionDate: latestElection.electionDate,
+                                    electionTitle: latestElection.electionTitle || '',
+                                    isGeneralElection: Boolean(latestElection.isGeneralElection),
+                                    majority: typeof latestElection.majority === 'number' ? latestElection.majority : null
+                                });
                             }
-                        } catch {}
-                    }));
+                        }
+                    }
 
                     extra = {
                         bio,
                         reps,
-                        latestElection,
-                        candidateWins,
+                        winRows,
                         interests: extractFlatInterests(interestsJson)
                     };
                     state.profileCache.set(id, extra);
                 } catch {
-                    extra = { bio: null, reps: [], latestElection: null, candidateWins: [], interests: [] };
+                    extra = { bio: null, reps: [], winRows: [...cachedWins], interests: [] };
                 }
             }
 
@@ -1506,33 +1414,7 @@
                 currentRolesSection.classList.remove('hidden');
             }
 
-            const winRows = [...(extra.candidateWins || [])];
-
-            if (extra.latestElection?.electionDate) {
-                const latestDateKey = String(extra.latestElection.electionDate).slice(0, 10);
-                const existingLatest = winRows.find(w => String(w.electionDate || '').slice(0, 10) === latestDateKey);
-                if (existingLatest) {
-                    if (existingLatest.majority === null && typeof extra.latestElection.majority === 'number') {
-                        existingLatest.majority = extra.latestElection.majority;
-                    }
-                    existingLatest.electionTitle = extra.latestElection.electionTitle || existingLatest.electionTitle;
-                    if (typeof extra.latestElection.isGeneralElection === 'boolean') {
-                        existingLatest.isGeneralElection = extra.latestElection.isGeneralElection;
-                    }
-                } else {
-                    winRows.push({
-                        constituencyId: extra.latestElection.constituencyId || null,
-                        constituencyName: extra.latestElection.constituencyName || seat,
-                        electionId: extra.latestElection.electionId || null,
-                        electionDate: extra.latestElection.electionDate,
-                        electionTitle: extra.latestElection.electionTitle || '',
-                        isGeneralElection: extra.latestElection.isGeneralElection,
-                        majority: typeof extra.latestElection.majority === 'number' ? extra.latestElection.majority : null
-                    });
-                }
-            }
-
-            winRows.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
+            const winRows = [...(extra.winRows || [])].sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
 
             if (winRows.length > 0) {
                 document.getElementById('profileElectionsList').innerHTML = winRows.map(w => {
@@ -1720,7 +1602,7 @@
 
             const { data: mps } = await sb
                 .from('mps')
-                .select('parliament_member_id, full_name, short_name, party, party_color, role_title, member_since, constituencies(name)')
+                .select('parliament_member_id, full_name, short_name, party, party_color, role_title, member_since, election_wins, constituencies(name)')
                 .eq('is_current_member', true)
                 .order('short_name', { ascending: true });
 

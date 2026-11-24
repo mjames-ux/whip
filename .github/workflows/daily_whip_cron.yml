@@ -15,7 +15,11 @@ on:
       skip_llm:
         description: 'Skip LLM generation (useful for roster/election syncs)'
         type: boolean
-        default: true
+        default: false
+      force_regen:
+        description: 'Force regenerate briefings even if cached for target date'
+        type: boolean
+        default: false
       rebuild_pages:
         description: 'Rebuild static /mp/ pages'
         type: boolean
@@ -54,11 +58,12 @@ jobs:
           node sync_roster.js
 
       - name: Generate daily briefings
-        if: github.event_name == 'schedule' && !inputs.skip_llm
+        if: github.event_name == 'schedule' || !inputs.skip_llm
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FORCE_REGEN: ${{ inputs.force_regen && 'true' || 'false' }}
         run: node generate_briefings.js
 
       - name: Build static MP pages

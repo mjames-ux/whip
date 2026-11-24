@@ -1029,29 +1029,73 @@
             `).join('');
         }
 
-        function renderWrittenQuestionsSection(questions) {
+       function renderWrittenQuestionsSection(questions) {
             if (!questions || questions.length === 0) {
                 els.writtenQuestionsSection.classList.add('hidden');
                 return;
             }
             els.writtenQuestionsSection.classList.remove('hidden');
             els.wqCountBadge.textContent = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'}`;
+
             els.writtenQuestionsList.innerHTML = questions.map(q => {
-                const isAns = q.direction === 'answered';
-                const badge = isAns
-                    ? `${escapeHtmlClient(q.department)} &middot; Answered${q.sittingDateLabel ? ` ${escapeHtmlClient(q.sittingDateLabel)}` : ''}`
-                    : `${escapeHtmlClient(q.department)} &middot; Tabled${q.sittingDateLabel ? ` ${escapeHtmlClient(q.sittingDateLabel)}` : ''}`;
+                const isAnsweredByMp = q.direction === 'answered';
+                const hasReply = Boolean(
+                    (q.answerText && String(q.answerText).trim()) ||
+                    q.dateAnswered ||
+                    /^answered$/i.test(String(q.status || ''))
+                );
+
+                let pillLabel = '';
+                let pillClass = '';
+
+                if (isAnsweredByMp) {
+                    const askerName = String(q.askedByName || q.questionerName || q.mpName || '').trim();
+                    const askerParty = String(q.askedByParty || q.questionerParty || q.party || '').trim();
+                    if (askerName && askerParty) {
+                        pillLabel = `${askerName} (${askerParty})`;
+                    } else if (askerName || askerParty) {
+                        pillLabel = askerName || askerParty;
+                    } else {
+                        pillLabel = 'Written reply';
+                    }
+                    pillClass = 'bg-surfaceSubtle text-ink border-hairline';
+                } else {
+                    pillLabel = hasReply ? 'Reply received' : 'Awaiting answer';
+                    pillClass = hasReply
+                        ? 'bg-commonsGreen/10 text-commonsGreen border-commonsGreen/20'
+                        : 'bg-surfaceSubtle text-inkSecondary border-hairline';
+                }
+
+                const metaLine = isAnsweredByMp
+                    ? `${escapeHtmlClient(q.department || 'Government Department')} &middot; Answered${q.sittingDateLabel ? ` ${escapeHtmlClient(q.sittingDateLabel)}` : ''}`
+                    : `${escapeHtmlClient(q.department || 'Government Department')} &middot; Tabled${q.sittingDateLabel ? ` ${escapeHtmlClient(q.sittingDateLabel)}` : ''}`;
+
+                const primaryExcerpt = isAnsweredByMp
+                    ? (q.answerText || q.questionText || '')
+                    : (q.questionText || q.answerText || '');
+
+                const secondaryContext = isAnsweredByMp && q.questionText && q.answerText
+                    ? `<p class="text-xs text-inkTertiary leading-relaxed"><span class="font-medium text-inkSecondary">Question asked:</span> ${escapeHtmlClient(q.questionText)}</p>`
+                    : '';
+
                 return `
                     <div class="py-5 space-y-2">
-                        <span class="text-xs font-medium text-commonsGreen">${badge}</span>
-                        <p class="text-sm font-medium text-ink">${escapeHtmlClient(q.heading)}</p>
-                        <p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">${escapeHtmlClient(q.answerText || q.questionText || '')}</p>
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0 space-y-1">
+                                <span class="text-xs font-medium text-commonsGreen block">${metaLine}</span>
+                                <p class="text-sm font-medium text-ink">${escapeHtmlClient(q.heading || 'Written Question')}</p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-xs font-medium border shrink-0 ${pillClass}">
+                                ${escapeHtmlClient(pillLabel)}
+                            </span>
+                        </div>
+                        <p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">${escapeHtmlClient(primaryExcerpt)}</p>
+                        ${secondaryContext}
                         ${q.url ? `<a href="${escapeHtmlClient(q.url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-ink hover:text-commonsGreen transition-colors pt-1">View on Parliament.uk &rarr;</a>` : ''}
                     </div>
                 `;
             }).join('');
         }
-
         function renderVotingSection(votes) {
             if (!votes || votes.length === 0) {
                 els.voteCountBadge.textContent = '0 divisions';

@@ -2,20 +2,34 @@ name: Daily Whip Parliamentary Briefing
 
 on:
   schedule:
-    # Runs at 06:45 UTC (06:45 GMT / 07:45 BST) Tuesday–Saturday
-    - cron: '45 6 * * 2-6'
+    # Runs at 6:30 AM UTC (6:30 AM GMT / 7:30 AM BST) Tuesday–Saturday
+    - cron: '30 6 * * 2-6'
   workflow_dispatch:
     inputs:
       target_date:
-        description: 'Optional sitting date override (YYYY-MM-DD)'
+        description: 'Optional YYYY-MM-DD sitting date (leave blank for yesterday)'
         required: false
-        default: ''
+        type: string
+      skip_llm:
+        description: 'Skip Gemini generation completely (rebuild static pages / sync only)'
+        required: false
+        type: boolean
+        default: false
+      force_regen:
+        description: 'Force regenerating existing Gemini summaries for target_date'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: whip-daily-pipeline
+  cancel-in-progress: false
+
 jobs:
-  update-briefings:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,13 +39,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci || npm install
 
-      - name: Sync active Commons roster
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.target_date == ''
+      - name: Sync MP roster
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -42,7 +56,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TARGET_DATE: ${{ github.event.inputs.target_date }}
+          TARGET_DATE: ${{ inputs.target_date }}
+          SKIP_LLM: ${{ inputs.skip_llm }}
+          FORCE_REGEN: ${{ inputs.force_regen }}
         run: node generate_briefings.js
 
       - name: Build static MP pages & sitemap
@@ -51,22 +67,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node build_pages.js
 
-      - name: Publish static pages to GitHub Pages branch
+      - name: Commit and push updated static pages
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mp sitemap.xml robots.txt
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update static MP pages & sitemap"
-            for attempt in 1 2 3; do
-              git pull --rebase -X theirs origin main
-              if git push origin main; then
-                exit 0
-              fi
-              echo "Push attempt $attempt failed, retrying..."
-              sleep 2
-            done
-            exit 1
-          else
+          git add mp/ sitemap.xml
+          if git diff --staged --quiet; then
             echo "No static page changes to commit."
+          else
+            git commit -m "chore: update static MP pages & sitemap"
+            git push
           fi

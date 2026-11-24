@@ -331,12 +331,15 @@
                     </div>
                 </section>
 
-                <!-- 5. Voting Record & Plain-English Explainers -->
+                <!-- 5. Voting Record & Click-to-Expand Plain-English Explainers -->
                 <section id="votingRecordSection" aria-label="Voting Record" class="py-10">
                     <div class="flex items-baseline justify-between mb-6">
-                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
-                            Voting Record
-                        </h2>
+                        <div>
+                            <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                                Voting Record
+                            </h2>
+                            <p class="text-xs text-inkTertiary mt-1">Click any vote for a plain-English explainer</p>
+                        </div>
                         <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
                             0 divisions
                         </span>
@@ -1057,7 +1060,7 @@
             }
 
             els.voteCountBadge.textContent = `${votes.length} ${votes.length === 1 ? 'division' : 'divisions'}`;
-            els.votingRecordsList.innerHTML = votes.map(v => {
+            els.votingRecordsList.innerHTML = votes.map((v, idx) => {
                 const badgeClass = v.mpVote === 'Aye'
                     ? 'bg-commonsGreen/10 text-commonsGreen border-commonsGreen/20'
                     : v.mpVote === 'No'
@@ -1065,21 +1068,56 @@
                         : 'bg-surfaceSubtle text-inkSecondary border-hairline';
                 const badgeLabel = v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`;
 
+                const hasExplainer = Boolean(v.explainer?.whatItDoes || v.explainer?.whatAyeMeans || v.explainer?.whatNoMeans);
+                const voteMeaning = v.mpVote === 'Aye'
+                    ? v.explainer?.whatAyeMeans
+                    : v.mpVote === 'No'
+                        ? v.explainer?.whatNoMeans
+                        : null;
+
                 return `
-                    <div class="py-5 space-y-2.5">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <p class="text-sm sm:text-base font-medium text-ink">${escapeHtmlClient(v.title)}</p>
-                                <p class="text-xs text-inkTertiary mt-1">${escapeHtmlClient(v.houseResult || '')}${v.sittingDateLabel ? ` &middot; ${escapeHtmlClient(v.sittingDateLabel)}` : ''}</p>
+                    <div class="py-5">
+                        <button type="button" data-vote-toggle="${idx}" aria-expanded="false" class="w-full text-left flex items-start justify-between gap-3 group cursor-pointer">
+                            <div class="min-w-0">
+                                <p class="text-sm sm:text-base font-medium text-ink group-hover:text-commonsGreen transition-colors">${escapeHtmlClient(v.title)}</p>
+                                <p class="text-xs text-inkTertiary mt-1 flex flex-wrap items-center gap-x-2">
+                                    <span>${escapeHtmlClient(v.houseResult || '')}${v.sittingDateLabel ? ` &middot; ${escapeHtmlClient(v.sittingDateLabel)}` : ''}</span>
+                                    ${hasExplainer ? `<span class="text-commonsGreen font-medium inline-flex items-center gap-0.5"><span data-vote-hint="${idx}">Explain vote</span> <svg data-vote-chevron="${idx}" class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></span>` : ''}
+                                </p>
                             </div>
                             <span class="px-3 py-1 rounded-full text-xs font-medium border shrink-0 ${badgeClass}">
                                 ${escapeHtmlClient(badgeLabel)}
                             </span>
-                        </div>
-                        ${v.explainer?.whatItDoes ? `<p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">${escapeHtmlClient(v.explainer.whatItDoes)}</p>` : ''}
+                        </button>
+
+                        ${hasExplainer ? `
+                            <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-2.5 text-xs sm:text-sm">
+                                ${v.explainer?.whatItDoes ? `<p class="text-ink leading-relaxed">${escapeHtmlClient(v.explainer.whatItDoes)}</p>` : ''}
+                                ${voteMeaning ? `<p class="text-inkSecondary"><strong class="font-semibold text-ink">What their vote meant:</strong> ${escapeHtmlClient(voteMeaning)}</p>` : ''}
+                                ${!voteMeaning && v.explainer?.whatAyeMeans ? `<p class="text-inkSecondary"><strong class="font-semibold text-ink">Aye:</strong> ${escapeHtmlClient(v.explainer.whatAyeMeans)}</p>` : ''}
+                                ${!voteMeaning && v.explainer?.whatNoMeans ? `<p class="text-inkSecondary"><strong class="font-semibold text-ink">No:</strong> ${escapeHtmlClient(v.explainer.whatNoMeans)}</p>` : ''}
+                                ${v.explainer?.parliamentUrl ? `<a href="${escapeHtmlClient(v.explainer.parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline pt-0.5">View official Commons division record &rarr;</a>` : ''}
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             }).join('');
+
+            els.votingRecordsList.querySelectorAll('button[data-vote-toggle]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const idx = btn.getAttribute('data-vote-toggle');
+                    const panel = els.votingRecordsList.querySelector(`[data-vote-panel="${idx}"]`);
+                    const chevron = els.votingRecordsList.querySelector(`[data-vote-chevron="${idx}"]`);
+                    const hint = els.votingRecordsList.querySelector(`[data-vote-hint="${idx}"]`);
+                    if (!panel) return;
+
+                    const isOpen = !panel.classList.contains('hidden');
+                    panel.classList.toggle('hidden', isOpen);
+                    btn.setAttribute('aria-expanded', String(!isOpen));
+                    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+                    if (hint) hint.textContent = isOpen ? 'Explain vote' : 'Hide explainer';
+                });
+            });
         }
 
         function renderBriefingView(mp, briefing) {
@@ -1266,39 +1304,51 @@
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
-                    const [bioRes, latestRes, interestsRes, seatSearchRes] = await Promise.all([
+                    const [bioRes, latestRes, interestsRes] = await Promise.all([
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`).catch(() => null),
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`).catch(() => null),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`).catch(() => null),
-                        seat && seat !== 'UK Constituency'
-                            ? fetch(`https://members-api.parliament.uk/api/Location/Constituency/Search?searchText=${encodeURIComponent(seat)}&take=10`).catch(() => null)
-                            : Promise.resolve(null)
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`).catch(() => null)
                     ]);
 
                     const bioJson = bioRes && bioRes.ok ? await bioRes.json() : null;
                     const latestJson = latestRes && latestRes.ok ? await latestRes.json() : null;
                     const interestsJson = interestsRes && interestsRes.ok ? await interestsRes.json() : null;
-                    const seatSearchJson = seatSearchRes && seatSearchRes.ok ? await seatSearchRes.json() : null;
 
                     const bio = bioJson?.value || null;
                     const latestElection = latestJson?.value || null;
                     const reps = Array.isArray(bio?.representations) ? bio.representations : [];
 
-                    const matchedSeats = Array.isArray(seatSearchJson?.items)
-                        ? seatSearchJson.items.map(it => it?.value || it).filter(Boolean)
-                        : (Array.isArray(seatSearchJson?.value) ? seatSearchJson.value : []);
+                    // Look up all constituency IDs (current + historical boundary versions) for every seat this MP has represented
+                    const uniqueSeatNames = [...new Set(
+                        [seat, ...reps.map(r => r?.name).filter(Boolean)]
+                            .filter(s => s && s !== 'UK Constituency')
+                    )];
 
                     const seatMetaById = new Map();
-                    for (const s of matchedSeats) {
-                        const sId = Number(s?.id);
-                        if (sId) seatMetaById.set(sId, s.name || seat);
-                    }
                     for (const rep of reps) {
                         const cId = Number(rep?.constituencyId);
-                        if (cId && !seatMetaById.has(cId)) {
-                            seatMetaById.set(cId, rep.name || seat);
-                        }
+                        if (cId) seatMetaById.set(cId, rep.name || seat);
                     }
+
+                    await Promise.all(uniqueSeatNames.map(async (seatQuery) => {
+                        try {
+                            const sRes = await fetch(
+                                `https://members-api.parliament.uk/api/Location/Constituency/Search?searchText=${encodeURIComponent(seatQuery)}&take=10`
+                            );
+                            if (sRes.ok) {
+                                const sJson = await sRes.json();
+                                const matchedSeats = Array.isArray(sJson?.items)
+                                    ? sJson.items.map(it => it?.value || it).filter(Boolean)
+                                    : (Array.isArray(sJson?.value) ? sJson.value : []);
+                                for (const s of matchedSeats) {
+                                    const sId = Number(s?.id);
+                                    if (sId && !seatMetaById.has(sId)) {
+                                        seatMetaById.set(sId, s.name || seatQuery);
+                                    }
+                                }
+                            }
+                        } catch {}
+                    }));
 
                     const electionResultsBySeat = new Map();
                     await Promise.all(Array.from(seatMetaById.keys()).map(async (cId) => {
@@ -1317,11 +1367,12 @@
                     const candidateWins = [];
                     const seenSeatElection = new Set();
 
-                    // Only attribute an election win when it corresponds to the start of one of the MP's actual representation stints
+                    // Match elections that fell within each representation period (repStart - 21d to repEnd + 3d)
                     for (const rep of reps) {
                         const repSeatName = (rep?.name || seat).trim();
                         const repSeatLower = repSeatName.toLowerCase();
                         const repStart = rep?.startDate ? new Date(rep.startDate).getTime() : NaN;
+                        const repEnd = rep?.endDate ? new Date(rep.endDate).getTime() : Date.now();
                         if (!Number.isFinite(repStart)) continue;
 
                         const candidateSeatIds = new Set();
@@ -1337,8 +1388,7 @@
                             for (const er of seatResults) {
                                 if (!er?.electionDate) continue;
                                 const t = new Date(er.electionDate).getTime();
-                                // Election win that started this representation occurs within 21 days before or up to 3 days after rep.startDate
-                                if (t >= repStart - 21 * 86400000 && t <= repStart + 3 * 86400000) {
+                                if (t >= repStart - 21 * 86400000 && t <= repEnd + 3 * 86400000) {
                                     const dateKey = String(er.electionDate).slice(0, 10);
                                     const key = `${repSeatLower}-${dateKey}`;
                                     if (seenSeatElection.has(key)) continue;

@@ -184,13 +184,13 @@
             <!-- 1. MP Identity Header -->
             <header class="pb-8 border-b border-hairline">
                 <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                    <div class="flex items-start gap-4 sm:gap-5">
+                    <div class="flex items-center gap-5 sm:gap-6">
                         <!-- Circular Portrait (Shown on Profile tab) -->
                         <img
                             id="mpProfileAvatar"
                             src=""
                             alt=""
-                            class="hidden w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover object-top border border-hairline bg-surfaceSubtle shrink-0"
+                            class="hidden w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover object-top border border-hairline bg-surfaceSubtle shrink-0"
                         >
                         <div>
                             <div class="flex items-center gap-2 text-xs font-medium text-inkSecondary mb-2.5">
@@ -208,6 +208,8 @@
                                 <span id="mpRole">MP for South Holland and The Deepings</span>
                                 <span id="activityDot" class="text-inkTertiary">&middot;</span>
                                 <span id="activityBadge" class="text-inkTertiary">2 Votes</span>
+                                <span id="profileServiceDot" class="hidden text-inkTertiary">&middot;</span>
+                                <span id="profileServiceBadge" class="hidden text-inkSecondary"></span>
                             </p>
                         </div>
                     </div>
@@ -357,33 +359,6 @@
 
             <!-- TAB 2: MP PROFILE VIEW -->
             <div id="profileTabPanel" class="hidden py-10 space-y-10 fade-in">
-                <section>
-                    <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-5">
-                        Member Details
-                    </h2>
-                    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-5 gap-x-8 border-t border-b border-hairline py-6 text-sm">
-                        <div>
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Full Name &amp; Title</dt>
-                            <dd id="profileFullName" class="text-ink font-medium">—</dd>
-                        </div>
-                        <div>
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Constituency</dt>
-                            <dd id="profileConstituency" class="text-ink font-medium">—</dd>
-                        </div>
-                        <div>
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Party</dt>
-                            <dd id="profileParty" class="text-ink font-medium">—</dd>
-                        </div>
-                        <div>
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">First Elected</dt>
-                            <dd id="profileMemberSince" class="text-ink font-medium">—</dd>
-                        </div>
-                        <div class="sm:col-span-2">
-                            <dt class="text-xs uppercase tracking-wider text-inkTertiary mb-1">Current Parliamentary / Government Role</dt>
-                            <dd id="profileRole" class="text-ink font-medium">—</dd>
-                        </div>
-                    </dl>
-                </section>
 
                 <!-- Election Wins & Majorities -->
                 <section id="profileElectionsSection" class="hidden">
@@ -513,6 +488,8 @@
             mpRole: document.getElementById('mpRole'),
             activityDot: document.getElementById('activityDot'),
             activityBadge: document.getElementById('activityBadge'),
+            profileServiceDot: document.getElementById('profileServiceDot'),
+            profileServiceBadge: document.getElementById('profileServiceBadge'),
             watchlistToggleBtn: document.getElementById('watchlistToggleBtn'),
             watchlistIcon: document.getElementById('watchlistIcon'),
             watchlistLabel: document.getElementById('watchlistLabel'),
@@ -1097,6 +1074,38 @@
             renderVotingSection(briefing.votes);
         }
 
+        function formatCumulativeService(representations) {
+            const intervals = (Array.isArray(representations) ? representations : [])
+                .map(r => {
+                    const start = r.startDate ? new Date(r.startDate).getTime() : NaN;
+                    const end = r.endDate ? new Date(r.endDate).getTime() : Date.now();
+                    return Number.isFinite(start) && end > start ? [start, end] : null;
+                })
+                .filter(Boolean)
+                .sort((a, b) => a[0] - b[0]);
+
+            if (intervals.length === 0) return '';
+
+            const merged = [intervals[0]];
+            for (let i = 1; i < intervals.length; i++) {
+                const last = merged[merged.length - 1];
+                if (intervals[i][0] <= last[1]) {
+                    last[1] = Math.max(last[1], intervals[i][1]);
+                } else {
+                    merged.push(intervals[i]);
+                }
+            }
+
+            const totalMs = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
+            const totalMonths = Math.floor(totalMs / (1000 * 60 * 60 * 24 * 30.4375));
+            const years = Math.floor(totalMonths / 12);
+            const months = totalMonths % 12;
+
+            if (years === 0) return `${Math.max(1, months)} ${months === 1 ? 'month' : 'months'} in Parliament`;
+            if (months === 0) return `${years} ${years === 1 ? 'year' : 'years'} in Parliament`;
+            return `${years} ${years === 1 ? 'year' : 'years'}, ${months} ${months === 1 ? 'month' : 'months'} in Parliament`;
+        }
+
         async function loadAndRenderProfile(mp) {
             const seat = getConstituencyName(mp);
             const id = Number(mp.parliament_member_id);
@@ -1104,14 +1113,6 @@
             els.mpProfileAvatar.src = `https://members-api.parliament.uk/api/Members/${id}/Portrait?cropType=OneOne&webVersion=true`;
             els.mpProfileAvatar.alt = mp.full_name || 'MP Portrait';
             els.mpProfileAvatar.onerror = () => { els.mpProfileAvatar.classList.add('hidden'); };
-
-            document.getElementById('profileFullName').textContent = mp.full_name || '—';
-            document.getElementById('profileConstituency').textContent = seat;
-            document.getElementById('profileParty').textContent = mp.party || '—';
-            document.getElementById('profileMemberSince').textContent = mp.member_since
-                ? new Date(mp.member_since).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-                : 'Current Parliament';
-            document.getElementById('profileRole').textContent = mp.role_title || `MP for ${seat}`;
 
             document.getElementById('profileContactLink').href = `https://members.parliament.uk/member/${id}/contact`;
             document.getElementById('profileVotingLink').href = `https://members.parliament.uk/member/${id}/voting`;
@@ -1124,6 +1125,7 @@
             const committeesBlock = document.getElementById('profileCommitteesBlock');
             const interestsSection = document.getElementById('profileInterestsSection');
 
+            els.profileServiceBadge.textContent = '';
             electionsSection.classList.add('hidden');
             careerSection.classList.add('hidden');
             postsBlock.classList.add('hidden');
@@ -1133,23 +1135,109 @@
             let extra = state.profileCache.get(id);
             if (!extra) {
                 try {
-                    const [bioRes, interestsRes] = await Promise.all([
+                    const [bioRes, historyRes, interestsRes] = await Promise.all([
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`),
+                        fetch(`https://members-api.parliament.uk/api/Members/${id}/History`),
                         fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`)
                     ]);
                     const bioJson = bioRes.ok ? await bioRes.json() : null;
+                    const historyJson = historyRes.ok ? await historyRes.json() : null;
                     const interestsJson = interestsRes.ok ? await interestsRes.json() : null;
+
+                    const bio = bioJson?.value || null;
+                    const history = historyJson?.value || null;
+                    const reps = Array.isArray(history?.representations)
+                        ? history.representations
+                        : (Array.isArray(bio?.representations) ? bio.representations : []);
+
+                    const uniqueConstituencyIds = [...new Set(reps.map(r => r.constituencyId).filter(Boolean))];
+                    const electionResultsBySeat = new Map();
+                    await Promise.all(uniqueConstituencyIds.map(async (cId) => {
+                        try {
+                            const r = await fetch(`https://members-api.parliament.uk/api/Location/Constituency/${cId}/ElectionResults`);
+                            if (r.ok) {
+                                const j = await r.json();
+                                electionResultsBySeat.set(cId, Array.isArray(j?.value) ? j.value : []);
+                            }
+                        } catch {}
+                    }));
+
                     extra = {
-                        bio: bioJson?.value || null,
+                        bio,
+                        reps,
+                        electionResultsBySeat,
                         interests: Array.isArray(interestsJson?.value) ? interestsJson.value : []
                     };
                     state.profileCache.set(id, extra);
                 } catch {
-                    extra = { bio: null, interests: [] };
+                    extra = { bio: null, reps: [], electionResultsBySeat: new Map(), interests: [] };
                 }
             }
 
             if (state.currentMp?.parliament_member_id !== mp.parliament_member_id) return;
+
+            const serviceText = formatCumulativeService(extra.reps);
+            if (serviceText) {
+                els.profileServiceBadge.textContent = serviceText;
+                if (state.currentTab === 'profile') {
+                    els.profileServiceDot.classList.remove('hidden');
+                    els.profileServiceBadge.classList.remove('hidden');
+                }
+            }
+
+            const winRows = [];
+            for (const rep of extra.reps) {
+                const seatResults = extra.electionResultsBySeat.get(rep.constituencyId) || [];
+                const repStart = rep.startDate ? new Date(rep.startDate).getTime() : 0;
+                const repEnd = rep.endDate ? new Date(rep.endDate).getTime() : Date.now();
+
+                const matchingElections = seatResults.filter(er => {
+                    if (!er.electionDate) return false;
+                    const t = new Date(er.electionDate).getTime();
+                    return t >= repStart - 14 * 86400000 && t <= repEnd;
+                });
+
+                if (matchingElections.length > 0) {
+                    for (const er of matchingElections) {
+                        winRows.push({
+                            electionDate: er.electionDate,
+                            electionTitle: er.electionTitle || 'General Election',
+                            constituencyName: rep.name || seat,
+                            majority: typeof er.majority === 'number' ? er.majority : null
+                        });
+                    }
+                } else if (rep.startDate) {
+                    winRows.push({
+                        electionDate: rep.startDate,
+                        electionTitle: rep.additionalInfo || 'Elected to House of Commons',
+                        constituencyName: rep.name || seat,
+                        majority: null
+                    });
+                }
+            }
+
+            winRows.sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
+
+            if (winRows.length > 0) {
+                document.getElementById('profileElectionsList').innerHTML = winRows.map(w => {
+                    const dateLabel = w.electionDate
+                        ? new Date(w.electionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                        : '';
+                    const majorityText = typeof w.majority === 'number'
+                        ? `Majority: ${w.majority.toLocaleString('en-GB')}`
+                        : '';
+                    return `
+                        <li class="py-3.5 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <p class="font-medium text-ink">${escapeHtmlClient(w.constituencyName || seat)}</p>
+                                <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionTitle)}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
+                            </div>
+                            ${majorityText ? `<span class="px-2.5 py-1 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink">${escapeHtmlClient(majorityText)}</span>` : ''}
+                        </li>
+                    `;
+                }).join('');
+                electionsSection.classList.remove('hidden');
+            }
 
             const bio = extra.bio;
             if (bio) {
@@ -1158,32 +1246,6 @@
                     const endY = e ? new Date(e).getFullYear() : 'Present';
                     return startY ? `${startY} – ${endY}` : '';
                 };
-
-                const allElections = Array.isArray(bio.electionsContested) ? bio.electionsContested : [];
-                const wins = allElections
-                    .filter(e => e.isWin !== false)
-                    .sort((a, b) => new Date(b.electionDate || 0) - new Date(a.electionDate || 0));
-
-                if (wins.length > 0) {
-                    document.getElementById('profileElectionsList').innerHTML = wins.map(w => {
-                        const dateLabel = w.electionDate
-                            ? new Date(w.electionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-                            : '';
-                        const majorityText = typeof w.majority === 'number'
-                            ? `Majority: ${w.majority.toLocaleString('en-GB')}`
-                            : '';
-                        return `
-                            <li class="py-3.5 flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                    <p class="font-medium text-ink">${escapeHtmlClient(w.constituencyName || seat)}</p>
-                                    <p class="text-xs text-inkSecondary mt-0.5">${escapeHtmlClient(w.electionTitle || 'General Election')}${dateLabel ? ` &middot; ${escapeHtmlClient(dateLabel)}` : ''}</p>
-                                </div>
-                                ${majorityText ? `<span class="px-2.5 py-1 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink">${escapeHtmlClient(majorityText)}</span>` : ''}
-                            </li>
-                        `;
-                    }).join('');
-                    electionsSection.classList.remove('hidden');
-                }
 
                 const posts = [
                     ...(Array.isArray(bio.governmentPosts) ? bio.governmentPosts : []),
@@ -1358,6 +1420,10 @@
             els.activityDot.classList.toggle('hidden', !isBriefing);
             els.activityBadge.classList.toggle('hidden', !isBriefing);
             els.mpProfileAvatar.classList.toggle('hidden', isBriefing);
+
+            const hasService = Boolean(els.profileServiceBadge.textContent);
+            els.profileServiceDot.classList.toggle('hidden', isBriefing || !hasService);
+            els.profileServiceBadge.classList.toggle('hidden', isBriefing || !hasService);
 
             els.tabBriefingBtn.className = isBriefing
                 ? 'px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors'

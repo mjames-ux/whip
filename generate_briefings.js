@@ -251,34 +251,50 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
     const cleanNarrative = String(narrative || '').trim();
     if (!speeches || speeches.length === 0) return cleanNarrative;
 
+    const primaryDebate = speeches[0]?.debateTitle ? ` during proceedings on ${speeches[0].debateTitle}` : '';
+    const fallbackContextLine = `Addressing the House${primaryDebate}, they said:`;
     const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
     const quoteMatches = [...cleanNarrative.matchAll(/[“"]([^”"]+)[”"]/g)];
 
     if (quoteMatches.length > 0) {
-        const allValid = quoteMatches.every(m => {
+        const firstValidMatch = quoteMatches.find(m => {
             const q = m[1].trim();
             const isCompleteSentence = /[.!?]$/.test(q) && !q.includes('...');
             const isExactSubstring = fullTranscriptNorm.includes(normalizeForQuoteMatch(q));
             return isCompleteSentence && isExactSubstring;
         });
 
-        if (allValid) {
-            return cleanNarrative;
+        if (firstValidMatch) {
+            const exactQuote = firstValidMatch[1].trim();
+            const proseWithoutQuotes = cleanNarrative
+                .replace(/\s*[“"][^”"]+[”"]\s*/g, ' ')
+                .replace(/\s+([.,;:!?])/g, '$1')
+                .replace(/\n{3,}/g, '\n\n')
+                .replace(/[ \t]{2,}/g, ' ')
+                .trim();
+
+            const paras = proseWithoutQuotes.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+            if (paras.length === 0) {
+                return `${fallbackContextLine}\n\n“${exactQuote}”`;
+            }
+            const firstPara = paras[0];
+            const restParas = paras.slice(1);
+            return [firstPara, `“${exactQuote}”`, ...restParas].join('\n\n');
         }
 
         const withoutBadQuotes = cleanNarrative
             .replace(/\s*[“"][^”"]+[”"]\s*/g, ' ')
-            .replace(/\s+\./g, '.')
-            .replace(/\s{2,}/g, ' ')
+            .replace(/\s+([.,;:!?])/g, '$1')
+            .replace(/[ \t]{2,}/g, ' ')
             .trim();
 
         return fallbackQuote
-            ? `${withoutBadQuotes}\n\nIn the Chamber, they said: “${fallbackQuote}”`
+            ? `${withoutBadQuotes}\n\n${fallbackContextLine}\n\n“${fallbackQuote}”`
             : withoutBadQuotes;
     }
 
     return fallbackQuote
-        ? `${cleanNarrative}\n\nDuring the debate, they told the House: “${fallbackQuote}”`
+        ? `${cleanNarrative}\n\n${fallbackContextLine}\n\n“${fallbackQuote}”`
         : cleanNarrative;
 }
 
@@ -822,10 +838,10 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
     const prompt = `Impartial UK parliamentary correspondent for Whip. Brief on ${mp.full_name} (${mp.party}, ${mp.role_title}) on ${readableDate}.
 Rules:
 - Plain English for all readers. Short paragraphs (2–3 sentences each), separated by \\n\\n.
-- Strictly neutral, non-partisan tone. Never praise, criticise, or speculate.
+- Strictly neutral, non-partisan tone. Never praise, criticise, or speculate about motives.
 - Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
-- If Chamber Speeches exist, include ONE exact, word-for-word complete sentence from the speech in "summary_para_1" inside double quotes ("..."). Never alter or cut off words inside quotes.
-- Return 2–3 short paragraphs in "summary_para_1", 1 short 2–3 sentence "Why this matters" paragraph in "summary_para_2", and 0–2 entries in "glossary".
+- Verbatim Quote & Context Rule (CRITICAL): If Chamber Speeches exist, first write a short, strictly factual paragraph introducing the specific debate, bill, or question ${mp.short_name} was addressing (using only facts in the Context below, never inventing meaning). Then place ONE exact, word-for-word complete substantive sentence from the speech in its OWN separate paragraph enclosed in double quotes ("..."). Never alter, paraphrase, or cut off words inside quotes.
+- Return 2–4 short paragraphs in "summary_para_1" (with the verbatim quote as its own standalone paragraph), 1 short 2–3 sentence "Why this matters" paragraph in "summary_para_2", and 0–2 entries in "glossary".
 
 Context:
 ${govRole ? `Role: ${govRole.postTitle}` : ''}
@@ -1163,7 +1179,7 @@ export async function generateBriefings() {
                         const topics = [...new Set(speeches.map(s => s.debateTitle))].slice(0, 2);
                         activityTag = topics[0].slice(0, 42);
                         const quotePara = verbatimExcerpt
-                            ? `\n\nDuring the debate, ${mp.short_name} told the House: “${verbatimExcerpt}”`
+                            ? `\n\n“${verbatimExcerpt}”`
                             : '';
                         summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber during proceedings on ${topics.join(' and ')}.${quotePara}${votePara}`;
                         summaryPara2 = `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;

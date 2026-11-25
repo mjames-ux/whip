@@ -223,13 +223,25 @@
                                 <span id="briefingShareLabel">Share</span>
                             </button>
 
-                            <div id="briefingShareMenu" class="hidden absolute right-0 mt-2 w-52 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs">
+                            <div id="briefingShareMenu" class="hidden absolute right-0 mt-2 w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs">
                                 <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
                                     Share briefing via Whip.
                                 </p>
+                                <button type="button" data-share-channel="whatsapp" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on WhatsApp</span>
+                                    <span class="text-commonsGreen font-semibold text-[11px]">WA</span>
+                                </button>
                                 <button type="button" data-share-channel="x" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
                                     <span class="font-medium">Share on X</span>
                                     <span class="text-inkTertiary font-mono text-[11px]">𝕏</span>
+                                </button>
+                                <button type="button" data-share-channel="bluesky" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on Bluesky</span>
+                                    <span class="text-inkTertiary font-medium text-[11px]">🦋</span>
+                                </button>
+                                <button type="button" data-share-channel="threads" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on Threads</span>
+                                    <span class="text-inkTertiary font-semibold text-[11px]">@</span>
                                 </button>
                                 <button type="button" data-share-channel="facebook" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
                                     <span class="font-medium">Share on Facebook</span>
@@ -765,9 +777,30 @@
         async function executeShareAction(channel, payload, copyLabelEl, menuEl, triggerEl) {
             const { url, text } = payload;
 
+            if (channel === 'whatsapp') {
+                const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(`${text}\n\n${url}`)}`;
+                window.open(waUrl, '_blank', 'noopener,noreferrer');
+                closeAllShareMenus();
+                return;
+            }
+
             if (channel === 'x') {
                 const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
                 window.open(intentUrl, '_blank', 'noopener,noreferrer,width=600,height=480');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'bluesky') {
+                const bskyUrl = `https://bsky.app/intent/compose?text=${encodeURIComponent(`${text}\n\n${url}`)}`;
+                window.open(bskyUrl, '_blank', 'noopener,noreferrer,width=600,height=520');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'threads') {
+                const threadsUrl = `https://www.threads.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+                window.open(threadsUrl, '_blank', 'noopener,noreferrer,width=600,height=540');
                 closeAllShareMenus();
                 return;
             }
@@ -1325,13 +1358,25 @@
                             </svg>
                             <span>Share vote</span>
                         </button>
-                        <div data-share-menu data-vote-share-menu="${idx}" class="hidden absolute right-0 bottom-full mb-2 w-52 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs text-left">
+                        <div data-share-menu data-vote-share-menu="${idx}" class="hidden absolute right-0 bottom-full mb-2 w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs text-left">
                             <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
                                 Share MP vote via Whip.
                             </p>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="whatsapp" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on WhatsApp</span>
+                                <span class="text-commonsGreen font-semibold text-[11px]">WA</span>
+                            </button>
                             <button type="button" data-vote-share-action="${idx}" data-share-channel="x" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
                                 <span class="font-medium">Share on X</span>
                                 <span class="text-inkTertiary font-mono text-[11px]">𝕏</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="bluesky" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on Bluesky</span>
+                                <span class="text-inkTertiary font-medium text-[11px]">🦋</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="threads" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on Threads</span>
+                                <span class="text-inkTertiary font-semibold text-[11px]">@</span>
                             </button>
                             <button type="button" data-vote-share-action="${idx}" data-share-channel="facebook" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
                                 <span class="font-medium">Share on Facebook</span>
@@ -1414,7 +1459,7 @@
                 });
             });
 
-            // Per-vote Share channel actions (X, Facebook, Copy Link)
+            // Per-vote Share channel actions (WhatsApp, X, Bluesky, Threads, Facebook, Copy Link)
             els.votingRecordsList.querySelectorAll('button[data-vote-share-action]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     e.stopPropagation();

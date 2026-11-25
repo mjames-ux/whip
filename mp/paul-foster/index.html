@@ -166,7 +166,7 @@
         <!-- STAGE 2: Editorial Briefing Workspace -->
         <article id="briefingWorkspace" class="py-10 sm:py-14 fade-in">
 
-            <!-- Top Controls Row: Briefing vs Profile + Sitting Day Pills + 8-Week Archive Picker -->
+            <!-- Top Controls Row: Briefing vs Profile + Sitting Day Pills + Archive Dropdown -->
             <div class="flex flex-wrap items-center justify-between gap-3 mb-7">
                 <div class="inline-flex items-center p-0.5 rounded-full bg-surfaceSubtle border border-hairline">
                     <button id="tabBriefingBtn" type="button" class="px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors">
@@ -177,13 +177,13 @@
                     </button>
                 </div>
 
-                <!-- Day Selector Pills + 8-Week Archive Dropdown (hidden on Profile tab) -->
-                <div id="dateControlsWrap" class="flex flex-wrap items-center gap-1.5">
+                <!-- Day Selector Pills + Archive Dropdown (hidden on Profile tab) -->
+                <div id="dateControlsWrap" class="flex flex-wrap items-center gap-3">
                     <div id="datePillsContainer" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
                     <select
                         id="archiveDateSelect"
-                        aria-label="Browse past 8 weeks"
-                        class="hidden px-2.5 py-1 rounded-full text-xs font-medium bg-surfaceSubtle border border-hairline text-inkSecondary hover:text-ink focus:outline-none focus:border-ink/40 cursor-pointer"
+                        aria-label="Browse past 8 weeks archive"
+                        class="hidden px-3 py-1 rounded-full text-xs font-medium bg-surfaceSubtle border border-hairline text-inkSecondary hover:text-ink focus:outline-none focus:border-ink/40 cursor-pointer"
                     ></select>
                 </div>
             </div>
@@ -1140,7 +1140,6 @@ Understanding these votes helps track the government&#39;s legislative agenda an
                     if (target && target !== state.selectedDate) {
                         state.selectedDate = target;
                         renderDatePills();
-                        renderArchiveSelector();
                         loadAndRenderBriefing();
                     }
                 });
@@ -1153,34 +1152,43 @@ Understanding these votes helps track the government&#39;s legislative agenda an
             const selectEl = els.archiveDateSelect;
             if (!selectEl) return;
 
-            const hasArchiveOptions = state.activeDates.length > 1 || state.weekGroups.size > 1;
-            if (!hasArchiveOptions) {
+            const currentMonday = getMondayOfWeek(getLondonTodayIso());
+            const earlierMondays = Array.from(state.weekGroups.keys())
+                .filter(monday => monday < currentMonday)
+                .sort()
+                .reverse();
+            const earlierDays = state.activeDates.filter(d => getMondayOfWeek(d) < currentMonday);
+
+            if (earlierMondays.length === 0 && earlierDays.length === 0) {
                 selectEl.classList.add('hidden');
                 return;
             }
 
             selectEl.classList.remove('hidden');
 
-            const weekMondays = Array.from(state.weekGroups.keys()).sort().reverse();
-            const weekOptions = weekMondays.map(monday => {
+            const weekOptions = earlierMondays.map(monday => {
                 const dates = state.weekGroups.get(monday) || [];
                 const val = `WEEK:${monday}`;
                 const label = `Week of ${formatWeekRangeLabel(dates)}`;
                 return `<option value="${escapeHtmlClient(val)}">${escapeHtmlClient(label)}</option>`;
             }).join('');
 
-            const dayOptions = state.activeDates.map(d => {
+            const dayOptions = earlierDays.map(d => {
                 return `<option value="${escapeHtmlClient(d)}">${escapeHtmlClient(formatFullDate(d))}</option>`;
             }).join('');
 
             selectEl.innerHTML = `
-                <option value="">Earlier (8 weeks)…</option>
-                <optgroup label="Weekly Summaries">${weekOptions}</optgroup>
-                <optgroup label="Daily Sittings">${dayOptions}</optgroup>
+                <option value="">Archive</option>
+                ${weekOptions ? `<optgroup label="Past Weeks">${weekOptions}</optgroup>` : ''}
+                ${dayOptions ? `<optgroup label="Past Sitting Days">${dayOptions}</optgroup>` : ''}
             `;
 
-            const matchesOption = Array.from(selectEl.options).some(opt => opt.value === state.selectedDate);
-            selectEl.value = matchesOption ? state.selectedDate : '';
+            const matchesArchiveOption = Array.from(selectEl.options).some(
+                opt => opt.value && opt.value === state.selectedDate
+            );
+            selectEl.value = matchesArchiveOption ? state.selectedDate : '';
+            selectEl.classList.toggle('border-ink/50', Boolean(matchesArchiveOption));
+            selectEl.classList.toggle('text-ink', Boolean(matchesArchiveOption));
         }
 
         function compileWeeklyBriefing(mp, weekDates, rows, weekMode = 'LAST') {

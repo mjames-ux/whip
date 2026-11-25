@@ -178,7 +178,7 @@
 
             <!-- Sitting Date & Context Line (Hidden on Profile tab) -->
             <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight mb-6">
-                Week in Parliament (23 Nov 2026)
+                Week in Parliament (23 Nov – 24 Nov 2026)
             </p>
 
             <!-- 1. MP Identity Header -->
@@ -221,7 +221,7 @@
                 <section aria-label="Parliamentary Briefing" class="py-10 border-b border-hairline">
                     <div class="space-y-6">
                         <div id="summaryNarrativeBody" class="space-y-4">
-                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Chris Ward did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of 23 Nov 2026.</p>
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Chris Ward did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of 23 Nov – 24 Nov 2026.</p>
                         <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Having a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.</p>
                         <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across 2 Commons votes held last week, no vote was recorded for Chris Ward—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.</p>
                         </div>
@@ -277,7 +277,7 @@
                                 <span aria-hidden="true">&rarr;</span>
                             </a>
                             <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
-                                Week of 23 Nov 2026
+                                Week of 23 Nov – 24 Nov 2026
                             </span>
                         </div>
                     </div>
@@ -1029,7 +1029,7 @@
             `).join('');
         }
 
-       function renderWrittenQuestionsSection(questions) {
+        function renderWrittenQuestionsSection(questions) {
             if (!questions || questions.length === 0) {
                 els.writtenQuestionsSection.classList.add('hidden');
                 return;
@@ -1096,6 +1096,7 @@
                 `;
             }).join('');
         }
+
         function renderVotingSection(votes) {
             if (!votes || votes.length === 0) {
                 els.voteCountBadge.textContent = '0 divisions';
@@ -1112,11 +1113,19 @@
                         : 'bg-surfaceSubtle text-inkSecondary border-hairline';
                 const badgeLabel = v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`;
 
-                const hasExplainer = Boolean(v.explainer?.whatItDoes || v.explainer?.whatAyeMeans || v.explainer?.whatNoMeans);
+                const exp = v.explainer || {};
+                const billSummary = String(exp.billSummary || '').trim();
+                const billAims = String(exp.billAims || exp.statedAims || '').trim();
+                const stageSummary = String(exp.whatItDoes || '').trim();
+                const ayeMeaning = String(exp.whatAyeMeans || '').trim();
+                const noMeaning = String(exp.whatNoMeans || '').trim();
+                const parliamentUrl = String(exp.parliamentUrl || '').trim();
+
+                const hasExplainer = Boolean(billSummary || billAims || stageSummary || ayeMeaning || noMeaning);
                 const voteMeaning = v.mpVote === 'Aye'
-                    ? v.explainer?.whatAyeMeans
+                    ? ayeMeaning
                     : v.mpVote === 'No'
-                        ? v.explainer?.whatNoMeans
+                        ? noMeaning
                         : null;
 
                 return `
@@ -1135,12 +1144,14 @@
                         </button>
 
                         ${hasExplainer ? `
-                            <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-2.5 text-xs sm:text-sm">
-                                ${v.explainer?.whatItDoes ? `<p class="text-ink leading-relaxed">${escapeHtmlClient(v.explainer.whatItDoes)}</p>` : ''}
-                                ${voteMeaning ? `<p class="text-inkSecondary"><strong class="font-semibold text-ink">What their vote meant:</strong> ${escapeHtmlClient(voteMeaning)}</p>` : ''}
-                                ${!voteMeaning && v.explainer?.whatAyeMeans ? `<p class="text-inkSecondary"><strong class="font-semibold text-ink">Aye:</strong> ${escapeHtmlClient(v.explainer.whatAyeMeans)}</p>` : ''}
-                                ${!voteMeaning && v.explainer?.whatNoMeans ? `<p class="text-inkSecondary"><strong class="font-semibold text-ink">No:</strong> ${escapeHtmlClient(v.explainer.whatNoMeans)}</p>` : ''}
-                                ${v.explainer?.parliamentUrl ? `<a href="${escapeHtmlClient(v.explainer.parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline pt-0.5">View official Commons division record &rarr;</a>` : ''}
+                            <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 sm:p-5 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-3 text-xs sm:text-sm text-inkSecondary leading-relaxed">
+                                ${billSummary ? `<p class="text-ink"><strong class="font-semibold">What the Bill does:</strong> ${escapeHtmlClient(billSummary)}</p>` : ''}
+                                ${billAims ? `<p><strong class="font-semibold text-ink">Stated aims of the Bill:</strong> ${escapeHtmlClient(billAims)}</p>` : ''}
+                                ${stageSummary ? `<p class="${billSummary || billAims ? 'text-inkSecondary' : 'text-ink'}">${escapeHtmlClient(stageSummary)}</p>` : ''}
+                                ${voteMeaning ? `<p><strong class="font-semibold text-ink">What their vote meant:</strong> ${escapeHtmlClient(voteMeaning)}</p>` : ''}
+                                ${!voteMeaning && ayeMeaning ? `<p><strong class="font-semibold text-ink">Aye:</strong> ${escapeHtmlClient(ayeMeaning)}</p>` : ''}
+                                ${!voteMeaning && noMeaning ? `<p><strong class="font-semibold text-ink">No:</strong> ${escapeHtmlClient(noMeaning)}</p>` : ''}
+                                ${parliamentUrl ? `<a href="${escapeHtmlClient(parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline pt-1">View official Commons division record &rarr;</a>` : ''}
                             </div>
                         ` : ''}
                     </div>

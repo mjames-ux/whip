@@ -24,6 +24,27 @@ const GEMINI_CONCURRENCY = 3;
 const PRIMARY_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 const FALLBACK_GEMINI_MODEL = 'gemini-3.8-flash';
 
+const BRIEFING_RESPONSE_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        activity_tag: { type: 'STRING' },
+        summary_para_1: { type: 'STRING' },
+        summary_para_2: { type: 'STRING' },
+        glossary: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: {
+                    term: { type: 'STRING' },
+                    plain: { type: 'STRING' }
+                },
+                required: ['term', 'plain']
+            }
+        }
+    },
+    required: ['activity_tag', 'summary_para_1', 'summary_para_2', 'glossary']
+};
+
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
     return String(val)
@@ -259,6 +280,23 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
     return fallbackQuote
         ? `${cleanNarrative}\n\nDuring the debate, they told the House: “${fallbackQuote}”`
         : cleanNarrative;
+}
+
+function attachMinisterialMeta(glossary, govRole, deptDigestCache) {
+    if (!govRole) return glossary;
+    const meta = {
+        _type: 'ministerial_meta',
+        postTitle: govRole.postTitle,
+        deptSlug: govRole.deptSlug,
+        deptName: govRole.deptName,
+        isWhip: govRole.isWhip,
+        deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
+    };
+    const list = Array.isArray(glossary) ? [...glossary] : [];
+    const idx = list.findIndex(g => g?._type === 'ministerial_meta');
+    if (idx >= 0) list[idx] = meta;
+    else list.unshift(meta);
+    return list;
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs = 20000) {
@@ -744,8 +782,9 @@ async function callGeminiModel(modelName, prompt) {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.2,
-                    maxOutputTokens: 650,
-                    responseMimeType: 'application/json'
+                    maxOutputTokens: 900,
+                    responseMimeType: 'application/json',
+                    responseSchema: BRIEFING_RESPONSE_SCHEMA
                 }
             }),
             signal: AbortSignal.timeout(30000)
@@ -770,7 +809,6 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
 
     const rankedSpeeches = [...speeches].sort((a, b) => b.text.length - a.text.length);
 
-    // Keep context concise to minimize input tokens while preserving substantive detail
     const speechDigest = rankedSpeeches
         .slice(0, 3)
         .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 700)}"`)
@@ -797,9 +835,7 @@ Rules:
 - Strictly neutral, non-partisan tone. Never praise, criticise, or speculate.
 - Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
 - If Chamber Speeches exist, include ONE exact, word-for-word complete sentence from the speech in "summary_para_1" inside double quotes ("..."). Never alter or cut off words inside quotes.
-
-Return ONLY valid JSON:
-{"activity_tag":"2-4 word label","summary_para_1":"2-3 short paragraphs separated by \\n\\n","summary_para_2":"1 short 2-3 sentence Why this matters paragraph","glossary":[{"term":"...","plain":"..."}]}
+- Return 2–3 short paragraphs in "summary_para_1", 1 short 2–3 sentence "Why this matters" paragraph in "summary_para_2", and 0–2 entries in "glossary".
 
 Context:
 ${govRole ? `Role: ${govRole.postTitle}` : ''}
@@ -838,7 +874,7 @@ ${voteDigest ? `Votes:\n${voteDigest}` : ''}`;
                     glossary: Array.isArray(parsed.glossary) ? parsed.glossary.slice(0, 2) : []
                 };
             } catch (err) {
-                const retryable = err?.name === 'TimeoutError' || err?.status === 429 || err?.status === 503 || err?.status === 404;
+                const retryable = err?.name === 'TimeoutError' || err?.status === 429 || err?.status === 503 || err?.status === 404 || err instanceof SyntaxError;
                 if (!retryable) {
                     if (geminiWarnCount < 5) {
                         geminiWarnCount += 1;
@@ -916,6 +952,7 @@ export async function generateBriefings() {
     const rowsToUpsert = [];
     const activeTasks = [];
     let reusedCount = 0;
+    let voteOnlyDeterministicCount = 0;
     let aiSuccessCount = 0;
 
     for (const mp of mps) {
@@ -969,14 +1006,7 @@ export async function generateBriefings() {
                             plain: 'The legal oath or affirmation of allegiance to the monarch required under the Parliamentary Oaths Act 1866 before an elected MP can sit or vote in the Commons.'
                         }
                     ]
-                    : (govRole ? [{
-                        _type: 'ministerial_meta',
-                        postTitle: govRole.postTitle,
-                        deptSlug: govRole.deptSlug,
-                        deptName: govRole.deptName,
-                        isWhip: govRole.isWhip,
-                        deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-                    }] : []),
+                    : attachMinisterialMeta([], govRole, deptDigestCache),
                 votes: [],
                 written_questions: [],
                 committee_sessions: []
@@ -984,13 +1014,12 @@ export async function generateBriefings() {
             continue;
         }
 
-        const hasSubstantiveActivity =
+        const hasNarrativeWork =
             speeches.length > 0 ||
             committees.length > 0 ||
-            writtenQuestions.length > 0 ||
-            activeVotes.length > 0;
+            writtenQuestions.length > 0;
 
-        if (!hasSubstantiveActivity) {
+        if (!hasNarrativeWork && activeVotes.length === 0) {
             let activityTag = '';
             let summaryPara1 = '';
             let summaryPara2 = '';
@@ -1027,20 +1056,6 @@ export async function generateBriefings() {
                 summaryPara2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
             }
 
-            if (govRole) {
-                glossary = [
-                    {
-                        _type: 'ministerial_meta',
-                        postTitle: govRole.postTitle,
-                        deptSlug: govRole.deptSlug,
-                        deptName: govRole.deptName,
-                        isWhip: govRole.isWhip,
-                        deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-                    },
-                    ...glossary
-                ];
-            }
-
             rowsToUpsert.push({
                 parliament_member_id: memberId,
                 sitting_date: targetDate,
@@ -1049,7 +1064,31 @@ export async function generateBriefings() {
                 summary_para_1: summaryPara1,
                 summary_para_2: summaryPara2,
                 verbatim_excerpt: null,
-                glossary,
+                glossary: attachMinisterialMeta(glossary, govRole, deptDigestCache),
+                votes: mpVotes,
+                written_questions: writtenQuestions,
+                committee_sessions: committees
+            });
+            continue;
+        }
+
+        // Vote-only MPs (no speeches, committees, or written questions) use deterministic text to save LLM tokens
+        if (!hasNarrativeWork && activeVotes.length > 0) {
+            voteOnlyDeterministicCount += 1;
+            const firstVote = activeVotes[0];
+            const activityTag = activeVotes.length === 1 ? '1 Division Vote' : `${activeVotes.length} Division Votes`;
+            const summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
+            const summaryPara2 = firstVote.explainer?.whatItDoes || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions.`;
+
+            rowsToUpsert.push({
+                parliament_member_id: memberId,
+                sitting_date: targetDate,
+                activity_tag: activityTag,
+                hansard_ref: `HC Deb ${shortRefDate}`,
+                summary_para_1: summaryPara1,
+                summary_para_2: summaryPara2,
+                verbatim_excerpt: null,
+                glossary: attachMinisterialMeta([], govRole, deptDigestCache),
                 votes: mpVotes,
                 written_questions: writtenQuestions,
                 committee_sessions: committees
@@ -1062,21 +1101,6 @@ export async function generateBriefings() {
             reusedCount += 1;
             const { hrsRef } = extractBestVerbatimQuote(speeches, 360);
             const hansardRef = hrsRef ? `HC Deb ${shortRefDate} • ${hrsRef}` : `HC Deb ${shortRefDate}`;
-            let glossary = Array.isArray(existingRow.glossary) ? [...existingRow.glossary] : [];
-
-            if (govRole) {
-                const updatedMeta = {
-                    _type: 'ministerial_meta',
-                    postTitle: govRole.postTitle,
-                    deptSlug: govRole.deptSlug,
-                    deptName: govRole.deptName,
-                    isWhip: govRole.isWhip,
-                    deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-                };
-                const idx = glossary.findIndex(g => g?._type === 'ministerial_meta');
-                if (idx >= 0) glossary[idx] = updatedMeta;
-                else glossary = [updatedMeta, ...glossary];
-            }
 
             rowsToUpsert.push({
                 parliament_member_id: memberId,
@@ -1086,7 +1110,7 @@ export async function generateBriefings() {
                 summary_para_1: existingRow.summary_para_1,
                 summary_para_2: existingRow.summary_para_2 || '',
                 verbatim_excerpt: existingRow.verbatim_excerpt || null,
-                glossary,
+                glossary: attachMinisterialMeta(existingRow.glossary, govRole, deptDigestCache),
                 votes: mpVotes,
                 written_questions: writtenQuestions,
                 committee_sessions: committees
@@ -1165,32 +1189,13 @@ export async function generateBriefings() {
                         activityTag = answeredQs.length === 1 ? 'Answered 1 Written Question' : `Answered ${answeredQs.length} Written Questions`;
                         summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}.${votePara}`;
                         summaryPara2 = `Ministers provide formal written replies to MPs' parliamentary questions on behalf of their department, placing policy details and official figures on the public record.`;
-                    } else if (askedQs.length > 0) {
+                    } else {
                         const depts = [...new Set(askedQs.map(q => q.department))];
                         const topics = [...new Set(askedQs.map(q => q.heading))].slice(0, 3);
                         activityTag = askedQs.length === 1 ? '1 Written Question' : `${askedQs.length} Written Questions`;
                         summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}.${votePara}`;
                         summaryPara2 = `Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.`;
-                    } else {
-                        activityTag = activeVotes.length === 1 ? '1 Division Vote' : `${activeVotes.length} Division Votes`;
-                        const firstVote = activeVotes[0];
-                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
-                        summaryPara2 = firstVote.explainer?.whatItDoes || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions.`;
                     }
-                }
-
-                if (govRole) {
-                    glossary = [
-                        {
-                            _type: 'ministerial_meta',
-                            postTitle: govRole.postTitle,
-                            deptSlug: govRole.deptSlug,
-                            deptName: govRole.deptName,
-                            isWhip: govRole.isWhip,
-                            deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-                        },
-                        ...glossary
-                    ];
                 }
 
                 return {
@@ -1201,7 +1206,7 @@ export async function generateBriefings() {
                     summary_para_1: summaryPara1,
                     summary_para_2: summaryPara2,
                     verbatim_excerpt: verbatimExcerpt,
-                    glossary,
+                    glossary: attachMinisterialMeta(glossary, govRole, deptDigestCache),
                     votes: mpVotes,
                     written_questions: writtenQuestions,
                     committee_sessions: committees
@@ -1226,7 +1231,7 @@ export async function generateBriefings() {
 
     console.log(
         `[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${targetDate} ` +
-        `(${reusedCount} reused from cache, ${aiSuccessCount}/${activeTasks.length} new Gemini summaries).`
+        `(${reusedCount} reused from cache, ${voteOnlyDeterministicCount} vote-only deterministic, ${aiSuccessCount}/${activeTasks.length} new Gemini summaries).`
     );
 }
 

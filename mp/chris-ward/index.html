@@ -223,10 +223,14 @@
                                 <span id="briefingShareLabel">Share</span>
                             </button>
 
-                            <div id="briefingShareMenu" class="hidden fixed sm:absolute left-5 right-5 sm:left-auto sm:right-0 mt-2 sm:w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs">
+                            <div id="briefingShareMenu" class="hidden fixed left-5 right-5 sm:static sm:absolute sm:inset-auto sm:mt-2 sm:w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs">
                                 <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
                                     Share briefing via Whip.
                                 </p>
+                                <button type="button" data-share-channel="native" class="hidden w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">More phone options…</span>
+                                    <span class="text-commonsGreen font-semibold text-[11px]">Share</span>
+                                </button>
                                 <button type="button" data-share-channel="whatsapp" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
                                     <span class="font-medium">Share on WhatsApp</span>
                                     <span class="text-commonsGreen font-semibold text-[11px]">WA</span>
@@ -621,9 +625,14 @@
             }
 
             container.innerHTML = paragraphs.map(p => {
+                const isStandaloneQuote = /^[“"][^”"]+[”"]$/.test(p);
+                if (isStandaloneQuote) {
+                    return `<blockquote class="pl-4 border-l-2 border-hairline text-[17px] sm:text-[19px] leading-[1.75] text-ink italic font-normal tracking-[-0.01em]">${escapeHtmlClient(p)}</blockquote>`;
+                }
+
                 const formatted = escapeHtmlClient(p).replace(
                     /(“[^”]+”|&quot;[^&]+&quot;)/g,
-                    '<em class="font-editorial italic text-ink">$1</em>'
+                    '<em class="italic text-ink">$1</em>'
                 );
                 return `<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${formatted}</p>`;
             }).join('');
@@ -668,8 +677,45 @@
         }
 
         /* -------------------------------------------------------------
-           SHARE PAYLOADS, DEEP LINKS & SOCIAL POPOVER HANDLERS
+           SHARE PAYLOADS, NATIVE SHARE SHEET & SOCIAL POPOVER HANDLERS
         ------------------------------------------------------------- */
+        function canUseNativeShare() {
+            if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+                return false;
+            }
+            if (!window.isSecureContext) {
+                return false;
+            }
+            const isMobileViewport = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+            const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+            const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+            return Boolean(isMobileViewport || isCoarsePointer || isMobileUa);
+        }
+
+        async function tryNativeShare(payload) {
+            if (!canUseNativeShare()) return { handled: false };
+            try {
+                await navigator.share({
+                    title: 'Whip.',
+                    text: payload.text,
+                    url: payload.url
+                });
+                return { handled: true, shared: true };
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    return { handled: true, shared: false };
+                }
+                return { handled: false };
+            }
+        }
+
+        function syncNativeShareButtonsVisibility() {
+            const showNative = canUseNativeShare();
+            document.querySelectorAll('button[data-share-channel="native"]').forEach(btn => {
+                btn.classList.toggle('hidden', !showNative);
+            });
+        }
+
         function buildShareUrl({ dateMode = state.selectedDate, voteAnchor = '' } = {}) {
             const mp = state.currentMp;
             const slug = mp ? state.slugByMpId.get(Number(mp.parliament_member_id)) : null;
@@ -772,6 +818,14 @@
 
         async function executeShareAction(channel, payload, copyLabelEl, menuEl, triggerEl) {
             const { url, text } = payload;
+
+            if (channel === 'native') {
+                const nativeRes = await tryNativeShare(payload);
+                if (nativeRes.handled) {
+                    closeAllShareMenus();
+                    return;
+                }
+            }
 
             if (channel === 'whatsapp') {
                 const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(`${text}\n\n${url}`)}`;
@@ -1354,10 +1408,14 @@
                             </svg>
                             <span>Share vote</span>
                         </button>
-                        <div data-share-menu data-vote-share-menu="${idx}" class="hidden absolute right-0 bottom-full mb-2 w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs text-left">
+                        <div data-share-menu data-vote-share-menu="${idx}" class="hidden fixed left-5 right-5 sm:static sm:absolute sm:inset-auto sm:mb-2 sm:w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs text-left">
                             <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
                                 Share MP vote via Whip.
                             </p>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="native" class="hidden w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">More phone options…</span>
+                                <span class="text-commonsGreen font-semibold text-[11px]">Share</span>
+                            </button>
                             <button type="button" data-vote-share-action="${idx}" data-share-channel="whatsapp" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
                                 <span class="font-medium">Share on WhatsApp</span>
                                 <span class="text-commonsGreen font-semibold text-[11px]">WA</span>
@@ -1424,6 +1482,8 @@
                 `;
             }).join('');
 
+            syncNativeShareButtonsVisibility();
+
             // Expand / collapse explainer panel
             els.votingRecordsList.querySelectorAll('button[data-vote-toggle]').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -1455,7 +1515,7 @@
                 });
             });
 
-            // Per-vote Share channel actions (WhatsApp, X, Bluesky, Threads, Facebook, Copy Link)
+            // Per-vote Share channel actions
             els.votingRecordsList.querySelectorAll('button[data-vote-share-action]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     e.stopPropagation();
@@ -1970,6 +2030,7 @@
         }
 
         async function init() {
+            syncNativeShareButtonsVisibility();
             await handleNewsletterUnsubscribe();
 
             const { data: mps } = await sb
@@ -2027,6 +2088,7 @@
             // Top Briefing Share Menu Toggle & Actions
             els.briefingShareBtn?.addEventListener('click', (e) => {
                 e.stopPropagation();
+                syncNativeShareButtonsVisibility();
                 const willOpen = els.briefingShareMenu.classList.contains('hidden');
                 closeAllShareMenus(els.briefingShareMenu);
                 els.briefingShareMenu.classList.toggle('hidden', !willOpen);

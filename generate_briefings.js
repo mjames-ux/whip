@@ -192,29 +192,71 @@ function splitCompleteSentences(text) {
 function isProceduralSentence(s) {
     return (
         s.length < 45 ||
-        /^(I beg to move|I thank my|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker|Order|Will the (right )?hon\.|On a point of order)/i.test(s) ||
-        /\b(catch (his|her|your) eye|point of order|give way to (my|the) (right )?hon\.)\b/i.test(s)
+        /^(I beg to move|I thank (my|the)|Mr Speaker|Madam Deputy Speaker|Mr Deputy Speaker|Order|Will the (right )?hon\.|Will the (Minister|Secretary of State|Prime Minister|Chancellor)|On a point of order|I rise to|It is a pleasure to follow|May I welcome|I congratulate)/i.test(s) ||
+        /\b(catch (his|her|your) eye|point of order|give way|I will make progress)\b/i.test(s)
     );
+}
+
+function scoreSubstantiveSentence(s) {
+    if (!s || isProceduralSentence(s)) return -100;
+    let score = 0;
+
+    // Prefer crisp, readable length (95–280 chars)
+    if (s.length >= 95 && s.length <= 280) score += 25;
+    else if (s.length >= 65 && s.length <= 340) score += 12;
+    else if (s.length > 360) score -= 15;
+
+    // Reward concrete real-world / policy impact terms
+    if (/\b(constituent|constituents|families|working people|business|businesses|hospital|nhs|school|children|patients|tax|levy|cost|bill|amendment|exempt|exemption|cap|funding|local|community|communities|security|police|farmers|pensioners|housing|workers)\b/i.test(s)) {
+        score += 20;
+    }
+
+    // Reward concrete numbers, percentages, or currency figures
+    if (/(£\d|\d+%|\b\d{2,}\b)/.test(s)) {
+        score += 12;
+    }
+
+    // Penalise heavy parliamentary formality when cleaner sentences exist
+    const formalityHits = (s.match(/\b(hon\.|right hon\.|Member for|Madam Deputy Speaker|Mr Speaker)\b/gi) || []).length;
+    score -= formalityHits * 6;
+
+    // Avoid starting mid-pronoun without clear subject if better alternatives exist
+    if (/^(It|This|That|They|Those)\b/.test(s)) {
+        score -= 4;
+    }
+
+    return score;
 }
 
 function extractCompleteVerbatimSentences(text, maxChars = 360, allowProceduralFallback = true) {
     const sentences = splitCompleteSentences(text);
     if (sentences.length === 0) return '';
 
-    const substantiveStartIdx = sentences.findIndex(s => !isProceduralSentence(s));
-    if (substantiveStartIdx < 0 && !allowProceduralFallback) {
-        return '';
-    }
-    const startIdx = substantiveStartIdx >= 0 ? substantiveStartIdx : 0;
+    let bestIdx = -1;
+    let bestScore = -99;
 
-    let selected = sentences[startIdx];
+    for (let i = 0; i < sentences.length; i++) {
+        if (sentences[i].length > maxChars) continue;
+        const sc = scoreSubstantiveSentence(sentences[i]);
+        if (sc > bestScore) {
+            bestScore = sc;
+            bestIdx = i;
+        }
+    }
+
+    if (bestIdx < 0) {
+        if (!allowProceduralFallback) return '';
+        bestIdx = 0;
+    }
+
+    let selected = sentences[bestIdx];
     if (
-        sentences[startIdx + 1] &&
-        !isProceduralSentence(sentences[startIdx + 1]) &&
-        selected.length < 180 &&
-        selected.length + 1 + sentences[startIdx + 1].length <= maxChars
+        sentences[bestIdx + 1] &&
+        !isProceduralSentence(sentences[bestIdx + 1]) &&
+        selected.length < 150 &&
+        selected.length + 1 + sentences[bestIdx + 1].length <= maxChars
     ) {
-        selected = `${selected} ${sentences[startIdx + 1]}`;
+        selected = `${selected} ${sentences[bestIdx + 1]}`;
     }
 
     return selected;
@@ -222,20 +264,40 @@ function extractCompleteVerbatimSentences(text, maxChars = 360, allowProceduralF
 
 function extractBestVerbatimQuote(speeches, maxChars = 360) {
     if (!Array.isArray(speeches) || speeches.length === 0) {
-        return { quote: '', hrsRef: '' };
+        return { quote: '', hrsRef: '', debateTitle: '' };
     }
 
-    const ranked = [...speeches].sort((a, b) => b.text.length - a.text.length);
+    let bestQuote = '';
+    let bestHrsRef = speeches[0]?.hrsRef || '';
+    let bestDebateTitle = speeches[0]?.debateTitle || '';
+    let bestScore = -99;
 
-    for (const sp of ranked) {
-        const substantive = extractCompleteVerbatimSentences(sp.text, maxChars, false);
-        if (substantive) {
-            return { quote: substantive, hrsRef: sp.hrsRef || '' };
+    for (const sp of speeches) {
+        const sentences = splitCompleteSentences(sp.text);
+        for (let i = 0; i < sentences.length; i++) {
+            const s = sentences[i];
+            if (s.length > maxChars) continue;
+            const sc = scoreSubstantiveSentence(s);
+            if (sc > bestScore) {
+                bestScore = sc;
+                bestQuote = s;
+                bestHrsRef = sp.hrsRef || bestHrsRef;
+                bestDebateTitle = sp.debateTitle || bestDebateTitle;
+            }
         }
     }
 
+    if (bestQuote && bestScore > -50) {
+        return { quote: bestQuote, hrsRef: bestHrsRef, debateTitle: bestDebateTitle };
+    }
+
+    const ranked = [...speeches].sort((a, b) => b.text.length - a.text.length);
     const fallbackQuote = extractCompleteVerbatimSentences(ranked[0].text, maxChars, true);
-    return { quote: fallbackQuote, hrsRef: ranked[0].hrsRef || '' };
+    return {
+        quote: fallbackQuote,
+        hrsRef: ranked[0].hrsRef || '',
+        debateTitle: ranked[0].debateTitle || ''
+    };
 }
 
 function normalizeForQuoteMatch(str) {
@@ -247,27 +309,64 @@ function normalizeForQuoteMatch(str) {
         .toLowerCase();
 }
 
-function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
+function extractBalancedDoubleQuotes(text) {
+    const results = [];
+    const str = String(text || '');
+    let i = 0;
+    while (i < str.length) {
+        const ch = str[i];
+        if (ch === '“' || (ch === '"' && (i === 0 || /\s|\(|\[/.test(str[i - 1])))) {
+            const start = i + 1;
+            let end = start;
+            while (end < str.length) {
+                const c = str[end];
+                if (c === '”' || (c === '"' && (end + 1 >= str.length || /[\s.,;:!?)\]]/.test(str[end + 1])))) {
+                    break;
+                }
+                end++;
+            }
+            if (end < str.length && end > start) {
+                results.push({
+                    fullMatch: str.slice(i, end + 1),
+                    inner: str.slice(start, end).trim()
+                });
+                i = end + 1;
+                continue;
+            }
+        }
+        i++;
+    }
+    return results;
+}
+
+function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallbackDebateTitle = '') {
     const cleanNarrative = String(narrative || '').trim();
     if (!speeches || speeches.length === 0) return cleanNarrative;
 
-    const primaryDebate = speeches[0]?.debateTitle ? ` during proceedings on ${speeches[0].debateTitle}` : '';
-    const fallbackContextLine = `Addressing the House${primaryDebate}, they said:`;
+    const debateName = fallbackDebateTitle || speeches[0]?.debateTitle || '';
+    const fallbackContextLine = debateName
+        ? `Speaking during proceedings on ${debateName}, they said:`
+        : `Addressing the House, they said:`;
+
     const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
-    const quoteMatches = [...cleanNarrative.matchAll(/[“"]([^”"]+)[”"]/g)];
+    const quoteMatches = extractBalancedDoubleQuotes(cleanNarrative);
 
     if (quoteMatches.length > 0) {
         const firstValidMatch = quoteMatches.find(m => {
-            const q = m[1].trim();
-            const isCompleteSentence = /[.!?]$/.test(q) && !q.includes('...');
+            const q = m.inner;
+            const isCompleteSentence = /[.!?]["'’]?$/.test(q) && !q.includes('...');
+            const isNotProcedural = !isProceduralSentence(q);
             const isExactSubstring = fullTranscriptNorm.includes(normalizeForQuoteMatch(q));
-            return isCompleteSentence && isExactSubstring;
+            return isCompleteSentence && isNotProcedural && isExactSubstring;
         });
 
         if (firstValidMatch) {
-            const exactQuote = firstValidMatch[1].trim();
-            const proseWithoutQuotes = cleanNarrative
-                .replace(/\s*[“"][^”"]+[”"]\s*/g, ' ')
+            const exactQuote = firstValidMatch.inner;
+            let proseWithoutQuotes = cleanNarrative;
+            for (const m of quoteMatches) {
+                proseWithoutQuotes = proseWithoutQuotes.replace(m.fullMatch, ' ');
+            }
+            proseWithoutQuotes = proseWithoutQuotes
                 .replace(/\s+([.,;:!?])/g, '$1')
                 .replace(/\n{3,}/g, '\n\n')
                 .replace(/[ \t]{2,}/g, ' ')
@@ -282,8 +381,11 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote) {
             return [firstPara, `“${exactQuote}”`, ...restParas].join('\n\n');
         }
 
-        const withoutBadQuotes = cleanNarrative
-            .replace(/\s*[“"][^”"]+[”"]\s*/g, ' ')
+        let withoutBadQuotes = cleanNarrative;
+        for (const m of quoteMatches) {
+            withoutBadQuotes = withoutBadQuotes.replace(m.fullMatch, ' ');
+        }
+        withoutBadQuotes = withoutBadQuotes
             .replace(/\s+([.,;:!?])/g, '$1')
             .replace(/[ \t]{2,}/g, ' ')
             .trim();
@@ -807,17 +909,22 @@ async function callGeminiModel(modelName, prompt) {
     return res.json();
 }
 
-async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt }) {
+async function summarizeWithGemini({ mp, readableDate, speeches, committees, writtenQuestions, mpVotes, govRole, verbatimExcerpt, verbatimDebateTitle }) {
     if (skipLlm || !geminiApiKey) return null;
 
     const askedQuestions = writtenQuestions.filter(q => q.direction !== 'answered');
     const answeredQuestions = writtenQuestions.filter(q => q.direction === 'answered');
 
-    const rankedSpeeches = [...speeches].sort((a, b) => b.text.length - a.text.length);
+    const substantiveSpeeches = [...speeches]
+        .filter(s => !isProceduralSentence(s.text))
+        .sort((a, b) => b.text.length - a.text.length);
+    const rankedSpeeches = substantiveSpeeches.length > 0
+        ? substantiveSpeeches
+        : [...speeches].sort((a, b) => b.text.length - a.text.length);
 
     const speechDigest = rankedSpeeches
-        .slice(0, 3)
-        .map(s => `- Debate "${s.debateTitle}": "${s.text.slice(0, 700)}"`)
+        .slice(0, 6)
+        .map((s, idx) => `- Contribution ${idx + 1} (Debate: "${s.debateTitle}"): "${s.text.slice(0, 850)}"`)
         .join('\n');
 
     const committeeDigest = committees
@@ -840,7 +947,11 @@ Rules:
 - Plain English for all readers. Short paragraphs (2–3 sentences each), separated by \\n\\n.
 - Strictly neutral, non-partisan tone. Never praise, criticise, or speculate about motives.
 - Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
-- Verbatim Quote & Context Rule (CRITICAL): If Chamber Speeches exist, first write a short, strictly factual paragraph introducing the specific debate, bill, or question ${mp.short_name} was addressing (using only facts in the Context below, never inventing meaning). Then place ONE exact, word-for-word complete substantive sentence from the speech in its OWN separate paragraph enclosed in double quotes ("..."). Never alter, paraphrase, or cut off words inside quotes.
+- Quote Selection & Context Rule (CRITICAL):
+  1. Look across ALL contributions in Speeches below and pick the SINGLE most substantive, reader-interesting complete sentence that captures ${mp.short_name}'s main policy argument, specific concern, or real-world impact on constituents/services.
+  2. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries.
+  3. First write a short, strictly factual paragraph introducing the specific debate, bill, or issue ${mp.short_name} was addressing (using only facts in the Context below, never inventing meaning).
+  4. Then place that ONE exact, word-for-word complete sentence in its OWN separate paragraph enclosed in double quotes ("..."). Never alter, paraphrase, or cut off words inside quotes.
 - Return 2–4 short paragraphs in "summary_para_1" (with the verbatim quote as its own standalone paragraph), 1 short 2–3 sentence "Why this matters" paragraph in "summary_para_2", and 0–2 entries in "glossary".
 
 Context:
@@ -870,7 +981,8 @@ ${voteDigest ? `Votes:\n${voteDigest}` : ''}`;
                 const verifiedNarrative = ensureVerbatimQuoteIntegrity(
                     parsed.summary_para_1,
                     rankedSpeeches,
-                    verbatimExcerpt
+                    verbatimExcerpt,
+                    verbatimDebateTitle
                 );
 
                 return {
@@ -1142,7 +1254,7 @@ export async function generateBriefings() {
         const batchResults = await Promise.all(
             batch.map(async (task) => {
                 const { mp, memberId, govRole, speeches, committees, writtenQuestions, mpVotes, activeVotes } = task;
-                const { quote, hrsRef } = extractBestVerbatimQuote(speeches, 360);
+                const { quote, hrsRef, debateTitle } = extractBestVerbatimQuote(speeches, 360);
                 const verbatimExcerpt = quote || null;
                 const hansardRef = hrsRef ? `HC Deb ${shortRefDate} • ${hrsRef}` : `HC Deb ${shortRefDate}`;
 
@@ -1154,7 +1266,8 @@ export async function generateBriefings() {
                     writtenQuestions,
                     mpVotes: activeVotes,
                     govRole,
-                    verbatimExcerpt
+                    verbatimExcerpt,
+                    verbatimDebateTitle: debateTitle
                 });
 
                 let activityTag = '';

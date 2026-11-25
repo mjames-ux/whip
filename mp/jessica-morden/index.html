@@ -166,7 +166,7 @@
         <!-- STAGE 2: Editorial Briefing Workspace -->
         <article id="briefingWorkspace" class="py-10 sm:py-14 fade-in">
 
-            <!-- Top Controls Row: Briefing vs Profile + Sitting Day Pills -->
+            <!-- Top Controls Row: Briefing vs Profile + Sitting Day Pills + 8-Week Archive Picker -->
             <div class="flex flex-wrap items-center justify-between gap-3 mb-7">
                 <div class="inline-flex items-center p-0.5 rounded-full bg-surfaceSubtle border border-hairline">
                     <button id="tabBriefingBtn" type="button" class="px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors">
@@ -177,8 +177,15 @@
                     </button>
                 </div>
 
-                <!-- Day Selector Pills (Last Week + This Week's Sitting Days — hidden on Profile tab) -->
-                <div id="datePillsContainer" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
+                <!-- Day Selector Pills + 8-Week Archive Dropdown (hidden on Profile tab) -->
+                <div id="dateControlsWrap" class="flex flex-wrap items-center gap-1.5">
+                    <div id="datePillsContainer" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
+                    <select
+                        id="archiveDateSelect"
+                        aria-label="Browse past 8 weeks"
+                        class="hidden px-2.5 py-1 rounded-full text-xs font-medium bg-surfaceSubtle border border-hairline text-inkSecondary hover:text-ink focus:outline-none focus:border-ink/40 cursor-pointer"
+                    ></select>
+                </div>
             </div>
 
             <!-- Sitting Date & Context Line (Hidden on Profile tab) -->
@@ -510,6 +517,8 @@
         const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        const RETENTION_DAYS = 56; // 8 weeks
+
         const state = {
             mps: [],
             mpById: new Map(),
@@ -519,8 +528,11 @@
             currentBriefing: null,
             currentVotes: [],
             activeDates: [],
-            latestWeekDates: [],
-            selectedDate: 'WEEK',
+            weekGroups: new Map(), // mondayIso -> sorted dates[]
+            weekPillDates: [],
+            weekPillLabel: 'Last Week',
+            isCurrentWeekSummary: false,
+            selectedDate: null,
             currentTab: 'briefing',
             watchlist: JSON.parse(localStorage.getItem('whip_watchlist') || '[]'),
             profileCache: new Map()
@@ -545,7 +557,9 @@
             tabProfileBtn: document.getElementById('tabProfileBtn'),
             briefingTabPanel: document.getElementById('briefingTabPanel'),
             profileTabPanel: document.getElementById('profileTabPanel'),
+            dateControlsWrap: document.getElementById('dateControlsWrap'),
             datePillsContainer: document.getElementById('datePillsContainer'),
+            archiveDateSelect: document.getElementById('archiveDateSelect'),
             sittingDateDisplay: document.getElementById('sittingDateDisplay'),
             mpProfileAvatar: document.getElementById('mpProfileAvatar'),
             mpPartyDot: document.getElementById('mpPartyDot'),
@@ -720,10 +734,10 @@
             const slug = mp ? state.slugByMpId.get(Number(mp.parliament_member_id)) : null;
             const origin = window.location.origin && window.location.origin !== 'null'
                 ? window.location.origin
-                : 'https://whip.org.uk';
+                : 'https://whipdaily.uk';
 
             const url = new URL(slug ? `/mp/${slug}/` : window.location.pathname, origin);
-            if (dateMode && dateMode !== 'WEEK') {
+            if (dateMode) {
                 url.searchParams.set('date', dateMode);
             }
             if (voteAnchor) {
@@ -744,7 +758,7 @@
 
             const seat = getConstituencyName(mp);
             const url = buildShareUrl({ dateMode: state.selectedDate });
-            const isWeekly = state.selectedDate === 'WEEK';
+            const isWeekly = state.selectedDate === 'WEEK' || String(state.selectedDate || '').startsWith('WEEK:');
 
             const firstSentence = String(briefing?.summary_para_1 || '')
                 .split(/\n{2,}/)[0]
@@ -755,8 +769,9 @@
                 ? `${firstSentence.slice(0, 132).replace(/\s+\S*$/, '')}…`
                 : firstSentence;
 
+            const weekPhrase = state.selectedDate === 'WEEK' && state.isCurrentWeekSummary ? 'this week' : 'in Parliament';
             const headline = isWeekly
-                ? `What ${mp.full_name} (${seat}) actually did in Parliament last week`
+                ? `What ${mp.full_name} (${seat}) actually did ${weekPhrase}`
                 : `What ${mp.full_name} (${seat}) did in Parliament on ${formatShortPillDate(state.selectedDate)}`;
 
             const text = cleanSnippet
@@ -898,6 +913,26 @@
             }).format(new Date());
         }
 
+        function getCutoffIso(daysAgo = RETENTION_DAYS) {
+            const d = new Date(`${getLondonTodayIso()}T12:00:00Z`);
+            d.setUTCDate(d.getUTCDate() - daysAgo);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function isLondonWeekend() {
+            const weekdayShort = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Europe/London',
+                weekday: 'short'
+            }).format(new Date());
+            return weekdayShort === 'Sat' || weekdayShort === 'Sun';
+        }
+
+        function selectCurrentWeekDates(activeDates, referenceTodayIso) {
+            if (!Array.isArray(activeDates) || activeDates.length === 0) return [];
+            const currentMonday = getMondayOfWeek(referenceTodayIso);
+            return activeDates.filter(d => getMondayOfWeek(d) === currentMonday);
+        }
+
         function selectLastCompletedWeekDates(activeDates, referenceTodayIso) {
             if (!Array.isArray(activeDates) || activeDates.length === 0) return [];
             const currentMonday = getMondayOfWeek(referenceTodayIso);
@@ -905,6 +940,29 @@
             if (completedDates.length === 0) return [];
             const latestCompletedMonday = getMondayOfWeek(completedDates[0]);
             return completedDates.filter(d => getMondayOfWeek(d) === latestCompletedMonday);
+        }
+
+        function buildWeekGroups(activeDates) {
+            const groups = new Map();
+            for (const d of activeDates) {
+                const monday = getMondayOfWeek(d);
+                if (!groups.has(monday)) groups.set(monday, []);
+                groups.get(monday).push(d);
+            }
+            for (const [monday, list] of groups.entries()) {
+                groups.set(monday, [...list].sort());
+            }
+            return groups;
+        }
+
+        function getDefaultSelectedDate() {
+            if (isLondonWeekend() && state.weekPillDates.length > 0) {
+                return 'WEEK';
+            }
+            if (state.activeDates.length > 0) {
+                return state.activeDates[0];
+            }
+            return state.weekPillDates.length > 0 ? 'WEEK' : null;
         }
 
         function formatFullDate(isoDate) {
@@ -1051,11 +1109,11 @@
 
         function renderDatePills() {
             const pills = [];
-            if (state.latestWeekDates.length > 0) {
+            if (state.weekPillDates.length > 0) {
                 const isWeek = state.selectedDate === 'WEEK';
                 pills.push(`
                     <button type="button" data-date-pill="WEEK" class="px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${isWeek ? 'bg-ink text-canvas' : 'bg-surfaceSubtle text-inkSecondary hover:text-ink'}">
-                        Last Week
+                        ${escapeHtmlClient(state.weekPillLabel)}
                     </button>
                 `);
             }
@@ -1079,16 +1137,63 @@
                     if (target && target !== state.selectedDate) {
                         state.selectedDate = target;
                         renderDatePills();
+                        renderArchiveSelector();
                         loadAndRenderBriefing();
                     }
                 });
             });
+
+            renderArchiveSelector();
         }
 
-        function compileWeeklyBriefing(mp, weekDates, rows) {
+        function renderArchiveSelector() {
+            const selectEl = els.archiveDateSelect;
+            if (!selectEl) return;
+
+            const hasArchiveOptions = state.activeDates.length > 1 || state.weekGroups.size > 1;
+            if (!hasArchiveOptions) {
+                selectEl.classList.add('hidden');
+                return;
+            }
+
+            selectEl.classList.remove('hidden');
+
+            const weekMondays = Array.from(state.weekGroups.keys()).sort().reverse();
+            const weekOptions = weekMondays.map(monday => {
+                const dates = state.weekGroups.get(monday) || [];
+                const val = `WEEK:${monday}`;
+                const label = `Week of ${formatWeekRangeLabel(dates)}`;
+                return `<option value="${escapeHtmlClient(val)}">${escapeHtmlClient(label)}</option>`;
+            }).join('');
+
+            const dayOptions = state.activeDates.map(d => {
+                return `<option value="${escapeHtmlClient(d)}">${escapeHtmlClient(formatFullDate(d))}</option>`;
+            }).join('');
+
+            selectEl.innerHTML = `
+                <option value="">Earlier (8 weeks)…</option>
+                <optgroup label="Weekly Summaries">${weekOptions}</optgroup>
+                <optgroup label="Daily Sittings">${dayOptions}</optgroup>
+            `;
+
+            const matchesOption = Array.from(selectEl.options).some(opt => opt.value === state.selectedDate);
+            selectEl.value = matchesOption ? state.selectedDate : '';
+        }
+
+        function compileWeeklyBriefing(mp, weekDates, rows, weekMode = 'LAST') {
             const sortedDates = [...weekDates].sort();
             const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
             const rangeLabel = formatWeekRangeLabel(sortedDates);
+            const weekLeadPhrase = weekMode === 'CURRENT'
+                ? 'this week'
+                : weekMode === 'LAST'
+                    ? 'last week'
+                    : 'that week';
+            const dateHeading = weekMode === 'CURRENT'
+                ? `This week in Parliament (${rangeLabel})`
+                : weekMode === 'LAST'
+                    ? `Last week in Parliament (${rangeLabel})`
+                    : `Week in Parliament (${rangeLabel})`;
 
             const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
             const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
@@ -1178,7 +1283,7 @@
                     activityTag = `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`;
                     contextHeading = 'What MPs do behind the scenes';
                     const missedLine = combinedVotes.length > 0
-                        ? `\n\nAcross ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'vote' : 'votes'} held last week, no vote was recorded for ${mp.short_name}—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.`
+                        ? `\n\nAcross ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'vote' : 'votes'} held ${weekLeadPhrase}, no vote was recorded for ${mp.short_name}—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.`
                         : '';
                     para1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of ${rangeLabel}.\n\nHaving a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.${missedLine}`;
                     para2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
@@ -1252,7 +1357,7 @@
             const deptDigest = deptUpdates[0] || null;
             return {
                 sitting_date: 'WEEK',
-                dateHeading: `Last week in Parliament (${rangeLabel})`,
+                dateHeading,
                 activity_tag: activityTag,
                 contextHeading,
                 summary_para_1: para1,
@@ -1878,9 +1983,32 @@
                     .from('daily_briefings')
                     .select('*')
                     .eq('parliament_member_id', mp.parliament_member_id)
-                    .in('sitting_date', state.latestWeekDates);
+                    .in('sitting_date', state.weekPillDates);
 
-                const compiled = compileWeeklyBriefing(mp, state.latestWeekDates, rows || []);
+                const compiled = compileWeeklyBriefing(
+                    mp,
+                    state.weekPillDates,
+                    rows || [],
+                    state.isCurrentWeekSummary ? 'CURRENT' : 'LAST'
+                );
+                renderBriefingView(mp, compiled);
+                return;
+            }
+
+            if (String(state.selectedDate || '').startsWith('WEEK:')) {
+                const mondayIso = state.selectedDate.slice(5);
+                const datesForWeek = state.weekGroups.get(mondayIso) || [];
+                if (datesForWeek.length === 0) return;
+
+                const { data: rows } = await sb
+                    .from('daily_briefings')
+                    .select('*')
+                    .eq('parliament_member_id', mp.parliament_member_id)
+                    .in('sitting_date', datesForWeek);
+
+                const currentMonday = getMondayOfWeek(getLondonTodayIso());
+                const mode = mondayIso === currentMonday ? 'CURRENT' : 'ARCHIVE';
+                const compiled = compileWeeklyBriefing(mp, datesForWeek, rows || [], mode);
                 renderBriefingView(mp, compiled);
                 return;
             }
@@ -1961,12 +2089,14 @@
 
         async function selectMp(mp, { pushUrl = false, initialDate = null } = {}) {
             state.currentMp = mp;
-            if (initialDate && state.activeDates.includes(initialDate)) {
+            if (initialDate === 'WEEK' && state.weekPillDates.length > 0) {
+                state.selectedDate = 'WEEK';
+            } else if (String(initialDate || '').startsWith('WEEK:') && state.weekGroups.has(initialDate.slice(5))) {
+                state.selectedDate = initialDate;
+            } else if (initialDate && state.activeDates.includes(initialDate)) {
                 state.selectedDate = initialDate;
             } else {
-                state.selectedDate = state.latestWeekDates.length > 0
-                    ? 'WEEK'
-                    : (state.activeDates[0] || 'WEEK');
+                state.selectedDate = getDefaultSelectedDate();
             }
 
             if (els.mpNewsletterStatus) {
@@ -1997,7 +2127,7 @@
             els.briefingTabPanel.classList.toggle('hidden', !isBriefing);
             els.profileTabPanel.classList.toggle('hidden', isBriefing);
 
-            els.datePillsContainer.classList.toggle('hidden', !isBriefing);
+            els.dateControlsWrap?.classList.toggle('hidden', !isBriefing);
             els.sittingDateDisplay.classList.toggle('hidden', !isBriefing);
             els.activityWrap?.classList.toggle('hidden', !isBriefing);
             els.briefingShareWrap?.classList.toggle('hidden', !isBriefing);
@@ -2044,12 +2174,14 @@
 
             if (state.mps.length > 0) {
                 const probeId = state.mps[0].parliament_member_id;
+                const cutoffIso = getCutoffIso(RETENTION_DAYS);
                 const { data: recentDates } = await sb
                     .from('daily_briefings')
                     .select('sitting_date, activity_tag')
                     .eq('parliament_member_id', probeId)
+                    .gte('sitting_date', cutoffIso)
                     .order('sitting_date', { ascending: false })
-                    .limit(30);
+                    .limit(60);
 
                 const activeDates = [...new Set(
                     (recentDates || [])
@@ -2057,15 +2189,35 @@
                         .map(r => r.sitting_date)
                 )];
                 state.activeDates = activeDates;
+                state.weekGroups = buildWeekGroups(activeDates);
 
                 const londonToday = getLondonTodayIso();
-                state.latestWeekDates = selectLastCompletedWeekDates(activeDates, londonToday);
-                if (state.latestWeekDates.length === 0 && activeDates.length > 0) {
-                    state.selectedDate = activeDates[0];
+                const weekend = isLondonWeekend();
+                const currentWeekDates = selectCurrentWeekDates(activeDates, londonToday);
+                const lastCompletedWeekDates = selectLastCompletedWeekDates(activeDates, londonToday);
+
+                if (weekend && currentWeekDates.length > 0) {
+                    state.weekPillDates = currentWeekDates;
+                    state.weekPillLabel = 'This Week';
+                    state.isCurrentWeekSummary = true;
+                } else {
+                    state.weekPillDates = lastCompletedWeekDates;
+                    state.weekPillLabel = 'Last Week';
+                    state.isCurrentWeekSummary = false;
                 }
+
+                state.selectedDate = getDefaultSelectedDate();
             }
 
             updateWatchlistUi();
+
+            els.archiveDateSelect?.addEventListener('change', () => {
+                const chosen = els.archiveDateSelect.value;
+                if (!chosen || chosen === state.selectedDate) return;
+                state.selectedDate = chosen;
+                renderDatePills();
+                loadAndRenderBriefing();
+            });
 
             els.heroSearchInput?.addEventListener('input', () => handleSearchInput(els.heroSearchInput, els.heroSearchDropdown, els.heroSearchStatus));
             els.headerSearchInput?.addEventListener('input', () => handleSearchInput(els.headerSearchInput, els.headerSearchDropdown, null));

@@ -16,7 +16,11 @@ const MEMBERS_SEARCH_API = 'https://members-api.parliament.uk/api/Members/Search
 const MEMBER_BASE_API = 'https://members-api.parliament.uk/api/Members';
 const CONSTITUENCY_BASE_API = 'https://members-api.parliament.uk/api/Location/Constituency';
 
-const SYNC_CONCURRENCY = 8;
+const SYNC_CONCURRENCY = 5;
+const REQUEST_HEADERS = {
+    'Accept': 'application/json',
+    'User-Agent': 'Whip-Parliament-Tracker/1.0'
+};
 
 function cleanEnvValue(val, keyName) {
     if (!val) return '';
@@ -38,7 +42,7 @@ if (!supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Optional static historical majorities map (e.g. {"leigh-2001-06-07": 9549}) for pre-2010 results
+// Optional static historical majorities map (e.g. {"leigh-2001-06-07": 16362})
 let historicalMajorities = {};
 try {
     const histPath = path.resolve(process.cwd(), 'historical_majorities.json');
@@ -85,11 +89,11 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchJsonWithRetry(url, timeoutMs = 20000) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+async function fetchJsonWithRetry(url, timeoutMs = 40000, maxAttempts = 3) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             const res = await fetch(url, {
-                headers: { 'Accept': 'application/json' },
+                headers: REQUEST_HEADERS,
                 signal: AbortSignal.timeout(timeoutMs)
             });
             if (!res.ok) {
@@ -97,8 +101,8 @@ async function fetchJsonWithRetry(url, timeoutMs = 20000) {
             }
             return await res.json();
         } catch (err) {
-            if (attempt === 2) throw err;
-            await sleep(750);
+            if (attempt === maxAttempts) throw err;
+            await sleep(1500 * attempt);
         }
     }
     return null;
@@ -167,7 +171,7 @@ async function searchConstituencyIdsByName(seatName) {
 
     try {
         const url = `${CONSTITUENCY_BASE_API}/Search?searchText=${encodeURIComponent(cleanBase)}&take=25`;
-        const json = await fetchJsonWithRetry(url, 15000);
+        const json = await fetchJsonWithRetry(url, 30000);
         const items = Array.isArray(json?.items)
             ? json.items.map(it => it?.value || it).filter(Boolean)
             : (Array.isArray(json?.value) ? json.value : []);
@@ -191,7 +195,7 @@ async function getConstituencyElectionResults(constituencyId) {
     if (constituencyResultsCache.has(cId)) return constituencyResultsCache.get(cId);
 
     try {
-        const json = await fetchJsonWithRetry(`${CONSTITUENCY_BASE_API}/${cId}/ElectionResults`, 15000);
+        const json = await fetchJsonWithRetry(`${CONSTITUENCY_BASE_API}/${cId}/ElectionResults`, 30000);
         const list = Array.isArray(json?.value)
             ? json.value
             : (Array.isArray(json?.items) ? json.items.map(it => it?.value || it) : []);
@@ -208,7 +212,7 @@ async function getElectionResultDetail(constituencyId, electionId) {
     if (electionDetailCache.has(key)) return electionDetailCache.get(key);
 
     try {
-        const json = await fetchJsonWithRetry(`${CONSTITUENCY_BASE_API}/${constituencyId}/ElectionResult/${electionId}`, 15000);
+        const json = await fetchJsonWithRetry(`${CONSTITUENCY_BASE_API}/${constituencyId}/ElectionResult/${electionId}`, 30000);
         const val = json?.value || json || null;
         electionDetailCache.set(key, val);
         return val;
@@ -221,8 +225,8 @@ async function getElectionResultDetail(constituencyId, electionId) {
 async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
     const id = Number(memberId);
     const [bioJson, latestJson] = await Promise.all([
-        fetchJsonWithRetry(`${MEMBER_BASE_API}/${id}/Biography`, 15000).catch(() => null),
-        fetchJsonWithRetry(`${MEMBER_BASE_API}/${id}/LatestElectionResult`, 15000).catch(() => null)
+        fetchJsonWithRetry(`${MEMBER_BASE_API}/${id}/Biography`, 35000).catch(() => null),
+        fetchJsonWithRetry(`${MEMBER_BASE_API}/${id}/LatestElectionResult`, 35000).catch(() => null)
     ]);
 
     const bio = bioJson?.value || null;
@@ -348,7 +352,7 @@ async function fetchMemberBioAndWins(memberId, fallbackSeatName) {
 async function fetchAllCurrentCommonsMembers() {
     const members = [];
     let skip = 0;
-    const take = 20;
+    const take = 50;
 
     while (true) {
         const url = new URL(MEMBERS_SEARCH_API);
@@ -357,7 +361,7 @@ async function fetchAllCurrentCommonsMembers() {
         url.searchParams.set('skip', String(skip));
         url.searchParams.set('take', String(take));
 
-        const data = await fetchJsonWithRetry(url.toString(), 25000);
+        const data = await fetchJsonWithRetry(url.toString(), 40000);
         const items = Array.isArray(data?.items) ? data.items : [];
         if (items.length === 0) break;
 
@@ -368,6 +372,7 @@ async function fetchAllCurrentCommonsMembers() {
         skip += items.length;
         const total = Number(data?.totalResults ?? 0);
         if (skip >= total) break;
+        await sleep(150);
     }
 
     return members;
@@ -443,6 +448,9 @@ export async function syncRoster() {
             })
         );
         mpRows.push(...batchRows);
+        if (mpRows.length % 100 === 0 || mpRows.length === rawMembers.length) {
+            console.log(`Resolved ${mpRows.length}/${rawMembers.length} MPs...`);
+        }
     }
 
     for (let i = 0; i < mpRows.length; i += 100) {

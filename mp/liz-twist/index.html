@@ -16,6 +16,11 @@
     <meta name="twitter:description" content="Liz Twist (Labour, MP for Blaydon and Consett): On Mon 23 Nov, Liz Twist took part in two House of Commons votes regarding the government&#39;s Finance Bill. She vo">
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Liz Twist","jobTitle":"MP for Blaydon and Consett","affiliation":{"@type":"Organization","name":"Labour"},"url":"https://whipdaily.uk/mp/liz-twist/","sameAs":"https://members.parliament.uk/member/4618/contact"}</script>
     <script>window.__WHIP_INITIAL_MP_SLUG__ = "liz-twist";</script>
+    <meta property="og:site_name" content="Whip.">
+    <meta property="og:title" content="Whip — Your MP, This Week in Parliament">
+    <meta property="og:description" content="Plain-English daily and weekly briefings on what your Member of Parliament actually said, asked, and voted on in the House of Commons.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Ctext x='9' y='45' font-family='Georgia,serif' font-weight='700' font-size='36' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='42' r='4.5' fill='%23006548'/%3E%3C/svg%3E">
 
     <!-- Editorial Typography: Newsreader & Inter -->
@@ -116,17 +121,17 @@
 
         <!-- STAGE 1: Focused Editorial Entry -->
         <section id="landingHero" class="hidden min-h-[82vh] flex flex-col items-center justify-center text-center py-12">
-            <div class="mb-6">
-                <span class="font-editorial text-5xl sm:text-7xl font-bold tracking-tight text-ink">
+            <div class="mb-5">
+                <span class="font-editorial text-6xl sm:text-8xl font-bold tracking-tight text-ink">
                     Whip<span class="text-commonsGreen">.</span>
                 </span>
             </div>
 
-            <h1 class="font-editorial text-3xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.12] max-w-xl mb-5">
+            <h1 class="font-editorial text-3xl sm:text-[44px] font-bold text-ink tracking-[-0.025em] leading-[1.12] max-w-xl mb-4">
                 Your MP, This Week in Parliament.
             </h1>
 
-            <p class="text-base sm:text-lg text-inkSecondary max-w-md leading-relaxed mb-10 font-normal">
+            <p class="text-sm sm:text-[16px] text-inkSecondary max-w-md leading-relaxed mb-9 font-normal">
                 A plain-English summary of what your representative actually said, asked, and voted on in the House of Commons.
             </p>
 
@@ -205,12 +210,49 @@
                         </p>
                     </div>
 
-                    <button id="watchlistToggleBtn" type="button" class="self-start inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-hairline text-xs font-medium text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors shrink-0">
-                        <svg id="watchlistIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                        <span id="watchlistLabel">Add to Watchlist</span>
-                    </button>
+                    <!-- Action Pills: Share Briefing + Watchlist -->
+                    <div class="self-start flex items-center gap-2 shrink-0">
+                        <!-- Share Briefing Dropdown Trigger -->
+                        <div id="briefingShareWrap" class="relative" data-share-container>
+                            <button id="briefingShareBtn" type="button" aria-expanded="false" aria-haspopup="true" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-hairline text-xs font-medium text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                                    <polyline points="16 6 12 2 8 6"></polyline>
+                                    <line x1="12" y1="2" x2="12" y2="15"></line>
+                                </svg>
+                                <span id="briefingShareLabel">Share</span>
+                            </button>
+
+                            <div id="briefingShareMenu" class="hidden absolute right-0 mt-2 w-52 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs">
+                                <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
+                                    Share briefing via Whip.
+                                </p>
+                                <button type="button" data-share-channel="x" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on X</span>
+                                    <span class="text-inkTertiary font-mono text-[11px]">𝕏</span>
+                                </button>
+                                <button type="button" data-share-channel="facebook" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on Facebook</span>
+                                    <span class="text-inkTertiary font-semibold text-[11px]">f</span>
+                                </button>
+                                <div class="my-1 border-t border-hairline/70"></div>
+                                <button type="button" data-share-channel="copy" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span data-copy-label class="font-medium">Copy link</span>
+                                    <svg class="w-3.5 h-3.5 text-inkTertiary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button id="watchlistToggleBtn" type="button" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-hairline text-xs font-medium text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors cursor-pointer">
+                            <svg id="watchlistIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span id="watchlistLabel">Add to Watchlist</span>
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -223,10 +265,7 @@
                         <div id="summaryNarrativeBody" class="space-y-4">
                             <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On Mon 23 Nov, Liz Twist took part in two House of Commons votes regarding the government&#39;s Finance Bill. She voted against an opposition amendment that sought to block the legislation.</p>
                         <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Following that vote, Liz Twist supported the main motion to give the bill its second reading. Her vote helped the proposed law pass this initial stage by 311 votes to 164.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">On Tue 24 Nov, Liz Twist participated in a series of votes in the House of Commons on Tuesday, 24 November 2026. This included voting against an amendment on the Cyber Security and Resilience (Network and Information Systems) Bill, and voting in favour of motions relating to the same bill and the Armed Forces Bill.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">In addition to voting on legislation, Liz Twist tabled a written parliamentary question to the Department for Business, Innovation, Science and Trade. The question focused on compute for public services with reference to HM Treasury&#39;s Data Centre Covenant published in October 2026.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Away from formal proceedings in the Chamber, Liz Twist spent time handling urgent constituent casework. These activities form part of the standard responsibilities carried out by Members of Parliament on a daily basis.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across the week, Liz Twist also cast 6 recorded division votes.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across the week, Liz Twist also cast 2 recorded division votes.</p>
                         </div>
 
                         <!-- Why this matters -->
@@ -320,7 +359,7 @@
                 </section>
 
                 <!-- 4. Written Parliamentary Questions -->
-                <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="py-10 border-b border-hairline">
+                <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden py-10 border-b border-hairline">
                     <div class="flex items-baseline justify-between mb-6">
                         <h2 id="wqSectionTitle" class="font-editorial text-2xl font-bold text-ink tracking-tight">
                             Written Questions
@@ -341,7 +380,7 @@
                             <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
                                 Voting Record
                             </h2>
-                            <p class="text-xs text-inkTertiary mt-1">Click any vote for a plain-English explainer</p>
+                            <p class="text-xs text-inkTertiary mt-1">Click any vote for a plain-English explainer or to share</p>
                         </div>
                         <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
                             0 divisions
@@ -462,6 +501,8 @@
             mpBySlug: new Map(),
             slugByMpId: new Map(),
             currentMp: null,
+            currentBriefing: null,
+            currentVotes: [],
             activeDates: [],
             latestWeekDates: [],
             selectedDate: 'WEEK',
@@ -500,6 +541,9 @@
             activityWrap: document.getElementById('activityWrap'),
             activityDot: document.getElementById('activityDot'),
             activityBadge: document.getElementById('activityBadge'),
+            briefingShareWrap: document.getElementById('briefingShareWrap'),
+            briefingShareBtn: document.getElementById('briefingShareBtn'),
+            briefingShareMenu: document.getElementById('briefingShareMenu'),
             watchlistToggleBtn: document.getElementById('watchlistToggleBtn'),
             watchlistIcon: document.getElementById('watchlistIcon'),
             watchlistLabel: document.getElementById('watchlistLabel'),
@@ -608,6 +652,146 @@
                 usedSlugs.add(candidate);
                 state.mpBySlug.set(candidate, mp);
                 state.slugByMpId.set(Number(mp.parliament_member_id), candidate);
+            }
+        }
+
+        /* -------------------------------------------------------------
+           SHARE PAYLOADS, DEEP LINKS & SOCIAL POPOVER HANDLERS
+        ------------------------------------------------------------- */
+        function buildShareUrl({ dateMode = state.selectedDate, voteAnchor = '' } = {}) {
+            const mp = state.currentMp;
+            const slug = mp ? state.slugByMpId.get(Number(mp.parliament_member_id)) : null;
+            const origin = window.location.origin && window.location.origin !== 'null'
+                ? window.location.origin
+                : 'https://whip.org.uk';
+
+            const url = new URL(slug ? `/mp/${slug}/` : window.location.pathname, origin);
+            if (dateMode && dateMode !== 'WEEK') {
+                url.searchParams.set('date', dateMode);
+            }
+            if (voteAnchor) {
+                url.hash = voteAnchor;
+            }
+            return url.toString();
+        }
+
+        function buildBriefingSharePayload() {
+            const mp = state.currentMp;
+            const briefing = state.currentBriefing;
+            if (!mp) {
+                return {
+                    url: window.location.href,
+                    text: 'Whip. — Plain-English daily and weekly briefings on what your MP actually did in Parliament.'
+                };
+            }
+
+            const seat = getConstituencyName(mp);
+            const url = buildShareUrl({ dateMode: state.selectedDate });
+            const isWeekly = state.selectedDate === 'WEEK';
+
+            const firstSentence = String(briefing?.summary_para_1 || '')
+                .split(/\n{2,}/)[0]
+                ?.replace(/\s+/g, ' ')
+                .trim() || '';
+
+            const cleanSnippet = firstSentence.length > 135
+                ? `${firstSentence.slice(0, 132).replace(/\s+\S*$/, '')}…`
+                : firstSentence;
+
+            const headline = isWeekly
+                ? `What ${mp.full_name} (${seat}) actually did in Parliament last week`
+                : `What ${mp.full_name} (${seat}) did in Parliament on ${formatShortPillDate(state.selectedDate)}`;
+
+            const text = cleanSnippet
+                ? `${headline}: "${cleanSnippet}" — Plain-English MP briefings & free Sunday updates on Whip.`
+                : `${headline} — Read the plain-English briefing & get free weekly MP updates on Whip.`;
+
+            return { url, text };
+        }
+
+        function buildVoteSharePayload(vote, idx) {
+            const mp = state.currentMp;
+            if (!mp || !vote) {
+                return buildBriefingSharePayload();
+            }
+
+            const seat = getConstituencyName(mp);
+            const anchor = vote.divisionId ? `vote-${vote.divisionId}` : `vote-idx-${idx}`;
+            const url = buildShareUrl({ dateMode: state.selectedDate, voteAnchor: anchor });
+
+            const stanceText = vote.mpVote === 'Aye'
+                ? 'voted Aye on'
+                : vote.mpVote === 'No'
+                    ? 'voted No on'
+                    : 'had no vote recorded on';
+
+            const resultBit = vote.houseResult ? ` (${vote.houseResult})` : '';
+            const text = `${mp.full_name} (${seat}) ${stanceText} ${vote.title}${resultBit}. See how your MP votes & get free weekly briefings on Whip.`;
+
+            return { url, text };
+        }
+
+        async function copyTextToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
+
+        function closeAllShareMenus(exceptMenu = null) {
+            document.querySelectorAll('[data-share-container]').forEach(container => {
+                const menu = container.querySelector('[id$="Menu"], [data-share-menu]');
+                const trigger = container.querySelector('button[aria-expanded]');
+                if (menu && menu !== exceptMenu) {
+                    menu.classList.add('hidden');
+                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+
+        async function executeShareAction(channel, payload, copyLabelEl, menuEl, triggerEl) {
+            const { url, text } = payload;
+
+            if (channel === 'x') {
+                const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+                window.open(intentUrl, '_blank', 'noopener,noreferrer,width=600,height=480');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'facebook') {
+                const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`;
+                window.open(fbUrl, '_blank', 'noopener,noreferrer,width=620,height=520');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'copy') {
+                try {
+                    await copyTextToClipboard(url);
+                    if (copyLabelEl) {
+                        const prev = copyLabelEl.textContent;
+                        copyLabelEl.textContent = 'Copied link!';
+                        copyLabelEl.classList.add('text-commonsGreen');
+                        setTimeout(() => {
+                            copyLabelEl.textContent = prev || 'Copy link';
+                            copyLabelEl.classList.remove('text-commonsGreen');
+                            if (menuEl) menuEl.classList.add('hidden');
+                            if (triggerEl) triggerEl.setAttribute('aria-expanded', 'false');
+                        }, 1200);
+                    }
+                } catch {
+                    window.prompt('Copy this Whip briefing link:', url);
+                }
             }
         }
 
@@ -1101,14 +1285,16 @@
         }
 
         function renderVotingSection(votes) {
-            if (!votes || votes.length === 0) {
+            state.currentVotes = Array.isArray(votes) ? votes : [];
+
+            if (state.currentVotes.length === 0) {
                 els.voteCountBadge.textContent = '0 divisions';
                 els.votingRecordsList.innerHTML = `<div class="py-6 text-sm text-inkSecondary">No House of Commons division votes were held during this period.</div>`;
                 return;
             }
 
-            els.voteCountBadge.textContent = `${votes.length} ${votes.length === 1 ? 'division' : 'divisions'}`;
-            els.votingRecordsList.innerHTML = votes.map((v, idx) => {
+            els.voteCountBadge.textContent = `${state.currentVotes.length} ${state.currentVotes.length === 1 ? 'division' : 'divisions'}`;
+            els.votingRecordsList.innerHTML = state.currentVotes.map((v, idx) => {
                 const badgeClass = v.mpVote === 'Aye'
                     ? 'bg-commonsGreen/10 text-commonsGreen border-commonsGreen/20'
                     : v.mpVote === 'No'
@@ -1119,20 +1305,48 @@
                 const exp = v.explainer || {};
                 const billSummary = String(exp.billSummary || '').trim();
                 const billAims = String(exp.billAims || exp.statedAims || '').trim();
-                const stageSummary = String(exp.whatItDoes || '').trim();
-                const ayeMeaning = String(exp.whatAyeMeans || '').trim();
-                const noMeaning = String(exp.whatNoMeans || '').trim();
+                const stageText = String(exp.stageSummary || exp.whatItDoes || '').trim();
                 const parliamentUrl = String(exp.parliamentUrl || '').trim();
 
-                const hasExplainer = Boolean(billSummary || billAims || stageSummary || ayeMeaning || noMeaning);
-                const voteMeaning = v.mpVote === 'Aye'
-                    ? ayeMeaning
-                    : v.mpVote === 'No'
-                        ? noMeaning
-                        : null;
+                const hasExplainer = Boolean(billSummary || billAims || stageText);
+                const anchorId = v.divisionId ? `vote-${v.divisionId}` : `vote-idx-${idx}`;
+
+                const shareMenuMarkup = `
+                    <div class="relative inline-block" data-share-container>
+                        <button type="button" data-vote-share-toggle="${idx}" aria-expanded="false" aria-haspopup="true" class="inline-flex items-center gap-1 text-xs font-medium text-inkSecondary hover:text-ink transition-colors cursor-pointer">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                                <polyline points="16 6 12 2 8 6"></polyline>
+                                <line x1="12" y1="2" x2="12" y2="15"></line>
+                            </svg>
+                            <span>Share vote</span>
+                        </button>
+                        <div data-share-menu data-vote-share-menu="${idx}" class="hidden absolute right-0 bottom-full mb-2 w-52 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs text-left">
+                            <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
+                                Share MP vote via Whip.
+                            </p>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="x" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on X</span>
+                                <span class="text-inkTertiary font-mono text-[11px]">𝕏</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="facebook" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on Facebook</span>
+                                <span class="text-inkTertiary font-semibold text-[11px]">f</span>
+                            </button>
+                            <div class="my-1 border-t border-hairline/70"></div>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="copy" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span data-copy-label class="font-medium">Copy link</span>
+                                <svg class="w-3.5 h-3.5 text-inkTertiary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
 
                 return `
-                    <div class="py-5">
+                    <div id="${escapeHtmlClient(anchorId)}" class="py-5 scroll-mt-24">
                         <button type="button" data-vote-toggle="${idx}" aria-expanded="false" class="w-full text-left flex items-start justify-between gap-3 group cursor-pointer">
                             <div class="min-w-0">
                                 <p class="text-sm sm:text-base font-medium text-ink group-hover:text-commonsGreen transition-colors">${escapeHtmlClient(v.title)}</p>
@@ -1148,19 +1362,24 @@
 
                         ${hasExplainer ? `
                             <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 sm:p-5 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-3 text-xs sm:text-sm text-inkSecondary leading-relaxed">
-                                ${billSummary ? `<p class="text-ink"><strong class="font-semibold">What the Bill does:</strong> ${escapeHtmlClient(billSummary)}</p>` : ''}
-                                ${billAims ? `<p><strong class="font-semibold text-ink">Stated aims of the Bill:</strong> ${escapeHtmlClient(billAims)}</p>` : ''}
-                                ${stageSummary ? `<p class="${billSummary || billAims ? 'text-inkSecondary' : 'text-ink'}">${escapeHtmlClient(stageSummary)}</p>` : ''}
-                                ${voteMeaning ? `<p><strong class="font-semibold text-ink">What their vote meant:</strong> ${escapeHtmlClient(voteMeaning)}</p>` : ''}
-                                ${!voteMeaning && ayeMeaning ? `<p><strong class="font-semibold text-ink">Aye:</strong> ${escapeHtmlClient(ayeMeaning)}</p>` : ''}
-                                ${!voteMeaning && noMeaning ? `<p><strong class="font-semibold text-ink">No:</strong> ${escapeHtmlClient(noMeaning)}</p>` : ''}
-                                ${parliamentUrl ? `<a href="${escapeHtmlClient(parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline pt-1">View official Commons division record &rarr;</a>` : ''}
+                                ${billSummary ? `<p class="text-ink"><strong class="font-semibold">About the Bill:</strong> ${escapeHtmlClient(billSummary)}</p>` : ''}
+                                ${billAims ? `<p><strong class="font-semibold text-ink">Reasons put forward:</strong> ${escapeHtmlClient(billAims)}</p>` : ''}
+                                ${stageText ? `<p class="${billSummary || billAims ? 'text-inkSecondary' : 'text-ink'}"><strong class="font-semibold text-ink">Stage in Parliament:</strong> ${escapeHtmlClient(stageText)}</p>` : ''}
+                                <div class="pt-1.5 flex flex-wrap items-center justify-between gap-3 border-t border-hairline/60">
+                                    ${parliamentUrl ? `<a href="${escapeHtmlClient(parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline">View official Commons division record &rarr;</a>` : '<span></span>'}
+                                    ${shareMenuMarkup}
+                                </div>
                             </div>
-                        ` : ''}
+                        ` : `
+                            <div class="mt-2 flex justify-end">
+                                ${shareMenuMarkup}
+                            </div>
+                        `}
                     </div>
                 `;
             }).join('');
 
+            // Expand / collapse explainer panel
             els.votingRecordsList.querySelectorAll('button[data-vote-toggle]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const idx = btn.getAttribute('data-vote-toggle');
@@ -1176,9 +1395,38 @@
                     if (hint) hint.textContent = isOpen ? 'Explain vote' : 'Hide explainer';
                 });
             });
+
+            // Per-vote Share menu toggle
+            els.votingRecordsList.querySelectorAll('button[data-vote-share-toggle]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = btn.getAttribute('data-vote-share-toggle');
+                    const menu = els.votingRecordsList.querySelector(`[data-vote-share-menu="${idx}"]`);
+                    if (!menu) return;
+                    const willOpen = menu.classList.contains('hidden');
+                    closeAllShareMenus(menu);
+                    menu.classList.toggle('hidden', !willOpen);
+                    btn.setAttribute('aria-expanded', String(willOpen));
+                });
+            });
+
+            // Per-vote Share channel actions (X, Facebook, Copy Link)
+            els.votingRecordsList.querySelectorAll('button[data-vote-share-action]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const idx = Number(btn.getAttribute('data-vote-share-action'));
+                    const channel = btn.getAttribute('data-share-channel');
+                    const vote = state.currentVotes[idx];
+                    const menu = els.votingRecordsList.querySelector(`[data-vote-share-menu="${idx}"]`);
+                    const trigger = els.votingRecordsList.querySelector(`[data-vote-share-toggle="${idx}"]`);
+                    const copyLabel = btn.querySelector('[data-copy-label]');
+                    await executeShareAction(channel, buildVoteSharePayload(vote, idx), copyLabel, menu, trigger);
+                });
+            });
         }
 
         function renderBriefingView(mp, briefing) {
+            state.currentBriefing = briefing;
             const seat = getConstituencyName(mp);
             const dotColor = mp.party_color || '#006548';
 
@@ -1592,11 +1840,30 @@
             }
         }
 
-        async function selectMp(mp, { pushUrl = false } = {}) {
+        function focusVoteFromHash() {
+            const hash = window.location.hash;
+            if (!hash || !hash.startsWith('#vote-')) return;
+            const targetEl = document.getElementById(hash.slice(1));
+            if (!targetEl) return;
+
+            const toggleBtn = targetEl.querySelector('button[data-vote-toggle]');
+            if (toggleBtn && toggleBtn.getAttribute('aria-expanded') === 'false') {
+                toggleBtn.click();
+            }
+            setTimeout(() => {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 120);
+        }
+
+        async function selectMp(mp, { pushUrl = false, initialDate = null } = {}) {
             state.currentMp = mp;
-            state.selectedDate = state.latestWeekDates.length > 0
-                ? 'WEEK'
-                : (state.activeDates[0] || 'WEEK');
+            if (initialDate && state.activeDates.includes(initialDate)) {
+                state.selectedDate = initialDate;
+            } else {
+                state.selectedDate = state.latestWeekDates.length > 0
+                    ? 'WEEK'
+                    : (state.activeDates[0] || 'WEEK');
+            }
 
             if (els.mpNewsletterStatus) {
                 els.mpNewsletterStatus.className = 'hidden mt-3 text-xs font-medium';
@@ -1617,6 +1884,7 @@
             loadAndRenderProfile(mp);
             renderDatePills();
             await loadAndRenderBriefing();
+            focusVoteFromHash();
         }
 
         function switchTab(tab) {
@@ -1628,6 +1896,7 @@
             els.datePillsContainer.classList.toggle('hidden', !isBriefing);
             els.sittingDateDisplay.classList.toggle('hidden', !isBriefing);
             els.activityWrap?.classList.toggle('hidden', !isBriefing);
+            els.briefingShareWrap?.classList.toggle('hidden', !isBriefing);
 
             els.tabBriefingBtn.className = isBriefing
                 ? 'px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors'
@@ -1710,12 +1979,39 @@
                 }
             });
 
+            // Top Briefing Share Menu Toggle & Actions
+            els.briefingShareBtn?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const willOpen = els.briefingShareMenu.classList.contains('hidden');
+                closeAllShareMenus(els.briefingShareMenu);
+                els.briefingShareMenu.classList.toggle('hidden', !willOpen);
+                els.briefingShareBtn.setAttribute('aria-expanded', String(willOpen));
+            });
+
+            els.briefingShareMenu?.querySelectorAll('button[data-share-channel]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const channel = btn.getAttribute('data-share-channel');
+                    const copyLabel = btn.querySelector('[data-copy-label]');
+                    await executeShareAction(
+                        channel,
+                        buildBriefingSharePayload(),
+                        copyLabel,
+                        els.briefingShareMenu,
+                        els.briefingShareBtn
+                    );
+                });
+            });
+
             document.addEventListener('click', (e) => {
                 if (!e.target.closest('#heroSearchInput') && !e.target.closest('#heroDropdownToggle') && !e.target.closest('#heroSearchDropdown')) {
                     els.heroSearchDropdown?.classList.add('hidden');
                 }
                 if (!e.target.closest('#headerSearchInput') && !e.target.closest('#headerDropdownToggle') && !e.target.closest('#headerSearchDropdown')) {
                     els.headerSearchDropdown?.classList.add('hidden');
+                }
+                if (!e.target.closest('[data-share-container]')) {
+                    closeAllShareMenus();
                 }
             });
 
@@ -1771,16 +2067,20 @@
                 }
             });
 
+            const searchParams = new URLSearchParams(window.location.search);
+            const requestedDate = searchParams.get('date');
+
             const pathMatch = window.location.pathname.match(/^\/mp\/([^/]+)\/?$/);
             const initialSlug = window.__WHIP_INITIAL_MP_SLUG__ || (pathMatch ? pathMatch[1] : null);
             if (initialSlug && state.mpBySlug.has(initialSlug)) {
-                await selectMp(state.mpBySlug.get(initialSlug), { pushUrl: false });
+                await selectMp(state.mpBySlug.get(initialSlug), { pushUrl: false, initialDate: requestedDate });
             }
 
             window.addEventListener('popstate', async () => {
                 const m = window.location.pathname.match(/^\/mp\/([^/]+)\/?$/);
+                const popDate = new URLSearchParams(window.location.search).get('date');
                 if (m && state.mpBySlug.has(m[1])) {
-                    await selectMp(state.mpBySlug.get(m[1]), { pushUrl: false });
+                    await selectMp(state.mpBySlug.get(m[1]), { pushUrl: false, initialDate: popDate });
                 } else {
                     state.currentMp = null;
                     els.briefingWorkspace.classList.add('hidden');

@@ -1103,17 +1103,10 @@
                 const exp = v.explainer || {};
                 const billSummary = String(exp.billSummary || '').trim();
                 const billAims = String(exp.billAims || exp.statedAims || '').trim();
-                const stageSummary = String(exp.whatItDoes || '').trim();
-                const ayeMeaning = String(exp.whatAyeMeans || '').trim();
-                const noMeaning = String(exp.whatNoMeans || '').trim();
+                const stageText = String(exp.stageSummary || exp.whatItDoes || '').trim();
                 const parliamentUrl = String(exp.parliamentUrl || '').trim();
 
-                const hasExplainer = Boolean(billSummary || billAims || stageSummary || ayeMeaning || noMeaning);
-                const voteMeaning = v.mpVote === 'Aye'
-                    ? ayeMeaning
-                    : v.mpVote === 'No'
-                        ? noMeaning
-                        : null;
+                const hasExplainer = Boolean(billSummary || billAims || stageText);
 
                 return `
                     <div class="py-5">
@@ -1132,12 +1125,9 @@
 
                         ${hasExplainer ? `
                             <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 sm:p-5 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-3 text-xs sm:text-sm text-inkSecondary leading-relaxed">
-                                ${billSummary ? `<p class="text-ink"><strong class="font-semibold">What the Bill does:</strong> ${escapeHtmlClient(billSummary)}</p>` : ''}
-                                ${billAims ? `<p><strong class="font-semibold text-ink">Stated aims of the Bill:</strong> ${escapeHtmlClient(billAims)}</p>` : ''}
-                                ${stageSummary ? `<p class="${billSummary || billAims ? 'text-inkSecondary' : 'text-ink'}">${escapeHtmlClient(stageSummary)}</p>` : ''}
-                                ${voteMeaning ? `<p><strong class="font-semibold text-ink">What their vote meant:</strong> ${escapeHtmlClient(voteMeaning)}</p>` : ''}
-                                ${!voteMeaning && ayeMeaning ? `<p><strong class="font-semibold text-ink">Aye:</strong> ${escapeHtmlClient(ayeMeaning)}</p>` : ''}
-                                ${!voteMeaning && noMeaning ? `<p><strong class="font-semibold text-ink">No:</strong> ${escapeHtmlClient(noMeaning)}</p>` : ''}
+                                ${billSummary ? `<p class="text-ink"><strong class="font-semibold">About the Bill:</strong> ${escapeHtmlClient(billSummary)}</p>` : ''}
+                                ${billAims ? `<p><strong class="font-semibold text-ink">Reasons put forward:</strong> ${escapeHtmlClient(billAims)}</p>` : ''}
+                                ${stageText ? `<p class="${billSummary || billAims ? 'text-inkSecondary' : 'text-ink'}"><strong class="font-semibold text-ink">Stage in Parliament:</strong> ${escapeHtmlClient(stageText)}</p>` : ''}
                                 ${parliamentUrl ? `<a href="${escapeHtmlClient(parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline pt-1">View official Commons division record &rarr;</a>` : ''}
                             </div>
                         ` : ''}

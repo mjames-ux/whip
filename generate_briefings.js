@@ -4,8 +4,8 @@
  * Fetches Hansard debates, Select Committee sessions, Written Parliamentary Questions
  * (both tabled by MPs and answered by Ministers), Commons Division votes, and GOV.UK
  * departmental announcements for a target sitting date, generates accessible multi-paragraph
- * plain-English briefings with verified verbatim Hansard quotes via Gemini, and upserts
- * them into Supabase (`daily_briefings`).
+ * plain-English briefings with verified verbatim Hansard quotes via Gemini, upserts
+ * them into Supabase (`daily_briefings`), and prunes records older than 8 weeks (56 days).
  */
 
 import 'dotenv/config';
@@ -20,6 +20,7 @@ const COMMITTEES_EVENTS_API = 'https://committees-api.parliament.uk/api/Broadcas
 const COMMITTEES_FALLBACK_API = 'https://committees-api.parliament.uk/api/Events';
 const GOVUK_SEARCH_API = 'https://www.gov.uk/api/search.json';
 
+const RETENTION_DAYS = 56; // 8 weeks
 const GEMINI_CONCURRENCY = 3;
 const PRIMARY_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 const FALLBACK_GEMINI_MODEL = 'gemini-3.8-flash';
@@ -201,26 +202,21 @@ function scoreSubstantiveSentence(s) {
     if (!s || isProceduralSentence(s)) return -100;
     let score = 0;
 
-    // Prefer crisp, readable length (95–280 chars)
     if (s.length >= 95 && s.length <= 280) score += 25;
     else if (s.length >= 65 && s.length <= 340) score += 12;
     else if (s.length > 360) score -= 15;
 
-    // Reward concrete real-world / policy impact terms
     if (/\b(constituent|constituents|families|working people|business|businesses|hospital|nhs|school|children|patients|tax|levy|cost|bill|amendment|exempt|exemption|cap|funding|local|community|communities|security|police|farmers|pensioners|housing|workers)\b/i.test(s)) {
         score += 20;
     }
 
-    // Reward concrete numbers, percentages, or currency figures
     if (/(£\d|\d+%|\b\d{2,}\b)/.test(s)) {
         score += 12;
     }
 
-    // Penalise heavy parliamentary formality when cleaner sentences exist
     const formalityHits = (s.match(/\b(hon\.|right hon\.|Member for|Madam Deputy Speaker|Mr Speaker)\b/gi) || []).length;
     score -= formalityHits * 6;
 
-    // Avoid starting mid-pronoun without clear subject if better alternatives exist
     if (/^(It|This|That|They|Those)\b/.test(s)) {
         score -= 4;
     }
@@ -1011,6 +1007,23 @@ ${voteDigest ? `Votes:\n${voteDigest}` : ''}`;
     return null;
 }
 
+async function purgeExpiredBriefings(retentionDays = RETENTION_DAYS) {
+    const cutoff = new Date();
+    cutoff.setUTCDate(cutoff.getUTCDate() - retentionDays);
+    const cutoffIso = cutoff.toISOString().slice(0, 10);
+
+    const { error } = await supabase
+        .from('daily_briefings')
+        .delete()
+        .lt('sitting_date', cutoffIso);
+
+    if (error) {
+        console.warn(`Retention cleanup warning (< ${cutoffIso}): ${error.message}`);
+    } else {
+        console.log(`Purged daily_briefings rows older than ${cutoffIso} (${retentionDays}-day window).`);
+    }
+}
+
 export async function generateBriefings() {
     const targetDate = getTargetDate();
     const readableDate = formatReadableDate(targetDate);
@@ -1351,6 +1364,8 @@ export async function generateBriefings() {
         `[${new Date().toISOString()}] Successfully upserted ${rowsToUpsert.length} briefings for ${targetDate} ` +
         `(${reusedCount} reused from cache, ${voteOnlyDeterministicCount} vote-only deterministic, ${aiSuccessCount}/${activeTasks.length} new Gemini summaries).`
     );
+
+    await purgeExpiredBriefings(RETENTION_DAYS);
 }
 
 generateBriefings();

@@ -1,5 +1,5 @@
 /**
- * Whip - Sunday Morning Weekly MP Briefing Newsletter Sender (`send_weekly_newsletter.js`)
+ * Whip - Sunday Morning Weekly MP Briefing Newsletter Sender (`send_weekly_digest.js`)
  *
  * Queries active subscribers in `newsletter_subscribers`, compiles the completed
  * parliamentary week (Monday-Friday) for each subscribed MP from `daily_briefings`,
@@ -7,7 +7,7 @@
  * explainers and one-click unsubscribe links, and sends via Resend.
  *
  * Preview / test modes (do not update subscriber `last_sent_week`):
- * - `node send_weekly_newsletter.js --preview` (or `PREVIEW_FILE=preview_email.html`):
+ * - `node send_weekly_digest.js --preview` (or `PREVIEW_FILE=preview_email.html`):
  *   Writes HTML preview to disk and prints a summary without sending emails.
  * - `PREVIEW_EMAIL=you@example.com`:
  *   Sends the preview email only to `PREVIEW_EMAIL`.
@@ -799,3 +799,81 @@ export async function sendWeeklyNewsletters() {
     }
 
     if (!subscribers || subscribers.length === 0) {
+        console.log('No active newsletter subscribers found. Exiting.');
+        return;
+    }
+
+    const dueSubscribers = subscribers.filter(s => s.last_sent_week !== weekKey);
+    if (dueSubscribers.length === 0) {
+        console.log(`All ${subscribers.length} active subscribers have already been sent the ${weekKey} edition.`);
+        return;
+    }
+
+    const subscribedMpIds = [...new Set(
+        dueSubscribers
+            .map(s => Number(s.parliament_member_id))
+            .filter(id => mpById.has(id))
+    )];
+
+    const briefingByMpId = new Map();
+    for (const mpId of subscribedMpIds) {
+        const mp = mpById.get(mpId);
+        const { data: rows, error: rowErr } = await supabase
+            .from('daily_briefings')
+            .select('*')
+            .eq('parliament_member_id', mpId)
+            .in('sitting_date', weekDates);
+
+        if (rowErr) {
+            console.warn(`Warning fetching briefings for MP ${mpId}: ${rowErr.message}`);
+            continue;
+        }
+
+        briefingByMpId.set(mpId, compileWeeklyBriefing(mp, weekDates, rows || []));
+    }
+
+    let sentCount = 0;
+    let failCount = 0;
+
+    for (const sub of dueSubscribers) {
+        const mpId = Number(sub.parliament_member_id);
+        const mp = mpById.get(mpId);
+        const briefing = briefingByMpId.get(mpId);
+        if (!mp || !briefing) continue;
+
+        const mpSlug = slugById.get(mpId) || '';
+        const { subject, html, text } = buildNewsletterEmail({
+            mp,
+            mpSlug,
+            briefing,
+            unsubscribeToken: sub.unsubscribe_token
+        });
+
+        if (dryRun) {
+            console.log(`[DRY RUN] Would send "${subject}" to ${sub.email}`);
+            sentCount += 1;
+            continue;
+        }
+
+        try {
+            await sendViaResend({ to: sub.email, subject, html, text });
+            await supabase
+                .from('newsletter_subscribers')
+                .update({ last_sent_week: weekKey, last_sent_at: new Date().toISOString() })
+                .eq('id', sub.id);
+            sentCount += 1;
+        } catch (err) {
+            failCount += 1;
+            console.warn(`Failed sending to ${sub.email}: ${err.message}`);
+        }
+    }
+
+    console.log(
+        `[${new Date().toISOString()}] Finished Sunday newsletter run: ${sentCount} sent, ${failCount} failed.`
+    );
+}
+
+sendWeeklyNewsletters().catch((err) => {
+    console.error('Fatal error in sendWeeklyNewsletters:', err);
+    process.exitCode = 1;
+});

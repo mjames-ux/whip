@@ -76,12 +76,12 @@
 
     <!-- Top Masthead (Visible once an MP is active) -->
     <header id="topMasthead" class="w-full border-b border-hairline/70 bg-canvas/95 backdrop-blur-sm sticky top-0 z-30">
-        <div class="max-w-3xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4 overflow-hidden">
             <a href="/" id="brandResetBtn" aria-label="Whip. Home" class="inline-flex items-center shrink-0">
                 <img
                     src="/assets/Whip-logo.svg"
                     alt="Whip."
-                    class="h-7 sm:h-8 w-auto object-contain select-none"
+                    class="h-10 sm:h-11 w-auto object-contain select-none"
                     onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'font-editorial text-2xl font-bold tracking-tight text-ink', innerHTML: 'Whip<span class=&quot;text-commonsGreen&quot;>.</span>' }))"
                 />
             </a>
@@ -124,7 +124,7 @@
     <!-- Main Container -->
     <main class="flex-1 w-full max-w-3xl mx-auto px-5 sm:px-8">
 
-      <!-- STAGE 1: Focused Editorial Entry -->
+        <!-- STAGE 1: Focused Editorial Entry -->
         <section id="landingHero" class="hidden min-h-[82vh] flex flex-col items-center justify-center text-center py-12">
             <div class="mb-6 flex justify-center w-full">
                 <img
@@ -180,7 +180,7 @@
         </section>
 
         <!-- STAGE 2: Editorial Briefing Workspace -->
-        <article id="briefingWorkspace" class="py-10 sm:py-14 fade-in">
+        <article id="briefingWorkspace" class="pt-8 pb-10 sm:py-14 fade-in">
 
             <!-- Top Controls Row: Briefing vs Profile + Sitting Day Pills + Compact Archive Dropdown -->
             <div class="flex flex-wrap items-center justify-between gap-3 mb-7">
@@ -2380,6 +2380,10 @@
             els.landingHero.classList.add('hidden');
             els.topMasthead.classList.remove('hidden');
             els.briefingWorkspace.classList.remove('hidden');
+
+            if (!window.location.hash) {
+                window.scrollTo({ top: 0, behavior: 'instant' });
+            }
 
             const slug = state.slugByMpId.get(Number(mp.parliament_member_id));
             if (pushUrl && slug) {

@@ -17,7 +17,7 @@
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"Brian Leishman","jobTitle":"MP for Alloa and Grangemouth","affiliation":{"@type":"Organization","name":"Labour"},"url":"https://whipdaily.uk/mp/brian-leishman/","sameAs":"https://members.parliament.uk/member/5196/contact"}</script>
     <script>window.__WHIP_INITIAL_MP_SLUG__ = "brian-leishman";</script>
     <meta property="og:site_name" content="Whip.">
-    <meta property="og:title" content="Whip - What Your MP Did This Week in Parliament">
+    <meta property="og:title" content="Whip - What your MP did last week in Parliament">
     <meta property="og:description" content="Plain-English daily and weekly briefings on what your Member of Parliament actually said, asked, and voted on in the House of Commons.">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary">
@@ -128,7 +128,7 @@
             </div>
 
             <h1 class="font-editorial text-3xl sm:text-[44px] font-bold text-ink tracking-[-0.025em] leading-[1.12] max-w-xl mb-4">
-                What Your MP Did This Week in Parliament.
+                What your MP did last week in Parliament.
             </h1>
 
             <p class="text-sm sm:text-[16px] text-inkSecondary max-w-md leading-relaxed mb-9 font-normal">
@@ -156,6 +156,14 @@
                 </div>
                 <p id="heroSearchStatus" class="hidden mt-2.5 text-xs text-inkSecondary px-1"></p>
                 <div id="heroSearchDropdown" class="hidden absolute left-0 right-0 mt-2 bg-canvas border border-hairline rounded-2xl shadow-xl max-h-80 overflow-y-auto z-50 divide-y divide-hairline/60"></div>
+            </div>
+
+            <!-- Homepage Watchlist (Visible when reader has saved MPs) -->
+            <div id="heroWatchlistWrap" class="hidden w-full max-w-lg mt-6 text-center">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-inkTertiary mb-2.5">
+                    Your Watchlist
+                </p>
+                <div id="heroWatchlistList" class="flex flex-wrap items-center justify-center gap-2"></div>
             </div>
 
             <p id="landingCaption" class="hidden mt-8 text-xs text-inkTertiary">
@@ -317,23 +325,33 @@
                                         A plain-English Sunday morning roundup of their debates, votes, and written questions. One click to unsubscribe.
                                     </p>
                                 </div>
-                                <form id="mpNewsletterForm" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
-                                    <label for="mpNewsletterEmail" class="sr-only">Email address</label>
-                                    <input
-                                        id="mpNewsletterEmail"
-                                        type="email"
-                                        required
-                                        placeholder="you@example.com"
-                                        autocomplete="email"
-                                        class="px-3.5 py-2.5 text-sm bg-canvas border border-hairline rounded-xl text-ink placeholder:text-inkTertiary focus:outline-none focus:border-commonsGreen min-w-[220px]"
-                                    />
-                                    <button
-                                        id="mpNewsletterSubmit"
-                                        type="submit"
-                                        class="px-4 py-2.5 text-sm font-medium rounded-xl bg-ink text-canvas hover:bg-commonsGreen transition-colors cursor-pointer whitespace-nowrap"
-                                    >
-                                        Send Sundays
-                                    </button>
+                                <form id="mpNewsletterForm" class="flex flex-col gap-2.5 w-full sm:w-auto shrink-0">
+                                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                        <label for="mpNewsletterEmail" class="sr-only">Email address</label>
+                                        <input
+                                            id="mpNewsletterEmail"
+                                            type="email"
+                                            required
+                                            placeholder="you@example.com"
+                                            autocomplete="email"
+                                            class="px-3.5 py-2.5 text-sm bg-canvas border border-hairline rounded-xl text-ink placeholder:text-inkTertiary focus:outline-none focus:border-commonsGreen min-w-[220px]"
+                                        />
+                                        <button
+                                            id="mpNewsletterSubmit"
+                                            type="submit"
+                                            class="px-4 py-2.5 text-sm font-medium rounded-xl bg-ink text-canvas hover:bg-commonsGreen transition-colors cursor-pointer whitespace-nowrap"
+                                        >
+                                            Send Sundays
+                                        </button>
+                                    </div>
+                                    <label id="mpNewsletterWatchlistWrap" class="hidden inline-flex items-center gap-2 text-xs text-inkSecondary hover:text-ink cursor-pointer select-none">
+                                        <input
+                                            id="mpNewsletterIncludeWatchlist"
+                                            type="checkbox"
+                                            class="rounded border-hairline text-commonsGreen focus:ring-commonsGreen/30 cursor-pointer"
+                                        />
+                                        <span id="mpNewsletterWatchlistLabel">Also subscribe to everyone on my Watchlist</span>
+                                    </label>
                                 </form>
                             </div>
                             <p id="mpNewsletterStatus" role="status" class="hidden mt-3 text-xs font-medium"></p>
@@ -551,6 +569,8 @@
             heroDropdownToggle: document.getElementById('heroDropdownToggle'),
             heroSearchDropdown: document.getElementById('heroSearchDropdown'),
             heroSearchStatus: document.getElementById('heroSearchStatus'),
+            heroWatchlistWrap: document.getElementById('heroWatchlistWrap'),
+            heroWatchlistList: document.getElementById('heroWatchlistList'),
             headerSearchInput: document.getElementById('headerSearchInput'),
             headerDropdownToggle: document.getElementById('headerDropdownToggle'),
             headerSearchDropdown: document.getElementById('headerSearchDropdown'),
@@ -589,6 +609,9 @@
             mpNewsletterForm: document.getElementById('mpNewsletterForm'),
             mpNewsletterEmail: document.getElementById('mpNewsletterEmail'),
             mpNewsletterSubmit: document.getElementById('mpNewsletterSubmit'),
+            mpNewsletterWatchlistWrap: document.getElementById('mpNewsletterWatchlistWrap'),
+            mpNewsletterIncludeWatchlist: document.getElementById('mpNewsletterIncludeWatchlist'),
+            mpNewsletterWatchlistLabel: document.getElementById('mpNewsletterWatchlistLabel'),
             mpNewsletterStatus: document.getElementById('mpNewsletterStatus'),
             hansardSourceLink: document.getElementById('hansardSourceLink'),
             hansardLinkLabel: document.getElementById('hansardLinkLabel'),
@@ -631,7 +654,40 @@
                 .trim();
         }
 
-        function renderNarrativeParagraphs(container, text) {
+        function resolveWrittenQuestionAttribution(quoteText, briefing) {
+            const cleanQ = String(quoteText || '').replace(/^[“"]|[”"]$/g, '').trim();
+            if (!cleanQ) return '';
+
+            const wqs = Array.isArray(briefing?.written_questions) ? briefing.written_questions : [];
+            const normQuote = cleanQ.toLowerCase().replace(/\s+/g, ' ');
+
+            const matchedWq = wqs.find(q => {
+                const qText = String(q.questionText || '').toLowerCase().replace(/\s+/g, ' ');
+                const aText = String(q.answerText || '').toLowerCase().replace(/\s+/g, ' ');
+                return (qText && (qText.includes(normQuote.slice(0, 60)) || normQuote.includes(qText.slice(0, 60)))) ||
+                       (aText && (aText.includes(normQuote.slice(0, 60)) || normQuote.includes(aText.slice(0, 60))));
+            });
+
+            const askTargetMatch = cleanQ.match(/^To ask (the [^,]+),/i);
+
+            if (matchedWq) {
+                if (matchedWq.direction === 'answered') {
+                    return `Written parliamentary answer on behalf of ${matchedWq.department || 'the Government'}`;
+                }
+                if (askTargetMatch) {
+                    return `Written question tabled to ${askTargetMatch[1]}`;
+                }
+                return `Written question tabled to ${matchedWq.department || 'a government department'}`;
+            }
+
+            if (askTargetMatch) {
+                return `Written question tabled to ${askTargetMatch[1]}`;
+            }
+
+            return '';
+        }
+
+        function renderNarrativeParagraphs(container, text, briefing = null) {
             if (!container) return;
             const paragraphs = String(text || '')
                 .split(/\n{2,}/)
@@ -643,18 +699,39 @@
                 return;
             }
 
-            container.innerHTML = paragraphs.map(p => {
+            const blocks = [];
+            for (let i = 0; i < paragraphs.length; i++) {
+                const p = paragraphs[i];
                 const isStandaloneQuote = /^[“"][^”"]+[”"]$/.test(p);
+
                 if (isStandaloneQuote) {
-                    return `<blockquote class="pl-4 border-l-2 border-hairline text-[17px] sm:text-[19px] leading-[1.75] text-ink italic font-normal tracking-[-0.01em]">${escapeHtmlClient(p)}</blockquote>`;
+                    let explicitAttr = '';
+                    const nextPara = paragraphs[i + 1] || '';
+                    const attrTagMatch = nextPara.match(/^\[WQ_ATTR:\s*([^\]]+)\]$/i);
+                    if (attrTagMatch) {
+                        explicitAttr = attrTagMatch[1].trim();
+                        i += 1;
+                    }
+
+                    const wqCaption = explicitAttr || resolveWrittenQuestionAttribution(p, briefing);
+
+                    blocks.push(`
+                        <blockquote class="pl-4 border-l-2 border-hairline space-y-1.5">
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink italic font-normal tracking-[-0.01em]">${escapeHtmlClient(p)}</p>
+                            ${wqCaption ? `<footer class="text-xs not-italic font-medium text-inkTertiary">${escapeHtmlClient(wqCaption)}</footer>` : ''}
+                        </blockquote>
+                    `);
+                    continue;
                 }
 
                 const formatted = escapeHtmlClient(p).replace(
                     /(“[^”]+”|&quot;[^&]+&quot;)/g,
                     '<em class="italic text-ink">$1</em>'
                 );
-                return `<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${formatted}</p>`;
-            }).join('');
+                blocks.push(`<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${formatted}</p>`);
+            }
+
+            container.innerHTML = blocks.join('');
         }
 
         function slugify(str) {
@@ -1662,7 +1739,7 @@
             els.activityBadge.textContent = briefing.activity_tag || 'Parliamentary Record';
 
             els.sittingDateDisplay.textContent = briefing.dateHeading || formatFullDate(briefing.sitting_date);
-            renderNarrativeParagraphs(els.summaryNarrativeBody, briefing.summary_para_1);
+            renderNarrativeParagraphs(els.summaryNarrativeBody, briefing.summary_para_1, briefing);
             els.contextHeading.textContent = briefing.contextHeading || 'Why this matters';
             els.summaryPara2.textContent = briefing.summary_para_2 || '';
             els.hansardRefTag.textContent = briefing.hansard_ref || '';
@@ -2053,27 +2130,45 @@
 
         function updateWatchlistUi() {
             const mp = state.currentMp;
+            const currentId = mp ? Number(mp.parliament_member_id) : null;
+
             if (mp) {
-                const saved = state.watchlist.includes(Number(mp.parliament_member_id));
+                const saved = state.watchlist.includes(currentId);
                 els.watchlistLabel.textContent = saved ? 'Saved to Watchlist' : 'Add to Watchlist';
                 els.watchlistIcon.setAttribute('fill', saved ? 'currentColor' : 'none');
                 els.watchlistToggleBtn.classList.toggle('border-commonsGreen', saved);
                 els.watchlistToggleBtn.classList.toggle('text-commonsGreen', saved);
             }
 
-            if (state.watchlist.length > 0) {
+            const validSavedMps = state.watchlist
+                .map(id => state.mpById.get(Number(id)))
+                .filter(Boolean);
+
+            // Toggle optional "Also subscribe to everyone on my Watchlist" checkbox in newsletter card
+            const otherWatchlistMps = validSavedMps.filter(item => Number(item.parliament_member_id) !== currentId);
+            if (els.mpNewsletterWatchlistWrap && els.mpNewsletterWatchlistLabel) {
+                if (otherWatchlistMps.length > 0) {
+                    els.mpNewsletterWatchlistWrap.classList.remove('hidden');
+                    const countLabel = otherWatchlistMps.length === 1
+                        ? otherWatchlistMps[0].short_name
+                        : `${otherWatchlistMps.length} other MPs`;
+                    els.mpNewsletterWatchlistLabel.textContent = `Also subscribe to everyone on my Watchlist (${countLabel})`;
+                } else {
+                    els.mpNewsletterWatchlistWrap.classList.add('hidden');
+                    if (els.mpNewsletterIncludeWatchlist) els.mpNewsletterIncludeWatchlist.checked = false;
+                }
+            }
+
+            if (validSavedMps.length > 0) {
+                // Header saved strip
                 els.savedMpsBtn.classList.remove('hidden');
                 els.savedMpsBtn.classList.add('inline-flex');
-                els.savedMpsCount.textContent = String(state.watchlist.length);
-                els.savedMpsList.innerHTML = state.watchlist.map(id => {
-                    const item = state.mpById.get(Number(id));
-                    if (!item) return '';
-                    return `
-                        <button type="button" data-saved-id="${item.parliament_member_id}" class="px-3 py-1 rounded-full bg-canvas border border-hairline text-xs font-medium text-ink hover:border-commonsGreen transition-colors whitespace-nowrap">
-                            ${escapeHtmlClient(item.short_name)}
-                        </button>
-                    `;
-                }).join('');
+                els.savedMpsCount.textContent = String(validSavedMps.length);
+                els.savedMpsList.innerHTML = validSavedMps.map(item => `
+                    <button type="button" data-saved-id="${item.parliament_member_id}" class="px-3 py-1 rounded-full bg-canvas border border-hairline text-xs font-medium text-ink hover:border-commonsGreen transition-colors whitespace-nowrap">
+                        ${escapeHtmlClient(item.short_name)}
+                    </button>
+                `).join('');
 
                 els.savedMpsList.querySelectorAll('button[data-saved-id]').forEach(btn => {
                     btn.addEventListener('click', () => {
@@ -2081,9 +2176,31 @@
                         if (target) selectMp(target, { pushUrl: true });
                     });
                 });
+
+                // Homepage watchlist pills
+                if (els.heroWatchlistWrap && els.heroWatchlistList) {
+                    els.heroWatchlistWrap.classList.remove('hidden');
+                    els.heroWatchlistList.innerHTML = validSavedMps.map(item => {
+                        const dotColor = item.party_color || '#006548';
+                        return `
+                            <button type="button" data-hero-saved-id="${item.parliament_member_id}" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surfaceSubtle border border-hairline text-xs font-medium text-ink hover:border-commonsGreen hover:bg-canvas transition-colors cursor-pointer">
+                                <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background-color: ${escapeHtmlClient(dotColor)};"></span>
+                                <span>${escapeHtmlClient(item.short_name)}</span>
+                            </button>
+                        `;
+                    }).join('');
+
+                    els.heroWatchlistList.querySelectorAll('button[data-hero-saved-id]').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const target = state.mpById.get(Number(btn.getAttribute('data-hero-saved-id')));
+                            if (target) selectMp(target, { pushUrl: true });
+                        });
+                    });
+                }
             } else {
                 els.savedMpsBtn.classList.add('hidden');
                 els.savedMpsStrip.classList.add('hidden');
+                els.heroWatchlistWrap?.classList.add('hidden');
             }
         }
 
@@ -2312,28 +2429,60 @@
                 const email = (els.mpNewsletterEmail?.value || '').trim().toLowerCase();
                 if (!email || !state.currentMp?.parliament_member_id) return;
 
+                const includeWatchlist = Boolean(els.mpNewsletterIncludeWatchlist?.checked);
+                const targetIds = new Set([Number(state.currentMp.parliament_member_id)]);
+                if (includeWatchlist) {
+                    for (const id of state.watchlist) {
+                        if (state.mpById.has(Number(id))) {
+                            targetIds.add(Number(id));
+                        }
+                    }
+                }
+
                 els.mpNewsletterSubmit.disabled = true;
                 els.mpNewsletterSubmit.textContent = 'Saving...';
 
-                const { error } = await sb
-                    .from('newsletter_subscribers')
-                    .insert({
-                        email,
-                        parliament_member_id: state.currentMp.parliament_member_id,
-                        is_active: true
-                    });
+                let newlyAdded = 0;
+                let alreadySubscribed = 0;
+                let failedCount = 0;
+
+                for (const mpId of targetIds) {
+                    const { error } = await sb
+                        .from('newsletter_subscribers')
+                        .insert({
+                            email,
+                            parliament_member_id: mpId,
+                            is_active: true
+                        });
+
+                    if (!error) {
+                        newlyAdded += 1;
+                    } else if (error.code === '23505') {
+                        alreadySubscribed += 1;
+                    } else {
+                        failedCount += 1;
+                    }
+                }
 
                 els.mpNewsletterSubmit.disabled = false;
                 els.mpNewsletterSubmit.textContent = 'Send Sundays';
                 els.mpNewsletterStatus.classList.remove('hidden', 'text-commonsGreen', 'text-red-600');
 
-                if (!error) {
+                if (failedCount === 0 && targetIds.size === 1) {
+                    if (newlyAdded === 1) {
+                        els.mpNewsletterEmail.value = '';
+                        els.mpNewsletterStatus.classList.add('text-commonsGreen');
+                        els.mpNewsletterStatus.textContent = `Subscribed — you’ll receive ${state.currentMp.short_name}’s parliamentary roundup every Sunday morning.`;
+                    } else {
+                        els.mpNewsletterStatus.classList.add('text-commonsGreen');
+                        els.mpNewsletterStatus.textContent = `You’re already subscribed to ${state.currentMp.short_name}’s Sunday briefing.`;
+                    }
+                } else if (failedCount === 0 && targetIds.size > 1) {
                     els.mpNewsletterEmail.value = '';
                     els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                    els.mpNewsletterStatus.textContent = `Subscribed — you’ll receive ${state.currentMp.short_name}’s parliamentary roundup every Sunday morning.`;
-                } else if (error.code === '23505') {
-                    els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                    els.mpNewsletterStatus.textContent = `You’re already subscribed to ${state.currentMp.short_name}’s Sunday briefing.`;
+                    els.mpNewsletterStatus.textContent = newlyAdded > 0
+                        ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
+                        : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
                 } else {
                     els.mpNewsletterStatus.classList.add('text-red-600');
                     els.mpNewsletterStatus.textContent = 'Could not save your subscription right now. Please check your email and try again.';
@@ -2359,7 +2508,7 @@
                     els.briefingWorkspace.classList.add('hidden');
                     els.topMasthead.classList.add('hidden');
                     els.landingHero.classList.remove('hidden');
-                    document.title = 'Whip - What Your MP Did This Week in Parliament';
+                    document.title = 'Whip - What your MP did last week in Parliament';
                 }
             });
         }

@@ -4,8 +4,8 @@
  * Fetches Hansard debates, Select Committee sessions, Written Parliamentary Questions
  * (both tabled by MPs and answered by Ministers), Commons Division votes, and GOV.UK
  * departmental announcements for a target sitting date, generates accessible multi-paragraph
- * plain-English briefings with verified verbatim Hansard quotes via Gemini, upserts
- * them into Supabase (`daily_briefings`), and prunes records older than 8 weeks (56 days).
+ * plain-English briefings with verified verbatim quotes via Gemini, upserts them into
+ * Supabase (`daily_briefings`), and prunes records older than 8 weeks (56 days).
  */
 
 import 'dotenv/config';
@@ -335,65 +335,121 @@ function extractBalancedDoubleQuotes(text) {
     return results;
 }
 
-function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallbackDebateTitle = '') {
+function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallbackDebateTitle = '', writtenQuestions = []) {
     const cleanNarrative = String(narrative || '').trim();
-    if (!speeches || speeches.length === 0) return cleanNarrative;
 
-    const debateName = fallbackDebateTitle || speeches[0]?.debateTitle || '';
-    const fallbackContextLine = debateName
-        ? `Speaking during proceedings on ${debateName}, they said:`
-        : `Addressing the House, they said:`;
+    // Case 1: MP spoke in the Commons Chamber — quote must come from Chamber speeches
+    if (speeches && speeches.length > 0) {
+        const debateName = fallbackDebateTitle || speeches[0]?.debateTitle || '';
+        const fallbackContextLine = debateName
+            ? `Speaking during proceedings on ${debateName}, they said:`
+            : `Addressing the House, they said:`;
 
-    const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
+        const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
+        const quoteMatches = extractBalancedDoubleQuotes(cleanNarrative);
+
+        if (quoteMatches.length > 0) {
+            const firstValidMatch = quoteMatches.find(m => {
+                const q = m.inner;
+                const isCompleteSentence = /[.!?]["'’]?$/.test(q) && !q.includes('...');
+                const isNotProcedural = !isProceduralSentence(q);
+                const isExactSubstring = fullTranscriptNorm.includes(normalizeForQuoteMatch(q));
+                return isCompleteSentence && isNotProcedural && isExactSubstring;
+            });
+
+            if (firstValidMatch) {
+                const exactQuote = firstValidMatch.inner;
+                let proseWithoutQuotes = cleanNarrative;
+                for (const m of quoteMatches) {
+                    proseWithoutQuotes = proseWithoutQuotes.replace(m.fullMatch, ' ');
+                }
+                proseWithoutQuotes = proseWithoutQuotes
+                    .replace(/\n{2,}\[WQ_ATTR:[^\]]+\]/gi, '')
+                    .replace(/\s+([.,;:!?])/g, '$1')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .replace(/[ \t]{2,}/g, ' ')
+                    .trim();
+
+                const paras = proseWithoutQuotes.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+                if (paras.length === 0) {
+                    return `${fallbackContextLine}\n\n“${exactQuote}”`;
+                }
+                const firstPara = paras[0];
+                const restParas = paras.slice(1);
+                return [firstPara, `“${exactQuote}”`, ...restParas].join('\n\n');
+            }
+
+            let withoutBadQuotes = cleanNarrative;
+            for (const m of quoteMatches) {
+                withoutBadQuotes = withoutBadQuotes.replace(m.fullMatch, ' ');
+            }
+            withoutBadQuotes = withoutBadQuotes
+                .replace(/\n{2,}\[WQ_ATTR:[^\]]+\]/gi, '')
+                .replace(/\s+([.,;:!?])/g, '$1')
+                .replace(/[ \t]{2,}/g, ' ')
+                .trim();
+
+            return fallbackQuote
+                ? `${withoutBadQuotes}\n\n${fallbackContextLine}\n\n“${fallbackQuote}”`
+                : withoutBadQuotes;
+        }
+
+        return fallbackQuote
+            ? `${cleanNarrative}\n\n${fallbackContextLine}\n\n“${fallbackQuote}”`
+            : cleanNarrative;
+    }
+
+    // Case 2: No Chamber speeches — if Gemini included a Written Question quote, format it with minister/department attribution
     const quoteMatches = extractBalancedDoubleQuotes(cleanNarrative);
+    if (quoteMatches.length > 0 && Array.isArray(writtenQuestions) && writtenQuestions.length > 0) {
+        const wqCorpusNorm = normalizeForQuoteMatch(
+            writtenQuestions.map(q => `${q.questionText || ''} ${q.answerText || ''}`).join(' ')
+        );
 
-    if (quoteMatches.length > 0) {
-        const firstValidMatch = quoteMatches.find(m => {
-            const q = m.inner;
-            const isCompleteSentence = /[.!?]["'’]?$/.test(q) && !q.includes('...');
-            const isNotProcedural = !isProceduralSentence(q);
-            const isExactSubstring = fullTranscriptNorm.includes(normalizeForQuoteMatch(q));
-            return isCompleteSentence && isNotProcedural && isExactSubstring;
-        });
+        const validWqMatch = quoteMatches.find(m =>
+            wqCorpusNorm.includes(normalizeForQuoteMatch(m.inner))
+        );
 
-        if (firstValidMatch) {
-            const exactQuote = firstValidMatch.inner;
+        if (validWqMatch) {
+            const exactQuote = validWqMatch.inner;
+            const normQ = normalizeForQuoteMatch(exactQuote);
+            const matchedWq = writtenQuestions.find(q =>
+                normalizeForQuoteMatch(q.questionText || '').includes(normQ) ||
+                normalizeForQuoteMatch(q.answerText || '').includes(normQ)
+            );
+
+            const askTargetMatch = exactQuote.match(/^To ask (the [^,]+),/i);
+            let attrText = '';
+            if (matchedWq?.direction === 'answered') {
+                attrText = `Written parliamentary answer on behalf of ${matchedWq.department || 'the Government'}`;
+            } else if (askTargetMatch) {
+                attrText = `Written question tabled to ${askTargetMatch[1]}`;
+            } else if (matchedWq?.department) {
+                attrText = `Written question tabled to ${matchedWq.department}`;
+            }
+
             let proseWithoutQuotes = cleanNarrative;
             for (const m of quoteMatches) {
                 proseWithoutQuotes = proseWithoutQuotes.replace(m.fullMatch, ' ');
             }
             proseWithoutQuotes = proseWithoutQuotes
+                .replace(/\n{2,}\[WQ_ATTR:[^\]]+\]/gi, '')
                 .replace(/\s+([.,;:!?])/g, '$1')
                 .replace(/\n{3,}/g, '\n\n')
                 .replace(/[ \t]{2,}/g, ' ')
                 .trim();
 
             const paras = proseWithoutQuotes.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-            if (paras.length === 0) {
-                return `${fallbackContextLine}\n\n“${exactQuote}”`;
-            }
-            const firstPara = paras[0];
-            const restParas = paras.slice(1);
-            return [firstPara, `“${exactQuote}”`, ...restParas].join('\n\n');
-        }
+            const quoteBlocks = attrText
+                ? [`“${exactQuote}”`, `[WQ_ATTR: ${attrText}]`]
+                : [`“${exactQuote}”`];
 
-        let withoutBadQuotes = cleanNarrative;
-        for (const m of quoteMatches) {
-            withoutBadQuotes = withoutBadQuotes.replace(m.fullMatch, ' ');
+            if (paras.length === 0) return quoteBlocks.join('\n\n');
+            return [paras[0], ...quoteBlocks, ...paras.slice(1)].join('\n\n');
         }
-        withoutBadQuotes = withoutBadQuotes
-            .replace(/\s+([.,;:!?])/g, '$1')
-            .replace(/[ \t]{2,}/g, ' ')
-            .trim();
-
-        return fallbackQuote
-            ? `${withoutBadQuotes}\n\n${fallbackContextLine}\n\n“${fallbackQuote}”`
-            : withoutBadQuotes;
     }
 
-    return fallbackQuote
-        ? `${cleanNarrative}\n\n${fallbackContextLine}\n\n“${fallbackQuote}”`
-        : cleanNarrative;
+    return cleanNarrative;
 }
 
 function attachMinisterialMeta(glossary, govRole, deptDigestCache) {
@@ -770,14 +826,12 @@ async function fetchWrittenQuestionsForDate(dateStr) {
 
 async function fetchCommitteeSessionsForDate(dateStr) {
     const byMember = new Map();
-    const startIso = `${dateStr}T00:00:00Z`;
-    const endIso = `${dateStr}T23:59:59Z`;
 
     let meetings = [];
     try {
         const broadcastUrl = new URL(COMMITTEES_EVENTS_API);
-        broadcastUrl.searchParams.set('StartDate', startIso);
-        broadcastUrl.searchParams.set('EndDate', endIso);
+        broadcastUrl.searchParams.set('StartDate', dateStr);
+        broadcastUrl.searchParams.set('EndDate', dateStr);
         const data = await fetchJsonWithTimeout(broadcastUrl.toString(), 20000);
         meetings = Array.isArray(data) ? data : (data?.items || data?.value || []);
     } catch (err) {
@@ -944,10 +998,9 @@ Rules:
 - Strictly neutral, non-partisan tone. Never praise, criticise, or speculate about motives.
 - Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
 - Quote Selection & Context Rule (CRITICAL):
-  1. Look across ALL contributions in Speeches below and pick the SINGLE most substantive, reader-interesting complete sentence that captures ${mp.short_name}'s main policy argument, specific concern, or real-world impact on constituents/services.
-  2. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries.
-  3. First write a short, strictly factual paragraph introducing the specific debate, bill, or issue ${mp.short_name} was addressing (using only facts in the Context below, never inventing meaning).
-  4. Then place that ONE exact, word-for-word complete sentence in its OWN separate paragraph enclosed in double quotes ("..."). Never alter, paraphrase, or cut off words inside quotes.
+  1. If Chamber Speeches exist: pick the SINGLE most substantive, reader-interesting complete sentence from Speeches that captures ${mp.short_name}'s main policy argument, specific concern, or real-world impact. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries. First write a short, strictly factual paragraph introducing the specific debate or bill ${mp.short_name} was addressing, then place that ONE exact verbatim sentence in its OWN separate paragraph enclosed in double quotes ("...").
+  2. If NO Chamber Speeches exist and Written Questions exist: you may optionally include ONE exact verbatim sentence from a Written Question in its OWN separate paragraph enclosed in double quotes ("..."), followed immediately by a separate paragraph formatted exactly as [WQ_ATTR: Written question tabled to <Minister/Department>].
+  3. Never alter, paraphrase, or cut off words inside quotes.
 - Return 2–4 short paragraphs in "summary_para_1" (with the verbatim quote as its own standalone paragraph), 1 short 2–3 sentence "Why this matters" paragraph in "summary_para_2", and 0–2 entries in "glossary".
 
 Context:
@@ -978,7 +1031,8 @@ ${voteDigest ? `Votes:\n${voteDigest}` : ''}`;
                     parsed.summary_para_1,
                     rankedSpeeches,
                     verbatimExcerpt,
-                    verbatimDebateTitle
+                    verbatimDebateTitle,
+                    writtenQuestions
                 );
 
                 return {

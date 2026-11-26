@@ -28,6 +28,14 @@ on:
         description: 'Send weekly newsletter digest'
         type: boolean
         default: false
+      preview_email:
+        description: 'Send a preview digest ONLY to this email (never touches real subscribers)'
+        type: string
+        default: ''
+      preview_mp:
+        description: 'MP name or slug to preview (e.g. Kemi Badenoch)'
+        type: string
+        default: 'Kemi Badenoch'
 
 permissions:
   contents: write
@@ -74,13 +82,15 @@ jobs:
         run: node build_pages.js
 
       - name: Send weekly digest
-        if: (github.event_name == 'schedule' && github.event.schedule == '30 7 * * 0') || inputs.send_digest
+        if: (github.event_name == 'schedule' && github.event.schedule == '30 7 * * 0') || inputs.send_digest || inputs.preview_email != ''
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           NEWSLETTER_FROM_EMAIL: ${{ secrets.NEWSLETTER_FROM_EMAIL }}
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
+          PREVIEW_EMAIL: ${{ inputs.preview_email }}
+          PREVIEW_MP: ${{ inputs.preview_mp }}
         run: node send_weekly_digest.js
 
       - name: Commit generated files if changed

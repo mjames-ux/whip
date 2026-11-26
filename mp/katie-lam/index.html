@@ -1591,12 +1591,13 @@
                 const badgeLabel = v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`;
 
                 const exp = v.explainer || {};
-                const billSummary = String(exp.billSummary || '').trim();
-                const billAims = String(exp.billAims || exp.statedAims || '').trim();
-                const stageText = String(exp.stageSummary || exp.whatItDoes || '').trim();
+                const underlyingSubject = String(exp.underlyingSubject || exp.billSummary || '').trim();
+                const amendmentDetails = String(exp.amendmentDetails || '').trim();
+                const proposerView = String(exp.proposerView || exp.billAims || exp.statedAims || '').trim();
+                const stageText = String(exp.stageAndMeaning || exp.stageSummary || exp.whatItDoes || '').trim();
                 const parliamentUrl = String(exp.parliamentUrl || '').trim();
 
-                const hasExplainer = Boolean(billSummary || billAims || stageText);
+                const hasExplainer = Boolean(underlyingSubject || amendmentDetails || proposerView || stageText);
                 const anchorId = v.divisionId ? `vote-${v.divisionId}` : `vote-idx-${idx}`;
 
                 const shareMenuMarkup = `
@@ -1666,9 +1667,10 @@
 
                         ${hasExplainer ? `
                             <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 sm:p-5 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-3 text-xs sm:text-sm text-inkSecondary leading-relaxed">
-                                ${billSummary ? `<p class="text-ink"><strong class="font-semibold">About the Bill:</strong> ${escapeHtmlClient(billSummary)}</p>` : ''}
-                                ${billAims ? `<p><strong class="font-semibold text-ink">Reasons put forward:</strong> ${escapeHtmlClient(billAims)}</p>` : ''}
-                                ${stageText ? `<p class="${billSummary || billAims ? 'text-inkSecondary' : 'text-ink'}"><strong class="font-semibold text-ink">Stage in Parliament:</strong> ${escapeHtmlClient(stageText)}</p>` : ''}
+                                ${underlyingSubject ? `<p><strong class="font-semibold text-ink">What this is about:</strong> ${escapeHtmlClient(underlyingSubject)}</p>` : ''}
+                                ${amendmentDetails ? `<p><strong class="font-semibold text-ink">The amendment being voted on:</strong> ${escapeHtmlClient(amendmentDetails)}</p>` : ''}
+                                ${proposerView ? `<p class="text-ink"><strong class="font-semibold text-ink">Why it is being put forward:</strong> ${escapeHtmlClient(proposerView)}</p>` : ''}
+                                ${stageText ? `<p><strong class="font-semibold text-ink">Stage in Parliament &amp; what it means:</strong> ${escapeHtmlClient(stageText)}</p>` : ''}
                                 <div class="pt-1.5 flex flex-wrap items-center justify-between gap-3 border-t border-hairline/60">
                                     ${parliamentUrl ? `<a href="${escapeHtmlClient(parliamentUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-commonsGreen hover:underline">View official Commons division record &rarr;</a>` : '<span></span>'}
                                     ${shareMenuMarkup}
@@ -2149,7 +2151,6 @@
                 .map(id => state.mpById.get(Number(id)))
                 .filter(Boolean);
 
-            // Toggle optional "Also subscribe to everyone on my Watchlist" checkbox in newsletter card
             const otherWatchlistMps = validSavedMps.filter(item => Number(item.parliament_member_id) !== currentId);
             if (els.mpNewsletterWatchlistWrap && els.mpNewsletterWatchlistLabel) {
                 if (otherWatchlistMps.length > 0) {
@@ -2165,7 +2166,6 @@
             }
 
             if (validSavedMps.length > 0) {
-                // Header saved strip
                 els.savedMpsBtn.classList.remove('hidden');
                 els.savedMpsBtn.classList.add('inline-flex');
                 els.savedMpsCount.textContent = String(validSavedMps.length);
@@ -2182,7 +2182,6 @@
                     });
                 });
 
-                // Homepage watchlist pills
                 if (els.heroWatchlistWrap && els.heroWatchlistList) {
                     els.heroWatchlistWrap.classList.remove('hidden');
                     els.heroWatchlistList.innerHTML = validSavedMps.map(item => {

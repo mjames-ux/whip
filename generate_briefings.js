@@ -985,12 +985,22 @@ async function fetchWrittenQuestionsForDate(dateStr) {
 
 async function fetchCommitteeSessionsForDate(dateStr) {
     const byMember = new Map();
+    const seenKeys = new Set();
+
+    function addParticipant(memberId, record) {
+        if (!memberId) return;
+        const key = `${memberId}|${record.committeeName}|${record.title}|${record.role}`;
+        if (seenKeys.has(key)) return;
+        seenKeys.add(key);
+        if (!byMember.has(memberId)) byMember.set(memberId, []);
+        byMember.get(memberId).push(record);
+    }
 
     let meetings = [];
     try {
         const broadcastUrl = new URL(COMMITTEES_EVENTS_API);
-        broadcastUrl.searchParams.set('StartDate', dateStr);
-        broadcastUrl.searchParams.set('EndDate', dateStr);
+        broadcastUrl.searchParams.set('FromDate', dateStr);
+        broadcastUrl.searchParams.set('ToDate', dateStr);
         const data = await fetchJsonWithTimeout(broadcastUrl.toString(), 20000);
         meetings = Array.isArray(data) ? data : (data?.items || data?.value || []);
     } catch (err) {
@@ -1000,7 +1010,18 @@ async function fetchCommitteeSessionsForDate(dateStr) {
             eventsUrl.searchParams.set('StartDate', dateStr);
             eventsUrl.searchParams.set('EndDate', dateStr);
             const fallbackData = await fetchJsonWithTimeout(eventsUrl.toString(), 20000);
-            meetings = Array.isArray(fallbackData) ? fallbackData : (fallbackData?.items || fallbackData?.value || []);
+            const rawEvents = Array.isArray(fallbackData) ? fallbackData : (fallbackData?.items || fallbackData?.value || []);
+
+            // Hydrate each event individually so attendees & witnesses are included
+            for (const ev of rawEvents.slice(0, 25)) {
+                const evObj = ev?.value || ev;
+                const evId = evObj?.id || evObj?.eventId;
+                if (!evId) continue;
+                try {
+                    const detail = await fetchJsonWithTimeout(`${COMMITTEES_FALLBACK_API}/${evId}`, 12000);
+                    meetings.push(detail?.value || detail);
+                } catch {}
+            }
         } catch (fallbackErr) {
             console.warn(`Committees Events fallback warning (${dateStr}): ${fallbackErr.message}`);
             return byMember;
@@ -1024,9 +1045,7 @@ async function fetchCommitteeSessionsForDate(dateStr) {
         const attendees = Array.isArray(m?.attendees) ? m.attendees : [];
         for (const att of attendees) {
             const memberId = Number(att?.memberId ?? att?.member?.id);
-            if (!memberId) continue;
-            if (!byMember.has(memberId)) byMember.set(memberId, []);
-            byMember.get(memberId).push({
+            addParticipant(memberId, {
                 committeeName,
                 title,
                 topic: title,
@@ -1040,9 +1059,7 @@ async function fetchCommitteeSessionsForDate(dateStr) {
             const witnesses = Array.isArray(act?.witnesses) ? act.witnesses : [];
             for (const w of witnesses) {
                 const memberId = Number(w?.memberId ?? w?.member?.id);
-                if (!memberId) continue;
-                if (!byMember.has(memberId)) byMember.set(memberId, []);
-                byMember.get(memberId).push({
+                addParticipant(memberId, {
                     committeeName,
                     title,
                     topic: stripHtml(act?.title || title),

@@ -1,13 +1,21 @@
 /**
- * Whip — Sunday Morning Weekly MP Briefing Newsletter Sender (`send_weekly_newsletter.js`)
+ * Whip - Sunday Morning Weekly MP Briefing Newsletter Sender (`send_weekly_newsletter.js`)
  *
  * Queries active subscribers in `newsletter_subscribers`, compiles the completed
- * parliamentary week (Monday–Friday) for each subscribed MP from `daily_briefings`,
+ * parliamentary week (Monday-Friday) for each subscribed MP from `daily_briefings`,
  * renders an editorial plain-English HTML + plain-text email with static vote
  * explainers and one-click unsubscribe links, and sends via Resend.
+ *
+ * Preview / test modes (do not update subscriber `last_sent_week`):
+ * - `node send_weekly_newsletter.js --preview` (or `PREVIEW_FILE=preview_email.html`):
+ *   Writes HTML preview to disk and prints a summary without sending emails.
+ * - `PREVIEW_EMAIL=you@example.com`:
+ *   Sends the preview email only to `PREVIEW_EMAIL`.
  */
 
 import 'dotenv/config';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 
 function cleanEnvValue(val, keyName) {
@@ -27,14 +35,20 @@ const fromEmail = cleanEnvValue(process.env.NEWSLETTER_FROM_EMAIL, 'NEWSLETTER_F
 const siteBaseUrl = (cleanEnvValue(process.env.SITE_BASE_URL, 'SITE_BASE_URL') || 'https://whipdaily.uk').replace(/\/+$/, '');
 const dryRun = /^true$/i.test(cleanEnvValue(process.env.DRY_RUN, 'DRY_RUN'));
 const targetWeekDateOverride = cleanEnvValue(process.env.TARGET_DATE, 'TARGET_DATE');
+const previewEmail = cleanEnvValue(process.env.PREVIEW_EMAIL, 'PREVIEW_EMAIL');
+const previewMpQuery = cleanEnvValue(process.env.PREVIEW_MP, 'PREVIEW_MP');
+const cliHasPreviewFlag = process.argv.includes('--preview');
+const previewFileEnv = cleanEnvValue(process.env.PREVIEW_FILE, 'PREVIEW_FILE');
+const previewFilePath = previewFileEnv || (cliHasPreviewFlag ? 'preview_email.html' : '');
+const isPreviewOnly = Boolean(previewFilePath) && !previewEmail;
 
 if (!supabaseKey) {
     console.error('Missing SUPABASE_SERVICE_ROLE_KEY.');
     process.exit(1);
 }
 
-if (!resendApiKey && !dryRun) {
-    console.error('Missing RESEND_API_KEY (or set DRY_RUN=true to preview without sending).');
+if (!resendApiKey && !dryRun && !isPreviewOnly) {
+    console.error('Missing RESEND_API_KEY (or use --preview / PREVIEW_FILE / DRY_RUN=true).');
     process.exit(1);
 }
 
@@ -155,7 +169,7 @@ function formatWeekRangeLabel(dates) {
     const last = new Date(`${sorted[sorted.length - 1]}T12:00:00Z`);
     const startStr = first.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
     const endStr = last.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-    return sorted.length === 1 ? endStr : `${startStr} – ${endStr}`;
+    return sorted.length === 1 ? endStr : `${startStr} - ${endStr}`;
 }
 
 function formatCleanSubjectList(titles) {
@@ -358,19 +372,75 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
     };
 }
 
-function renderEmailNarrativeHtml(text) {
-    return String(text || '')
+function resolveWrittenQuestionAttribution(quoteText, writtenQuestions = []) {
+    const cleanQ = String(quoteText || '').replace(/^[“"]|[”"]$/g, '').trim();
+    if (!cleanQ) return '';
+
+    const normQuote = cleanQ.toLowerCase().replace(/\s+/g, ' ');
+    const matchedWq = (Array.isArray(writtenQuestions) ? writtenQuestions : []).find(q => {
+        const qText = String(q.questionText || '').toLowerCase().replace(/\s+/g, ' ');
+        const aText = String(q.answerText || '').toLowerCase().replace(/\s+/g, ' ');
+        return (qText && (qText.includes(normQuote.slice(0, 60)) || normQuote.includes(qText.slice(0, 60)))) ||
+               (aText && (aText.includes(normQuote.slice(0, 60)) || normQuote.includes(aText.slice(0, 60))));
+    });
+
+    const askTargetMatch = cleanQ.match(/^To ask (the [^,]+),/i);
+
+    if (matchedWq) {
+        if (matchedWq.direction === 'answered') {
+            return `Written parliamentary answer on behalf of ${matchedWq.department || 'the Government'}`;
+        }
+        if (askTargetMatch) {
+            return `Written question tabled to ${askTargetMatch[1]}`;
+        }
+        return `Written question tabled to ${matchedWq.department || 'a government department'}`;
+    }
+
+    if (askTargetMatch) {
+        return `Written question tabled to ${askTargetMatch[1]}`;
+    }
+
+    return '';
+}
+
+function renderEmailNarrativeHtml(text, writtenQuestions = []) {
+    const paragraphs = String(text || '')
         .split(/\n{2,}/)
         .map(p => p.trim())
-        .filter(Boolean)
-        .map(p => {
-            const formatted = escapeHtml(p).replace(
-                /(“[^”]+”|&quot;[^&]+&quot;)/g,
-                '<em style="font-family: Georgia, \'Times New Roman\', serif; font-style: italic; color: #111827;">$1</em>'
-            );
-            return `<p style="margin: 0 0 16px 0; font-size: 16px; line-height: 1.7; color: #111827;">${formatted}</p>`;
-        })
-        .join('');
+        .filter(Boolean);
+
+    const blocks = [];
+    for (let i = 0; i < paragraphs.length; i++) {
+        const p = paragraphs[i];
+        const isStandaloneQuote = /^[“"][^”"]+[”"]$/.test(p);
+
+        if (isStandaloneQuote) {
+            let explicitAttr = '';
+            const nextPara = paragraphs[i + 1] || '';
+            const attrTagMatch = nextPara.match(/^\[WQ_ATTR:\s*([^\]]+)\]$/i);
+            if (attrTagMatch) {
+                explicitAttr = attrTagMatch[1].trim();
+                i += 1;
+            }
+            const wqCaption = explicitAttr || resolveWrittenQuestionAttribution(p, writtenQuestions);
+
+            blocks.push(`
+                <blockquote style="margin: 0 0 18px 0; padding: 2px 0 2px 14px; border-left: 2px solid #E5E7EB;">
+                    <p style="margin: 0; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 16px; line-height: 1.7; color: #111827;">${escapeHtml(p)}</p>
+                    ${wqCaption ? `<p style="margin: 6px 0 0 0; font-size: 12px; font-weight: 500; color: #9CA3AF;">${escapeHtml(wqCaption)}</p>` : ''}
+                </blockquote>
+            `);
+            continue;
+        }
+
+        const formatted = escapeHtml(p).replace(
+            /(“[^”]+”|&quot;[^&]+&quot;)/g,
+            '<em style="font-family: Georgia, \'Times New Roman\', serif; font-style: italic; color: #111827;">$1</em>'
+        );
+        blocks.push(`<p style="margin: 0 0 16px 0; font-size: 16px; line-height: 1.7; color: #111827;">${formatted}</p>`);
+    }
+
+    return blocks.join('');
 }
 
 function renderEmailVotesSection(votes) {
@@ -385,11 +455,17 @@ function renderEmailVotesSection(votes) {
         const pillColor = isAye ? '#006548' : isNo ? '#B91C1C' : '#4B5563';
         const badgeLabel = v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`;
 
-        const voteMeaning = isAye
-            ? v.explainer?.whatAyeMeans
-            : isNo
-                ? v.explainer?.whatNoMeans
-                : null;
+        const exp = v.explainer || {};
+        const underlyingSubject = String(exp.underlyingSubject || exp.billSummary || '').trim();
+        const amendmentDetails = String(exp.amendmentDetails || '').trim();
+        const proposerView = String(exp.proposerView || exp.whatItDoes || '').trim();
+        const stageAndMeaning = String(
+            exp.stageAndMeaning ||
+            exp.stageSummary ||
+            (isAye ? exp.whatAyeMeans : isNo ? exp.whatNoMeans : '') ||
+            ''
+        ).trim();
+        const parliamentUrl = String(exp.parliamentUrl || '').trim();
 
         return `
             <tr>
@@ -409,8 +485,10 @@ function renderEmailVotesSection(votes) {
                     <p style="margin: 4px 0 8px 0; font-size: 12px; color: #9CA3AF;">
                         ${escapeHtml(v.houseResult || '')}${v.sittingDateLabel ? ` &middot; ${escapeHtml(v.sittingDateLabel)}` : ''}
                     </p>
-                    ${v.explainer?.whatItDoes ? `<p style="margin: 0 0 6px 0; font-size: 13px; line-height: 1.55; color: #4B5563;">${escapeHtml(v.explainer.whatItDoes)}</p>` : ''}
-                    ${voteMeaning ? `<p style="margin: 0; font-size: 12px; line-height: 1.5; color: #4B5563;"><strong style="color: #111827;">What their vote meant:</strong> ${escapeHtml(voteMeaning)}${v.explainer?.parliamentUrl ? ` &nbsp;<a href="${escapeHtml(v.explainer.parliamentUrl)}" style="color: #006548; text-decoration: none; font-weight: 500;">Official record &rarr;</a>` : ''}</p>` : ''}
+                    ${underlyingSubject ? `<p style="margin: 0 0 6px 0; font-size: 13px; line-height: 1.55; color: #4B5563;"><strong style="color: #111827;">What this is about:</strong> ${escapeHtml(underlyingSubject)}</p>` : ''}
+                    ${amendmentDetails ? `<p style="margin: 0 0 6px 0; font-size: 13px; line-height: 1.55; color: #4B5563;"><strong style="color: #111827;">The amendment being voted on:</strong> ${escapeHtml(amendmentDetails)}</p>` : ''}
+                    ${proposerView ? `<p style="margin: 0 0 6px 0; font-size: 13px; line-height: 1.55; color: #111827;"><strong style="color: #111827;">Why it is being put forward:</strong> ${escapeHtml(proposerView)}</p>` : ''}
+                    ${stageAndMeaning ? `<p style="margin: 0; font-size: 12px; line-height: 1.5; color: #4B5563;"><strong style="color: #111827;">Stage in Parliament &amp; what it means:</strong> ${escapeHtml(stageAndMeaning)}${parliamentUrl ? ` &nbsp;<a href="${escapeHtml(parliamentUrl)}" style="color: #006548; text-decoration: none; font-weight: 500;">Official record &rarr;</a>` : ''}</p>` : ''}
                 </td>
             </tr>
         `;
@@ -486,7 +564,7 @@ function renderEmailCommitteesHtml(committees) {
 function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
     const seat = getConstituencyName(mp);
     const mpPageUrl = `${siteBaseUrl}/mp/${mpSlug}/`;
-    const unsubscribeUrl = `${siteBaseUrl}/?unsubscribe=${encodeURIComponent(unsubscribeToken)}`;
+    const unsubscribeUrl = `${siteBaseUrl}/?unsubscribe=${encodeURIComponent(unsubscribeToken || 'preview-token')}`;
     const dotColor = mp.party_color || '#006548';
 
     const subject = `${mp.short_name} in Parliament: ${briefing.rangeLabel}`;
@@ -540,7 +618,7 @@ function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
                     <!-- Main Narrative -->
                     <tr>
                         <td style="padding: 28px;">
-                            ${renderEmailNarrativeHtml(briefing.summaryPara1)}
+                            ${renderEmailNarrativeHtml(briefing.summaryPara1, briefing.writtenQuestions)}
 
                             <!-- Why This Matters Callout -->
                             <div style="margin-top: 20px; padding: 14px 16px; border-left: 3px solid #006548; background-color: #FAFAFA; border-radius: 0 10px 10px 0;">
@@ -593,9 +671,9 @@ function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
 </html>`;
 
     const text = [
-        `WHIP — Sunday Briefing (${briefing.rangeLabel})`,
-        `${mp.full_name} (${mp.party} — ${seat})`,
-        `${mp.role_title || `MP for ${seat}`} • ${briefing.activityTag}`,
+        `WHIP - Sunday Briefing (${briefing.rangeLabel})`,
+        `${mp.full_name} (${mp.party} - ${seat})`,
+        `${mp.role_title || `MP for ${seat}`} - ${briefing.activityTag}`,
         ``,
         briefing.summaryPara1,
         ``,
@@ -604,8 +682,9 @@ function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
         ``,
         briefing.votes.length > 0
             ? `VOTING RECORD:\n` + briefing.votes.map(v => {
-                const meaning = v.mpVote === 'Aye' ? v.explainer?.whatAyeMeans : v.mpVote === 'No' ? v.explainer?.whatNoMeans : '';
-                return `- ${v.title} [${v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`}]\n  ${v.explainer?.whatItDoes || ''}${meaning ? `\n  What their vote meant: ${meaning}` : ''}`;
+                const exp = v.explainer || {};
+                const meaning = exp.stageAndMeaning || (v.mpVote === 'Aye' ? exp.whatAyeMeans : v.mpVote === 'No' ? exp.whatNoMeans : '');
+                return `- ${v.title} [${v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`}]\n  ${exp.proposerView || exp.whatItDoes || ''}${meaning ? `\n  Stage & meaning: ${meaning}` : ''}`;
             }).join('\n')
             : `VOTING RECORD:\nNo House of Commons division votes were held last week.`,
         ``,
@@ -641,34 +720,26 @@ async function sendViaResend({ to, subject, html, text }) {
     return res.json();
 }
 
+function pickPreviewMp(mps, slugById) {
+    if (!previewMpQuery) return mps[0];
+    const q = previewMpQuery.toLowerCase();
+    return (
+        mps.find(m => String(m.parliament_member_id) === q) ||
+        mps.find(m => slugById.get(Number(m.parliament_member_id)) === q) ||
+        mps.find(m => String(m.full_name || '').toLowerCase().includes(q)) ||
+        mps.find(m => String(m.short_name || '').toLowerCase().includes(q)) ||
+        mps[0]
+    );
+}
+
 export async function sendWeeklyNewsletters() {
     const weekDates = getTargetWeekDates();
     const weekKey = weekDates[0];
 
     console.log(
         `[${new Date().toISOString()}] Running Whip Sunday Newsletter for week ${weekDates[0]}..${weekDates[weekDates.length - 1]} ` +
-        `(DRY_RUN: ${dryRun})`
+        `(DRY_RUN: ${dryRun}, PREVIEW_FILE: ${previewFilePath || 'none'}, PREVIEW_EMAIL: ${previewEmail ? 'set' : 'none'})`
     );
-
-    const { data: subscribers, error: subErr } = await supabase
-        .from('newsletter_subscribers')
-        .select('id, email, parliament_member_id, unsubscribe_token, last_sent_week')
-        .eq('is_active', true);
-
-    if (subErr) {
-        throw new Error(`Failed loading newsletter_subscribers: ${subErr.message}`);
-    }
-
-    if (!subscribers || subscribers.length === 0) {
-        console.log('No active newsletter subscribers found. Exiting.');
-        return;
-    }
-
-    const dueSubscribers = subscribers.filter(s => s.last_sent_week !== weekKey);
-    if (dueSubscribers.length === 0) {
-        console.log(`All ${subscribers.length} active subscribers have already been sent the ${weekKey} edition.`);
-        return;
-    }
 
     const { data: mps, error: mpErr } = await supabase
         .from('mps')
@@ -682,15 +753,9 @@ export async function sendWeeklyNewsletters() {
     const mpById = new Map(mps.map(m => [Number(m.parliament_member_id), m]));
     const slugById = buildMpSlugMap(mps);
 
-    const subscribedMpIds = [...new Set(
-        dueSubscribers
-            .map(s => Number(s.parliament_member_id))
-            .filter(id => mpById.has(id))
-    )];
-
-    const briefingByMpId = new Map();
-    for (const mpId of subscribedMpIds) {
-        const mp = mpById.get(mpId);
+    if (previewFilePath || previewEmail) {
+        const previewMp = pickPreviewMp(mps, slugById);
+        const mpId = Number(previewMp.parliament_member_id);
         const { data: rows, error: rowErr } = await supabase
             .from('daily_briefings')
             .select('*')
@@ -698,52 +763,39 @@ export async function sendWeeklyNewsletters() {
             .in('sitting_date', weekDates);
 
         if (rowErr) {
-            console.warn(`Warning fetching briefings for MP ${mpId}: ${rowErr.message}`);
-            continue;
+            throw new Error(`Failed fetching briefings for preview MP ${mpId}: ${rowErr.message}`);
         }
 
-        briefingByMpId.set(mpId, compileWeeklyBriefing(mp, weekDates, rows || []));
-    }
-
-    let sentCount = 0;
-    let failCount = 0;
-
-    for (const sub of dueSubscribers) {
-        const mpId = Number(sub.parliament_member_id);
-        const mp = mpById.get(mpId);
-        const briefing = briefingByMpId.get(mpId);
-        if (!mp || !briefing) continue;
-
+        const briefing = compileWeeklyBriefing(previewMp, weekDates, rows || []);
         const mpSlug = slugById.get(mpId) || '';
         const { subject, html, text } = buildNewsletterEmail({
-            mp,
+            mp: previewMp,
             mpSlug,
             briefing,
-            unsubscribeToken: sub.unsubscribe_token
+            unsubscribeToken: 'preview-unsubscribe-token'
         });
 
-        if (dryRun) {
-            console.log(`[DRY RUN] Would send "${subject}" to ${sub.email}`);
-            sentCount += 1;
-            continue;
+        if (previewFilePath) {
+            const resolvedPath = path.resolve(process.cwd(), previewFilePath);
+            await fs.writeFile(resolvedPath, html, 'utf8');
+            console.log(`Wrote HTML email preview for ${previewMp.full_name} to: ${resolvedPath}`);
+            console.log(`Subject: "${subject}"`);
         }
 
-        try {
-            await sendViaResend({ to: sub.email, subject, html, text });
-            await supabase
-                .from('newsletter_subscribers')
-                .update({ last_sent_week: weekKey, last_sent_at: new Date().toISOString() })
-                .eq('id', sub.id);
-            sentCount += 1;
-        } catch (err) {
-            failCount += 1;
-            console.warn(`Failed sending to ${sub.email}: ${err.message}`);
+        if (previewEmail) {
+            await sendViaResend({ to: previewEmail, subject, html, text });
+            console.log(`Sent preview email for ${previewMp.full_name} to ${previewEmail}.`);
         }
+        return;
     }
 
-    console.log(
-        `[${new Date().toISOString()}] Finished Sunday newsletter run: ${sentCount} sent, ${failCount} failed.`
-    );
-}
+    const { data: subscribers, error: subErr } = await supabase
+        .from('newsletter_subscribers')
+        .select('id, email, parliament_member_id, unsubscribe_token, last_sent_week')
+        .eq('is_active', true);
 
-sendWeeklyNewsletters();
+    if (subErr) {
+        throw new Error(`Failed loading newsletter_subscribers: ${subErr.message}`);
+    }
+
+    if (!subscribers || subscribers.length === 0) {

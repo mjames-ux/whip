@@ -119,13 +119,25 @@ function isSpeakerOrDeputyMp(mp) {
 }
 
 function resolveGovernmentRole(mp) {
-    if (!mp?.role_title || !mp.role_title.includes('• MP for ')) {
+    const role = String(mp?.role_title || '').trim();
+    if (!role || !role.includes('• MP for ')) {
         return null;
     }
-    const postTitle = mp.role_title.split('• MP for ')[0].trim();
+    const postTitle = role.split('• MP for ')[0].trim();
     if (!postTitle) return null;
 
+    // Exclude opposition, shadow, or party spokespeople (e.g. Lib Dem / SNP / Green spokespeople)
+    if (/\b(spokesperson|shadow|opposition|liberal democrat|scottish national party|snp|green party|reform uk|plaid cymru|democratic unionist|dup)\b/i.test(postTitle)) {
+        return null;
+    }
+
     const isWhip = /\b(whip|lord commissioner of hm treasury|treasurer of hm household|comptroller of hm household|vice-chamberlain of hm household)\b/i.test(postTitle);
+    const isMinister = /\b(prime minister|chancellor of the exchequer|secretary of state|minister of state|parliamentary under-secretary|minister for|minister of|paymaster general|attorney general|solicitor general|advocate general|lord chancellor|lord president|lord privy seal|leader of the house of commons|chief secretary|financial secretary|economic secretary)\b/i.test(postTitle) || isWhip;
+
+    if (!isMinister) {
+        return null;
+    }
+
     const dept = DEPARTMENT_MAP.find(d => d.match.test(postTitle)) || null;
 
     return {
@@ -463,7 +475,11 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallba
 }
 
 function attachMinisterialMeta(glossary, govRole, deptDigestCache) {
-    if (!govRole) return glossary;
+    const list = (Array.isArray(glossary) ? glossary : []).filter(
+        g => g?._type !== 'ministerial_meta'
+    );
+    if (!govRole) return list;
+
     const meta = {
         _type: 'ministerial_meta',
         postTitle: govRole.postTitle,
@@ -472,10 +488,7 @@ function attachMinisterialMeta(glossary, govRole, deptDigestCache) {
         isWhip: govRole.isWhip,
         deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
     };
-    const list = Array.isArray(glossary) ? [...glossary] : [];
-    const idx = list.findIndex(g => g?._type === 'ministerial_meta');
-    if (idx >= 0) list[idx] = meta;
-    else list.unshift(meta);
+    list.unshift(meta);
     return list;
 }
 

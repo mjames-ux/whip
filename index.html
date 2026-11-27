@@ -393,14 +393,11 @@
                         </aside>
 
                         <!-- Hansard Source Footer -->
-                        <div class="pt-3 flex flex-wrap items-center justify-between gap-3">
+                        <div class="pt-3 flex items-center">
                             <a id="hansardSourceLink" href="https://hansard.parliament.uk/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-medium text-ink hover:text-commonsGreen transition-colors">
                                 <span id="hansardLinkLabel">Read official Hansard transcript</span>
                                 <span aria-hidden="true">&rarr;</span>
                             </a>
-                            <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
-                                —
-                            </span>
                         </div>
                     </div>
                 </section>
@@ -654,7 +651,6 @@
             mpNewsletterStatus: document.getElementById('mpNewsletterStatus'),
             hansardSourceLink: document.getElementById('hansardSourceLink'),
             hansardLinkLabel: document.getElementById('hansardLinkLabel'),
-            hansardRefTag: document.getElementById('hansardRefTag'),
             departmentActivitySection: document.getElementById('departmentActivitySection'),
             departmentNameBadge: document.getElementById('departmentNameBadge'),
             departmentSummaryText: document.getElementById('departmentSummaryText'),
@@ -1553,7 +1549,6 @@
                 contextHeading,
                 summary_para_1: para1,
                 summary_para_2: para2,
-                hansard_ref: `Week of ${rangeLabel}`,
                 deptName: isMinister ? (deptInfo?.deptName || deptDigest?.deptName || null) : null,
                 deptSummary: isMinister ? (deptDigest?.summary || '') : '',
                 deptItems: isMinister && Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
@@ -1573,6 +1568,1774 @@
             els.departmentSummaryText.textContent = deptSummary;
             els.departmentItemsList.innerHTML = (deptItems || []).map(item => `
                 <a href="${escapeHtmlClient(item.url || 'https://www.gov.uk/')}" target="_blank" rel="noopener noreferrer" class="py-4 flex items-center justify-between gap-4 group">
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-ink group-hover:text-commonsGreen transition-colors">${escapeHtmlClient(item.title)}</p>
+                        ${item.description ? `<p class="text-xs text-inkSecondary mt-1 line-clamp-2">${escapeHtmlClient(item.description)}</p>` : ''}
+                    </div>
+                    <span aria-hidden="true" class="text-sm text-inkTertiary group-hover:text-commonsGreen shrink-0">&rarr;</span>
+                </a>
+            `).join('');
+        }
+
+        function renderCommitteeSection(sessions) {
+            if (!sessions || sessions.length === 0) {
+                els.committeeSessionsSection.classList.add('hidden');
+                return;
+            }
+            els.committeeSessionsSection.classList.remove('hidden');
+            els.committeeCountBadge.textContent = `${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`;
+            els.committeeSessionsList.innerHTML = sessions.map(c => `
+                <div class="py-5 space-y-1.5">
+                    <span class="text-xs font-medium text-commonsGreen">${escapeHtmlClient(c.committeeName)}${c.sittingDateLabel ? ` &middot; ${escapeHtmlClient(c.sittingDateLabel)}` : ''}</span>
+                    <p class="text-sm font-medium text-ink">${escapeHtmlClient(c.title || c.committeeName)}</p>
+                    <p class="text-xs text-inkSecondary">${escapeHtmlClient(c.role || 'Committee Member')}</p>
+                </div>
+            `).join('');
+        }
+
+        function renderWrittenQuestionsSection(questions) {
+            if (!questions || questions.length === 0) {
+                els.writtenQuestionsSection.classList.add('hidden');
+                return;
+            }
+            els.writtenQuestionsSection.classList.remove('hidden');
+            els.wqCountBadge.textContent = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'}`;
+
+            els.writtenQuestionsList.innerHTML = questions.map(q => {
+                const isAnsweredByMp = q.direction === 'answered';
+                const hasReply = Boolean(
+                    (q.answerText && String(q.answerText).trim()) ||
+                    q.dateAnswered ||
+                    /^answered$/i.test(String(q.status || ''))
+                );
+
+                let pillLabel = '';
+                let pillClass = '';
+
+                if (isAnsweredByMp) {
+                    const askerName = String(q.askedByName || q.questionerName || q.mpName || '').trim();
+                    const askerParty = String(q.askedByParty || q.questionerParty || q.party || '').trim();
+                    if (askerName && askerParty) {
+                        pillLabel = `${askerName} (${askerParty})`;
+                    } else if (askerName || askerParty) {
+                        pillLabel = askerName || askerParty;
+                    } else {
+                        pillLabel = 'Written reply';
+                    }
+                    pillClass = 'bg-surfaceSubtle text-ink border-hairline';
+                } else {
+                    pillLabel = hasReply ? 'Reply received' : 'Awaiting answer';
+                    pillClass = hasReply
+                        ? 'bg-commonsGreen/10 text-commonsGreen border-commonsGreen/20'
+                        : 'bg-surfaceSubtle text-inkSecondary border-hairline';
+                }
+
+                const metaLine = isAnsweredByMp
+                    ? `${escapeHtmlClient(q.department || 'Government Department')} &middot; Answered${q.sittingDateLabel ? ` ${escapeHtmlClient(q.sittingDateLabel)}` : ''}`
+                    : `${escapeHtmlClient(q.department || 'Government Department')} &middot; Tabled${q.sittingDateLabel ? ` ${escapeHtmlClient(q.sittingDateLabel)}` : ''}`;
+
+                const primaryExcerpt = isAnsweredByMp
+                    ? (q.answerText || q.questionText || '')
+                    : (q.questionText || q.answerText || '');
+
+                const secondaryContext = isAnsweredByMp && q.questionText && q.answerText
+                    ? `<p class="text-xs text-inkTertiary leading-relaxed"><span class="font-medium text-inkSecondary">Question asked:</span> ${escapeHtmlClient(q.questionText)}</p>`
+                    : '';
+
+                return `
+                    <div class="py-5 space-y-2">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0 space-y-1">
+                                <span class="text-xs font-medium text-commonsGreen block">${metaLine}</span>
+                                <p class="text-sm font-medium text-ink">${escapeHtmlClient(q.heading || 'Written Question')}</p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-xs font-medium border shrink-0 ${pillClass}">
+                                ${escapeHtmlClient(pillLabel)}
+                            </span>
+                        </div>
+                        <p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">${escapeHtmlClient(primaryExcerpt)}</p>
+                        ${secondaryContext}
+                        ${q.url ? `<a href="${escapeHtmlClient(q.url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-ink hover:text-commonsGreen transition-colors pt-1">View on Parliament.uk &rarr;</a>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderVotingSection(votes) {
+            state.currentVotes = Array.isArray(votes) ? votes : [];
+
+            if (state.currentVotes.length === 0) {
+                els.voteCountBadge.textContent = '0 divisions';
+                els.votingRecordsList.innerHTML = `<div class="py-6 text-sm text-inkSecondary">No House of Commons division votes were held during this period.</div>`;
+                return;
+            }
+
+            els.voteCountBadge.textContent = `${state.currentVotes.length} ${state.currentVotes.length === 1 ? 'division' : 'divisions'}`;
+            els.votingRecordsList.innerHTML = state.currentVotes.map((v, idx) => {
+                const badgeClass = v.mpVote === 'Aye'
+                    ? 'bg-commonsGreen/10 text-commonsGreen border-commonsGreen/20'
+                    : v.mpVote === 'No'
+                        ? 'bg-red-50 text-red-700 border-red-200'
+                        : 'bg-surfaceSubtle text-inkSecondary border-hairline';
+                const badgeLabel = v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`;
+
+                const exp = v.explainer || {};
+                const underlyingSubject = String(exp.underlyingSubject || exp.billSummary || '').trim();
+                const amendmentDetails = String(exp.amendmentDetails || '').trim();
+                const proposerView = String(exp.proposerView || exp.billAims || exp.statedAims || '').trim();
+                const stageText = String(exp.stageAndMeaning || exp.stageSummary || exp.whatItDoes || '').trim();
+                const parliamentUrl = String(exp.parliamentUrl || '').trim();
+
+                const hasExplainer = Boolean(underlyingSubject || amendmentDetails || proposerView || stageText);
+                const anchorId = v.divisionId ? `vote-${v.divisionId}` : `vote-idx-${idx}`;
+
+                const shareMenuMarkup = `
+                    <div class="relative inline-block" data-share-container>
+                        <button type="button" data-vote-share-toggle="${idx}" aria-expanded="false" aria-haspopup="true" class="inline-flex items-center gap-1 text-xs font-medium text-inkSecondary hover:text-ink transition-colors cursor-pointer">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                                <polyline points="16 6 12 2 8 6"></polyline>
+                                <line x1="12" y1="2" x2="12" y2="15"></line>
+                            </svg>
+                            <span>Share vote</span>
+                        </button>
+                        <div data-share-menu data-vote-share-menu="${idx}" class="hidden fixed left-5 right-5 sm:static sm:absolute sm:inset-auto sm:mb-2 sm:w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs text-left">
+                            <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
+                                Share MP vote via Whip.
+                            </p>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="native" class="hidden w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">More phone options…</span>
+                                <span class="text-commonsGreen font-semibold text-[11px]">Share</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="whatsapp" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on WhatsApp</span>
+                                <span class="text-commonsGreen font-semibold text-[11px]">WA</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="x" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on X</span>
+                                <span class="text-inkTertiary font-mono text-[11px]">𝕏</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="bluesky" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on Bluesky</span>
+                                <span class="text-inkTertiary font-medium text-[11px]">🦋</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="threads" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on Threads</span>
+                                <span class="text-inkTertiary font-semibold text-[11px]">@</span>
+                            </button>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="facebook" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span class="font-medium">Share on Facebook</span>
+                                <span class="text-inkTertiary font-semibold text-[11px]">f</span>
+                            </button>
+                            <div class="my-1 border-t border-hairline/70"></div>
+                            <button type="button" data-vote-share-action="${idx}" data-share-channel="copy" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                <span data-copy-label class="font-medium">Copy link</span>
+                                <svg class="w-3.5 h-3.5 text-inkTertiary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                return `
+                    <div id="${escapeHtmlClient(anchorId)}" class="py-5 scroll-mt-24">
+                        <button type="button" data-vote-toggle="${idx}" aria-expanded="false" class="w-full text-left flex items-start justify-between gap-3 group cursor-pointer">
+                            <div class="min-w-0">
+                                <p class="text-sm sm:text-base font-medium text-ink group-hover:text-commonsGreen transition-colors">${escapeHtmlClient(v.title)}</p>
+                                <p class="text-xs text-inkTertiary mt-1 flex flex-wrap items-center gap-x-2">
+                                    <span>${escapeHtmlClient(v.houseResult || '')}${v.sittingDateLabel ? ` &middot; ${escapeHtmlClient(v.sittingDateLabel)}` : ''}</span>
+                                    ${hasExplainer ? `<span class="text-commonsGreen font-medium inline-flex items-center gap-0.5"><span data-vote-hint="${idx}">Explain vote</span> <svg data-vote-chevron="${idx}" class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg></span>` : ''}
+                                </p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-xs font-medium border shrink-0 ${badgeClass}">
+                                ${escapeHtmlClient(badgeLabel)}
+                            </span>
+                        </button>
+
+                        ${hasExplainer ? `
+                            <div data-vote-panel="${idx}" class="hidden mt-3.5 p-4 sm:p-5 rounded-xl bg-surfaceSubtle border border-hairline/80 space-y-3 text-xs sm:text-sm text-ink leading-relaxed">
+                                ${underlyingSubject ? `<p><strong class="font-semibold text-ink">What this is about:</strong> ${escapeHtmlClient(underlyingSubject)}</p>` : ''}
+                                ${amendmentDetails ? `<p><strong class="font-semibold text-ink">The amendment being voted on:</strong> ${escapeHtmlClient(amendmentDetails)}</p>` : ''}
+                                ${proposerView ? `<p><strong class="font-semibold text-ink">Why it is being put forward:</strong> ${escapeHtmlClient(proposerView)}</p>` : ''}
+                                ${stageText ? `<p><strong class="font-semibold text-ink">Stage in Parliament &amp; what it means:</strong> ${escapeHtmlClient(stageText)}</p**No, you don't need that `HC Deb 26 Nov 2026` tag (`#hansardRefTag`) on the frontend[cite: 8].**
+
+That string (`HC Deb 26 Nov 2026` or `HC Deb 26 Nov 2026 • ...`) is parliamentary shorthand for "House of Commons Debates", which duplicates the date already shown at the top of the briefing and adds unnecessary jargon for everyday readers[cite: 8]. Keeping `hansard_ref` in your Supabase table is useful for internal tracking, while removing `#hansardRefTag` from the UI leaves the footer row clean with just `"Read official Hansard transcript →"`.
+
+Here is the complete, updated **`index.html`** with both changes applied (the `"Read official Hansard transcript"` label restored, and `#hansardRefTag` removed):
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whip - What your MP did last week in Parliament</title>
+    <meta name="description" content="Plain-English daily and weekly briefings on what your Member of Parliament actually did in the House of Commons.">
+    <meta property="og:site_name" content="Whip.">
+    <meta property="og:title" content="Whip - What your MP did last week in Parliament">
+    <meta property="og:description" content="Plain-English daily and weekly briefings on what your Member of Parliament actually said, asked, and voted on in the House of Commons.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Ctext x='9' y='45' font-family='Georgia,serif' font-weight='700' font-size='36' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='42' r='4.5' fill='%23006548'/%3E%3C/svg%3E">
+
+    <!-- Editorial Typography: Newsreader & Inter -->
+    <link rel="preconnect" href="[https://fonts.googleapis.com](https://fonts.googleapis.com)">
+    <link rel="preconnect" href="[https://fonts.gstatic.com](https://fonts.gstatic.com)" crossorigin>
+    <link href="[https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap)" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        editorial: ['Newsreader', 'Georgia', 'serif'],
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                    },
+                    colors: {
+                        canvas: '#FFFFFF',
+                        surfaceSubtle: '#FAFAFA',
+                        ink: '#111827',
+                        inkSecondary: '#4B5563',
+                        inkTertiary: '#9CA3AF',
+                        hairline: '#E5E7EB',
+                        commonsGreen: '#006548',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Supabase JS Client -->
+    <script src="[https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+
+    <style>
+        body {
+            background-color: #FFFFFF;
+            color: #111827;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .fade-in { animation: fadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-commonsGreen/10 selection:text-commonsGreen">
+
+    <!-- Top Masthead (Visible once an MP is active) -->
+    <header id="topMasthead" class="hidden w-full border-b border-hairline/70 bg-canvas/95 backdrop-blur-sm sticky top-0 z-30">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4">
+            <a href="/" id="brandResetBtn" aria-label="Whip. Home" class="inline-flex items-center h-12 overflow-hidden shrink-0">
+                <img
+                    src="/assets/Whip-logo.svg"
+                    alt="Whip."
+                    class="h-10 sm:h-11 w-auto object-contain select-none"
+                    onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'font-editorial text-2xl font-bold tracking-tight text-ink', innerHTML: 'Whip<span class=&quot;text-commonsGreen&quot;>.</span>' }))"
+                />
+            </a>
+
+            <!-- Compact Header Search -->
+            <div class="relative flex-1 max-w-md">
+                <div class="flex items-center w-full border border-hairline rounded-full bg-surfaceSubtle px-3.5 py-1.5 focus-within:bg-canvas focus-within:border-ink/40 transition-all">
+                    <svg class="w-3.5 h-3.5 text-inkTertiary mr-2 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input
+                        id="headerSearchInput"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="Postcode, constituency, or MP..."
+                        class="w-full bg-transparent text-xs sm:text-sm text-ink placeholder-inkTertiary focus:outline-none"
+                    >
+                    <button id="headerDropdownToggle" type="button" aria-label="Browse all MPs" class="ml-1.5 p-1 text-inkTertiary hover:text-ink transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <div id="headerSearchDropdown" class="hidden absolute left-0 right-0 mt-2 bg-canvas border border-hairline rounded-2xl shadow-lg max-h-72 overflow-y-auto z-50 divide-y divide-hairline/60"></div>
+            </div>
+
+            <!-- Saved MPs Trigger -->
+            <button id="savedMpsBtn" type="button" class="hidden items-center gap-1.5 text-xs font-medium text-inkSecondary hover:text-ink transition-colors shrink-0">
+                <span>Saved</span>
+                <span id="savedMpsCount" class="px-1.5 py-0.5 text-[11px] rounded-full bg-surfaceSubtle border border-hairline text-ink">0</span>
+            </button>
+        </div>
+
+        <!-- Saved Watchlist Strip -->
+        <div id="savedMpsStrip" class="hidden border-t border-hairline/60 bg-surfaceSubtle/70">
+            <div id="savedMpsList" class="max-w-3xl mx-auto px-5 sm:px-8 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar"></div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 w-full max-w-3xl mx-auto px-5 sm:px-8">
+
+        <!-- STAGE 1: Focused Editorial Entry -->
+        <section id="landingHero" class="min-h-[82vh] flex flex-col items-center justify-center text-center py-12">
+            <div class="mb-6 flex justify-center w-full">
+                <img
+                    src="/assets/Whip-logo.svg"
+                    alt="Whip."
+                    class="w-52 sm:w-80 max-h-24 sm:max-h-32 h-auto object-contain select-none"
+                    onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'font-editorial text-6xl sm:text-8xl font-bold tracking-tight text-ink', innerHTML: 'Whip<span class=&quot;text-commonsGreen&quot;>.</span>' }))"
+                />
+            </div>
+
+            <h1 class="font-editorial text-3xl sm:text-[44px] font-bold text-ink tracking-[-0.025em] leading-[1.12] max-w-xl mb-4">
+                What your MP did last week in Parliament.
+            </h1>
+
+            <p class="text-sm sm:text-[16px] text-inkSecondary max-w-md leading-relaxed mb-9 font-normal">
+                A plain-English summary of what your representative actually said, asked, and voted on in the House of Commons.
+            </p>
+
+            <!-- Primary Postcode / MP / Constituency Search -->
+            <div class="w-full max-w-lg relative text-left">
+                <div class="flex items-center w-full border border-hairline rounded-2xl bg-canvas px-4 py-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.03)] focus-within:border-ink transition-all">
+                    <svg class="w-4 h-4 text-inkTertiary mr-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input
+                        id="heroSearchInput"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="Enter UK postcode (e.g. SW1A 0AA) or MP name..."
+                        class="w-full bg-transparent text-sm sm:text-base text-ink placeholder-inkTertiary focus:outline-none"
+                    >
+                    <button id="heroDropdownToggle" type="button" aria-label="Browse all MPs" class="ml-2 p-1.5 text-inkTertiary hover:text-ink transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <p id="heroSearchStatus" class="hidden mt-2.5 text-xs text-inkSecondary px-1"></p>
+                <div id="heroSearchDropdown" class="hidden absolute left-0 right-0 mt-2 bg-canvas border border-hairline rounded-2xl shadow-xl max-h-80 overflow-y-auto z-50 divide-y divide-hairline/60"></div>
+            </div>
+
+            <!-- Homepage Watchlist (Visible when reader has saved MPs) -->
+            <div id="heroWatchlistWrap" class="hidden w-full max-w-lg mt-6 text-center">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-inkTertiary mb-2.5">
+                    Your Watchlist
+                </p>
+                <div id="heroWatchlistList" class="flex flex-wrap items-center justify-center gap-2"></div>
+            </div>
+
+            <!-- Official Data Sources Strip -->
+            <div class="w-full max-w-xl mt-10 pt-6 border-t border-hairline/70">
+                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-4">
+                    Compiled directly from official public records
+                </p>
+                <div class="flex flex-wrap items-center justify-center gap-x-7 gap-y-3 text-inkTertiary select-none">
+                    <!-- UK Parliament (Crowned Portcullis) -->
+                    <span class="inline-flex items-center gap-2 hover:text-inkSecondary transition-colors">
+                        <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                            <path d="M8 6l2-2 2 2 2-2 2 2H8z"></path>
+                            <rect x="6" y="8" width="12" height="11" rx="1"></rect>
+                            <line x1="10" y1="8" x2="10" y2="19"></line>
+                            <line x1="14" y1="8" x2="14" y2="19"></line>
+                            <line x1="6" y1="12" x2="18" y2="12"></line>
+                            <line x1="6" y1="15.5" x2="18" y2="15.5"></line>
+                        </svg>
+                        <span class="font-editorial font-semibold text-sm tracking-tight">UK Parliament</span>
+                    </span>
+
+                    <!-- Hansard -->
+                    <span class="inline-flex items-center gap-1.5 hover:text-inkSecondary transition-colors">
+                        <span class="font-editorial font-bold text-sm tracking-[0.12em] uppercase">Hansard</span>
+                    </span>
+
+                    <!-- Commons Votes -->
+                    <span class="inline-flex items-center gap-1.5 hover:text-inkSecondary transition-colors">
+                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M9 11l3 3L22 4"></path>
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                        </svg>
+                        <span class="font-sans font-semibold text-xs tracking-wide uppercase">Commons Votes</span>
+                    </span>
+
+                    <!-- GOV.UK -->
+                    <span class="inline-flex items-center gap-1 hover:text-inkSecondary transition-colors">
+                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M5 16L3 7l5.5 4L12 5l3.5 6L21 7l-2 9H5zm0 2h14v2H5v-2z"></path>
+                        </svg>
+                        <span class="font-sans font-bold text-xs tracking-wider uppercase">GOV.UK</span>
+                    </span>
+                </div>
+            </div>
+        </section>
+
+        <!-- STAGE 2: Editorial Briefing Workspace -->
+        <article id="briefingWorkspace" class="hidden pt-8 pb-10 sm:py-14 fade-in">
+
+            <!-- Top Controls Row: Briefing vs Profile + Sitting Day Pills + Compact Archive Dropdown -->
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-7">
+                <div class="inline-flex items-center p-0.5 rounded-full bg-surfaceSubtle border border-hairline">
+                    <button id="tabBriefingBtn" type="button" class="px-3.5 py-1 rounded-full text-xs font-medium bg-ink text-canvas transition-colors">
+                        Briefing
+                    </button>
+                    <button id="tabProfileBtn" type="button" class="px-3.5 py-1 rounded-full text-xs font-medium text-inkSecondary hover:text-ink transition-colors">
+                        Profile
+                    </button>
+                </div>
+
+                <!-- Day Selector Pills + Compact Archive Dropdown (hidden on Profile tab) -->
+                <div id="dateControlsWrap" class="flex flex-wrap items-center gap-3">
+                    <div id="datePillsContainer" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
+                    <div id="archiveSelectWrap" class="relative hidden">
+                        <select
+                            id="archiveDateSelect"
+                            aria-label="Browse past 8 weeks archive"
+                            class="appearance-none w-24 sm:w-28 pl-3 pr-7 py-1 rounded-full text-xs font-medium bg-surfaceSubtle border border-hairline text-inkSecondary hover:text-ink hover:border-ink/40 focus:outline-none focus:border-ink/40 truncate cursor-pointer transition-colors"
+                        ></select>
+                        <svg class="pointer-events-none w-3 h-3 text-inkTertiary absolute right-2.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sitting Date & Context Line (Hidden on Profile tab) -->
+            <p id="sittingDateDisplay" class="text-xs sm:text-sm font-medium text-inkSecondary tracking-tight mb-6">
+                Loading parliamentary record...
+            </p>
+
+            <!-- 1. MP Identity Header -->
+            <header class="pb-8 border-b border-hairline">
+                <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2 text-xs font-medium text-inkSecondary mb-2.5">
+                            <span id="mpPartyDot" class="w-2 h-2 rounded-full bg-commonsGreen"></span>
+                            <span id="mpPartyName" class="text-ink">—</span>
+                            <span class="text-inkTertiary">/</span>
+                            <span id="mpConstituency">—</span>
+                        </div>
+
+                        <h1 id="mpName" class="font-editorial text-4xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.08]">
+                            Loading MP...
+                        </h1>
+
+                        <p class="mt-3 text-sm text-inkSecondary flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span id="mpRole">—</span>
+                            <span id="activityWrap" class="inline-flex items-center gap-x-2">
+                                <span id="activityDot" class="text-inkTertiary">&middot;</span>
+                                <span id="activityBadge" class="text-inkTertiary whitespace-nowrap">—</span>
+                            </span>
+                        </p>
+                    </div>
+
+                    <!-- Action Pills: Share Briefing + Watchlist -->
+                    <div class="self-start flex items-center gap-2 shrink-0">
+                        <!-- Share Briefing Dropdown Trigger -->
+                        <div id="briefingShareWrap" class="relative" data-share-container>
+                            <button id="briefingShareBtn" type="button" aria-expanded="false" aria-haspopup="true" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-hairline text-xs font-medium text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                                    <polyline points="16 6 12 2 8 6"></polyline>
+                                    <line x1="12" y1="2" x2="12" y2="15"></line>
+                                </svg>
+                                <span id="briefingShareLabel">Share</span>
+                            </button>
+
+                            <div id="briefingShareMenu" class="hidden fixed left-5 right-5 sm:static sm:absolute sm:inset-auto sm:mt-2 sm:w-56 bg-canvas border border-hairline rounded-2xl shadow-xl py-1.5 z-40 text-xs">
+                                <p class="px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-inkTertiary">
+                                    Share briefing via Whip.
+                                </p>
+                                <button type="button" data-share-channel="native" class="hidden w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">More phone options…</span>
+                                    <span class="text-commonsGreen font-semibold text-[11px]">Share</span>
+                                </button>
+                                <button type="button" data-share-channel="whatsapp" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on WhatsApp</span>
+                                    <span class="text-commonsGreen font-semibold text-[11px]">WA</span>
+                                </button>
+                                <button type="button" data-share-channel="x" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on X</span>
+                                    <span class="text-inkTertiary font-mono text-[11px]">𝕏</span>
+                                </button>
+                                <button type="button" data-share-channel="bluesky" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on Bluesky</span>
+                                    <span class="text-inkTertiary font-medium text-[11px]">🦋</span>
+                                </button>
+                                <button type="button" data-share-channel="threads" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on Threads</span>
+                                    <span class="text-inkTertiary font-semibold text-[11px]">@</span>
+                                </button>
+                                <button type="button" data-share-channel="facebook" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span class="font-medium">Share on Facebook</span>
+                                    <span class="text-inkTertiary font-semibold text-[11px]">f</span>
+                                </button>
+                                <div class="my-1 border-t border-hairline/70"></div>
+                                <button type="button" data-share-channel="copy" class="w-full px-3.5 py-2 text-left text-ink hover:bg-surfaceSubtle transition-colors flex items-center justify-between cursor-pointer">
+                                    <span data-copy-label class="font-medium">Copy link</span>
+                                    <svg class="w-3.5 h-3.5 text-inkTertiary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button id="watchlistToggleBtn" type="button" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-hairline text-xs font-medium text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors cursor-pointer">
+                            <svg id="watchlistIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span id="watchlistLabel">Add to Watchlist</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- TAB 1: BRIEFING VIEW -->
+            <div id="briefingTabPanel">
+
+                <!-- 2. Plain-English Narrative Briefing -->
+                <section aria-label="Parliamentary Briefing" class="py-10 border-b border-hairline">
+                    <div class="space-y-6">
+                        <div id="summaryNarrativeBody" class="space-y-4">
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Fetching parliamentary record...</p>
+                        </div>
+
+                        <!-- Why this matters -->
+                        <div class="pl-4 border-l-2 border-commonsGreen/70 py-0.5">
+                            <p id="contextHeading" class="text-xs font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-2">
+                                Why this matters
+                            </p>
+                            <p id="summaryPara2" class="text-[15px] sm:text-base leading-[1.75] text-inkSecondary">
+                                Loading background context...
+                            </p>
+                        </div>
+
+                        <!-- Weekly Sunday Email Digest Signup -->
+                        <aside id="mpNewsletterCard" aria-label="Weekly MP Email Briefing" class="mt-8 p-5 sm:p-6 rounded-2xl border border-hairline bg-surfaceSubtle/60">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                <div class="space-y-1 max-w-md">
+                                    <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-commonsGreen">Sunday Briefing</p>
+                                    <h3 id="newsletterCardHeading" class="font-editorial text-lg sm:text-xl font-bold text-ink tracking-[-0.015em]">
+                                        Get your MP’s week in your inbox
+                                    </h3>
+                                    <p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">
+                                        A plain-English Sunday morning roundup of their debates, votes, and written questions. One click to unsubscribe.
+                                    </p>
+                                </div>
+                                <form id="mpNewsletterForm" class="flex flex-col gap-2.5 w-full sm:w-auto shrink-0">
+                                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                        <label for="mpNewsletterEmail" class="sr-only">Email address</label>
+                                        <input
+                                            id="mpNewsletterEmail"
+                                            type="email"
+                                            required
+                                            placeholder="you@example.com"
+                                            autocomplete="email"
+                                            class="px-3.5 py-2.5 text-sm bg-canvas border border-hairline rounded-xl text-ink placeholder:text-inkTertiary focus:outline-none focus:border-commonsGreen min-w-[220px]"
+                                        />
+                                        <button
+                                            id="mpNewsletterSubmit"
+                                            type="submit"
+                                            class="px-4 py-2.5 text-sm font-medium rounded-xl bg-ink text-canvas hover:bg-commonsGreen transition-colors cursor-pointer whitespace-nowrap"
+                                        >
+                                            Send Sundays
+                                        </button>
+                                    </div>
+                                    <label id="mpNewsletterWatchlistWrap" class="hidden inline-flex items-center gap-2 text-xs text-inkSecondary hover:text-ink cursor-pointer select-none">
+                                        <input
+                                            id="mpNewsletterIncludeWatchlist"
+                                            type="checkbox"
+                                            class="rounded border-hairline text-commonsGreen focus:ring-commonsGreen/30 cursor-pointer"
+                                        />
+                                        <span id="mpNewsletterWatchlistLabel">Also subscribe to everyone on my Watchlist</span>
+                                    </label>
+                                </form>
+                            </div>
+                            <p id="mpNewsletterStatus" role="status" class="hidden mt-3 text-xs font-medium"></p>
+                        </aside>
+
+                        <!-- Hansard Source Footer -->
+                        <div class="pt-3 flex flex-wrap items-center justify-between gap-3">
+                            <a id="hansardSourceLink" href="[https://hansard.parliament.uk/](https://hansard.parliament.uk/)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-xs font-medium text-ink hover:text-commonsGreen transition-colors">
+                                <span id="hansardLinkLabel">Read official Hansard transcript</span>
+                                <span aria-hidden="true">&rarr;</span>
+                            </a>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2B. Government Department Activity (Shown for Ministers) -->
+                <section id="departmentActivitySection" aria-label="Departmental Activity" class="hidden py-10 border-b border-hairline">
+                    <div class="flex items-baseline justify-between mb-3">
+                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Departmental Activity
+                        </h2>
+                        <span id="departmentNameBadge" class="text-xs text-inkTertiary font-medium">
+                            GOV.UK
+                        </span>
+                    </div>
+                    <p id="departmentSummaryText" class="text-sm sm:text-base text-inkSecondary leading-relaxed mb-6">
+                        —
+                    </p>
+                    <div id="departmentItemsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </section>
+
+                <!-- 3. Select Committees & Evidence Sessions -->
+                <section id="committeeSessionsSection" aria-label="Select Committee Work" class="hidden py-10 border-b border-hairline">
+                    <div class="flex items-baseline justify-between mb-6">
+                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Select Committee Work
+                        </h2>
+                        <span id="committeeCountBadge" class="text-xs text-inkTertiary font-medium">
+                            0 sessions
+                        </span>
+                    </div>
+                    <div id="committeeSessionsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </section>
+
+                <!-- 4. Written Parliamentary Questions -->
+                <section id="writtenQuestionsSection" aria-label="Written Parliamentary Questions" class="hidden py-10 border-b border-hairline">
+                    <div class="flex items-baseline justify-between mb-6">
+                        <h2 id="wqSectionTitle" class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Written Questions
+                        </h2>
+                        <span id="wqCountBadge" class="text-xs text-inkTertiary font-medium">
+                            0 questions
+                        </span>
+                    </div>
+                    <div id="writtenQuestionsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </section>
+
+                <!-- 5. Voting Record & Click-to-Expand Plain-English Explainers -->
+                <section id="votingRecordSection" aria-label="Voting Record" class="py-10">
+                    <div class="flex items-baseline justify-between mb-6">
+                        <div>
+                            <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                                Voting Record
+                            </h2>
+                            <p class="text-xs text-inkTertiary mt-1">Click any vote for a plain-English explainer or to share</p>
+                        </div>
+                        <span id="voteCountBadge" class="text-xs text-inkTertiary font-medium">
+                            0 divisions
+                        </span>
+                    </div>
+
+                    <div id="votingRecordsList" class="divide-y divide-hairline border-t border-b border-hairline">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- TAB 2: MP PROFILE VIEW -->
+            <div id="profileTabPanel" class="hidden space-y-10 fade-in">
+
+                <!-- Parliamentary Service & Circular Portrait Block -->
+                <section aria-label="Parliamentary Service" class="py-8 border-b border-hairline">
+                    <div class="flex items-center gap-6 sm:gap-8">
+                        <img
+                            id="mpProfileAvatar"
+                            src=""
+                            alt=""
+                            class="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover object-top border border-hairline bg-surfaceSubtle shrink-0"
+                        >
+                        <div>
+                            <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-commonsGreen mb-1.5">
+                                Parliamentary Service
+                            </p>
+                            <h2 id="profileServiceDuration" class="font-editorial text-2xl sm:text-3xl font-bold text-ink tracking-[-0.02em] leading-[1.2]">
+                                —
+                            </h2>
+                            <p id="profileServiceSubtitle" class="mt-2 text-sm text-inkSecondary">
+                                —
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Current Roles -->
+                <section id="profileCurrentRolesSection" class="hidden">
+                    <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
+                        Current Roles
+                    </h2>
+                    <ul id="profileCurrentRolesList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
+                </section>
+
+                <!-- Election Wins & Majorities -->
+                <section id="profileElectionsSection" class="hidden">
+                    <div class="flex items-baseline justify-between mb-4">
+                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Election Wins &amp; Majorities
+                        </h2>
+                        <span class="text-xs text-inkTertiary">Commons General &amp; By-Elections</span>
+                    </div>
+                    <ul id="profileElectionsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></ul>
+                </section>
+
+                <!-- Weekly Sunday Email Digest Signup (Profile Tab) -->
+                <div id="profileNewsletterSlot"></div>
+
+                <!-- Register of Members' Financial Interests -->
+                <section id="profileInterestsSection" class="hidden">
+                    <div class="flex items-baseline justify-between mb-4">
+                        <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight">
+                            Declared Financial Interests
+                        </h2>
+                        <span id="profileInterestsCount" class="text-xs text-inkTertiary"></span>
+                    </div>
+                    <div id="profileInterestsList" class="divide-y divide-hairline border-t border-b border-hairline text-sm"></div>
+                </section>
+
+                <section>
+                    <h2 class="font-editorial text-2xl font-bold text-ink tracking-tight mb-4">
+                        Official Parliament Links
+                    </h2>
+                    <div class="divide-y divide-hairline border-t border-b border-hairline text-sm">
+                        <a id="profileContactLink" href="[https://members.parliament.uk/](https://members.parliament.uk/)" target="_blank" rel="noopener noreferrer" class="py-3.5 flex items-center justify-between text-ink hover:text-commonsGreen transition-colors">
+                            <span>Contact details &amp; surgery information</span>
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
+                        <a id="profileVotingLink" href="[https://members.parliament.uk/](https://members.parliament.uk/)" target="_blank" rel="noopener noreferrer" class="py-3.5 flex items-center justify-between text-ink hover:text-commonsGreen transition-colors">
+                            <span>Full Commons voting history on Parliament.uk</span>
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
+                        <a id="profileSpokenLink" href="[https://members.parliament.uk/](https://members.parliament.uk/)" target="_blank" rel="noopener noreferrer" class="py-3.5 flex items-center justify-between text-ink hover:text-commonsGreen transition-colors">
+                            <span>Complete Hansard spoken contributions</span>
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
+                        <a id="profileInterestsLink" href="[https://members.parliament.uk/](https://members.parliament.uk/)" target="_blank" rel="noopener noreferrer" class="py-3.5 flex items-center justify-between text-ink hover:text-commonsGreen transition-colors">
+                            <span>Full Register of Members' Financial Interests</span>
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
+                    </div>
+                </section>
+            </div>
+
+        </article>
+    </main>
+
+    <!-- Minimal Footer -->
+    <footer class="w-full border-t border-hairline/70 py-8 mt-12">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-inkTertiary">
+            <p>
+                <span class="font-editorial font-semibold text-ink">Whip.</span> - Public parliamentary record simplified.
+            </p>
+            <p>
+                Contains Parliamentary information licensed under the Open Parliament Licence v3.0.
+            </p>
+        </div>
+    </footer>
+
+    <!-- Application Logic -->
+    <script>
+        const SUPABASE_URL = '[https://njxnofubcrlshnosaglv.supabase.co](https://njxnofubcrlshnosaglv.supabase.co)';
+        const SUPABASE_ANON_KEY = 'sb_publishable_PlCl0Nw7jKWPchFu-uic6A_NDGc5Gy2';
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        const RETENTION_DAYS = 56; // 8 weeks
+
+        const state = {
+            mps: [],
+            mpById: new Map(),
+            mpBySlug: new Map(),
+            slugByMpId: new Map(),
+            currentMp: null,
+            currentBriefing: null,
+            currentVotes: [],
+            activeDates: [],
+            weekGroups: new Map(), // mondayIso -> sorted dates[]
+            weekPillDates: [],
+            weekPillLabel: 'Last Week',
+            isCurrentWeekSummary: false,
+            selectedDate: null,
+            currentTab: 'briefing',
+            watchlist: JSON.parse(localStorage.getItem('whip_watchlist') || '[]'),
+            profileCache: new Map()
+        };
+
+        const els = {
+            topMasthead: document.getElementById('topMasthead'),
+            landingHero: document.getElementById('landingHero'),
+            briefingWorkspace: document.getElementById('briefingWorkspace'),
+            heroSearchInput: document.getElementById('heroSearchInput'),
+            heroDropdownToggle: document.getElementById('heroDropdownToggle'),
+            heroSearchDropdown: document.getElementById('heroSearchDropdown'),
+            heroSearchStatus: document.getElementById('heroSearchStatus'),
+            heroWatchlistWrap: document.getElementById('heroWatchlistWrap'),
+            heroWatchlistList: document.getElementById('heroWatchlistList'),
+            headerSearchInput: document.getElementById('headerSearchInput'),
+            headerDropdownToggle: document.getElementById('headerDropdownToggle'),
+            headerSearchDropdown: document.getElementById('headerSearchDropdown'),
+            savedMpsBtn: document.getElementById('savedMpsBtn'),
+            savedMpsCount: document.getElementById('savedMpsCount'),
+            savedMpsStrip: document.getElementById('savedMpsStrip'),
+            savedMpsList: document.getElementById('savedMpsList'),
+            tabBriefingBtn: document.getElementById('tabBriefingBtn'),
+            tabProfileBtn: document.getElementById('tabProfileBtn'),
+            briefingTabPanel: document.getElementById('briefingTabPanel'),
+            profileTabPanel: document.getElementById('profileTabPanel'),
+            profileNewsletterSlot: document.getElementById('profileNewsletterSlot'),
+            dateControlsWrap: document.getElementById('dateControlsWrap'),
+            datePillsContainer: document.getElementById('datePillsContainer'),
+            archiveSelectWrap: document.getElementById('archiveSelectWrap'),
+            archiveDateSelect: document.getElementById('archiveDateSelect'),
+            sittingDateDisplay: document.getElementById('sittingDateDisplay'),
+            mpProfileAvatar: document.getElementById('mpProfileAvatar'),
+            mpPartyDot: document.getElementById('mpPartyDot'),
+            mpPartyName: document.getElementById('mpPartyName'),
+            mpConstituency: document.getElementById('mpConstituency'),
+            mpName: document.getElementById('mpName'),
+            mpRole: document.getElementById('mpRole'),
+            activityWrap: document.getElementById('activityWrap'),
+            activityDot: document.getElementById('activityDot'),
+            activityBadge: document.getElementById('activityBadge'),
+            briefingShareWrap: document.getElementById('briefingShareWrap'),
+            briefingShareBtn: document.getElementById('briefingShareBtn'),
+            briefingShareMenu: document.getElementById('briefingShareMenu'),
+            watchlistToggleBtn: document.getElementById('watchlistToggleBtn'),
+            watchlistIcon: document.getElementById('watchlistIcon'),
+            watchlistLabel: document.getElementById('watchlistLabel'),
+            summaryNarrativeBody: document.getElementById('summaryNarrativeBody'),
+            contextHeading: document.getElementById('contextHeading'),
+            summaryPara2: document.getElementById('summaryPara2'),
+            newsletterCardHeading: document.getElementById('newsletterCardHeading'),
+            mpNewsletterForm: document.getElementById('mpNewsletterForm'),
+            mpNewsletterEmail: document.getElementById('mpNewsletterEmail'),
+            mpNewsletterSubmit: document.getElementById('mpNewsletterSubmit'),
+            mpNewsletterWatchlistWrap: document.getElementById('mpNewsletterWatchlistWrap'),
+            mpNewsletterIncludeWatchlist: document.getElementById('mpNewsletterIncludeWatchlist'),
+            mpNewsletterWatchlistLabel: document.getElementById('mpNewsletterWatchlistLabel'),
+            mpNewsletterStatus: document.getElementById('mpNewsletterStatus'),
+            hansardSourceLink: document.getElementById('hansardSourceLink'),
+            hansardLinkLabel: document.getElementById('hansardLinkLabel'),
+            departmentActivitySection: document.getElementById('departmentActivitySection'),
+            departmentNameBadge: document.getElementById('departmentNameBadge'),
+            departmentSummaryText: document.getElementById('departmentSummaryText'),
+            departmentItemsList: document.getElementById('departmentItemsList'),
+            committeeSessionsSection: document.getElementById('committeeSessionsSection'),
+            committeeCountBadge: document.getElementById('committeeCountBadge'),
+            committeeSessionsList: document.getElementById('committeeSessionsList'),
+            writtenQuestionsSection: document.getElementById('writtenQuestionsSection'),
+            wqSectionTitle: document.getElementById('wqSectionTitle'),
+            wqCountBadge: document.getElementById('wqCountBadge'),
+            writtenQuestionsList: document.getElementById('writtenQuestionsList'),
+            votingRecordSection: document.getElementById('votingRecordSection'),
+            voteCountBadge: document.getElementById('voteCountBadge'),
+            votingRecordsList: document.getElementById('votingRecordsList')
+        };
+
+        function escapeHtmlClient(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function stripHtmlClient(html) {
+            return String(html ?? '')
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/&nbsp;/gi, ' ')
+                .replace(/&amp;/gi, '&')
+                .replace(/&quot;/gi, '"')
+                .replace(/&#39;|&apos;/gi, "'")
+                .replace(/&lt;/gi, '<')
+                .replace(/&gt;/gi, '>')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function isGovernmentMinister(mp) {
+            const role = String(mp?.role_title || '').trim();
+            if (!role || !role.includes('• MP for ')) return false;
+            const prefix = role.split('• MP for ')[0].trim();
+
+            if (/\b(spokesperson|shadow|opposition|liberal democrat|scottish national party|snp|green party|reform uk|plaid cymru|democratic unionist|dup)\b/i.test(prefix)) {
+                return false;
+            }
+
+            return /\b(prime minister|chancellor of the exchequer|secretary of state|minister of state|parliamentary under-secretary|minister for|minister of|paymaster general|attorney general|solicitor general|advocate general|lord chancellor|lord president|lord privy seal|leader of the house of commons|chief secretary|financial secretary|economic secretary|whip|lord commissioner of hm treasury|treasurer of hm household|comptroller of hm household|vice-chamberlain of hm household)\b/i.test(prefix);
+        }
+
+        function classifyChamberProceeding(title = '') {
+            const clean = String(title || '').trim();
+            if (/^points? of order$/i.test(clean)) {
+                return { kind: 'point_of_order', label: 'Point of Order', phrase: 'during a point of order in the Commons Chamber' };
+            }
+            if (/^(business of the house|business questions|weekly business)$/i.test(clean)) {
+                return { kind: 'business_questions', label: 'Business Questions', phrase: 'during Business Questions in the Commons Chamber' };
+            }
+            if (/urgent question/i.test(clean)) {
+                return { kind: 'urgent_question', label: 'Urgent Question', phrase: 'during an Urgent Question in the Commons Chamber' };
+            }
+            if (/ministerial statement|statement/i.test(clean)) {
+                return { kind: 'statement', label: 'Ministerial Statement', phrase: 'during a ministerial statement in the Commons Chamber' };
+            }
+            if (/oral answers|questions to |prime minister/i.test(clean)) {
+                return { kind: 'oral_questions', label: 'Oral Questions', phrase: 'during Oral Questions in the Commons Chamber' };
+            }
+            return {
+                kind: 'debate',
+                label: clean || 'Commons Chamber',
+                phrase: clean ? `in the Commons Chamber during ${clean}` : 'in the Commons Chamber'
+            };
+        }
+
+        function resolveWrittenQuestionAttribution(quoteText, briefing) {
+            const cleanQ = String(quoteText || '').replace(/^[“"]|[”"]$/g, '').trim();
+            if (!cleanQ) return '';
+
+            const wqs = Array.isArray(briefing?.written_questions) ? briefing.written_questions : [];
+            const normQuote = cleanQ.toLowerCase().replace(/\s+/g, ' ');
+
+            const matchedWq = wqs.find(q => {
+                const qText = String(q.questionText || '').toLowerCase().replace(/\s+/g, ' ');
+                const aText = String(q.answerText || '').toLowerCase().replace(/\s+/g, ' ');
+                return (qText && (qText.includes(normQuote.slice(0, 60)) || normQuote.includes(qText.slice(0, 60)))) ||
+                       (aText && (aText.includes(normQuote.slice(0, 60)) || normQuote.includes(aText.slice(0, 60))));
+            });
+
+            const askTargetMatch = cleanQ.match(/^To ask (the [^,]+),/i);
+
+            if (matchedWq) {
+                if (matchedWq.direction === 'answered') {
+                    return `Written parliamentary answer on behalf of ${matchedWq.department || 'the Government'}`;
+                }
+                if (askTargetMatch) {
+                    return `Written question tabled to ${askTargetMatch[1]}`;
+                }
+                return `Written question tabled to ${matchedWq.department || 'a government department'}`;
+            }
+
+            if (askTargetMatch) {
+                return `Written question tabled to ${askTargetMatch[1]}`;
+            }
+
+            return '';
+        }
+
+        function renderNarrativeParagraphs(container, text, briefing = null) {
+            if (!container) return;
+            const paragraphs = String(text || '')
+                .split(/\n{2,}/)
+                .map(p => p.trim())
+                .filter(Boolean);
+
+            if (paragraphs.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            const blocks = [];
+            for (let i = 0; i < paragraphs.length; i++) {
+                const p = paragraphs[i];
+                const isStandaloneQuote = /^[“"][^”"]+[”"]$/.test(p);
+
+                if (isStandaloneQuote) {
+                    let explicitAttr = '';
+                    const nextPara = paragraphs[i + 1] || '';
+                    const attrTagMatch = nextPara.match(/^\[WQ_ATTR:\s*([^\]]+)\]$/i);
+                    if (attrTagMatch) {
+                        explicitAttr = attrTagMatch[1].trim();
+                        i += 1;
+                    }
+
+                    const wqCaption = explicitAttr || resolveWrittenQuestionAttribution(p, briefing);
+
+                    blocks.push(`
+                        <blockquote class="pl-4 border-l-2 border-hairline space-y-1.5">
+                            <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink italic font-normal tracking-[-0.01em]">${escapeHtmlClient(p)}</p>
+                            ${wqCaption ? `<footer class="text-xs not-italic font-medium text-inkTertiary">${escapeHtmlClient(wqCaption)}</footer>` : ''}
+                        </blockquote>
+                    `);
+                    continue;
+                }
+
+                const formatted = escapeHtmlClient(p).replace(
+                    /(“[^”]+”|&quot;[^&]+&quot;)/g,
+                    '<em class="italic text-ink">$1</em>'
+                );
+                blocks.push(`<p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">${formatted}</p>`);
+            }
+
+            container.innerHTML = blocks.join('');
+        }
+
+        function slugify(str) {
+            return String(str || '')
+                .normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+        }
+
+        function getConstituencyName(mp) {
+            if (mp?.constituencies?.name) return mp.constituencies.name;
+            if (mp?.role_title && mp.role_title.includes('MP for ')) {
+                return mp.role_title.split('MP for ').pop().trim();
+            }
+            return 'UK Constituency';
+        }
+
+        function buildMpSlugIndexes(mps) {
+            const usedSlugs = new Set();
+            state.mpBySlug.clear();
+            state.slugByMpId.clear();
+
+            for (const mp of mps) {
+                const base = slugify(mp.short_name || mp.full_name || `member-${mp.parliament_member_id}`);
+                let candidate = base || `member-${mp.parliament_member_id}`;
+                if (usedSlugs.has(candidate)) {
+                    const seatSlug = slugify(getConstituencyName(mp));
+                    candidate = seatSlug ? `${base}-${seatSlug}` : `${base}-${mp.parliament_member_id}`;
+                }
+                if (usedSlugs.has(candidate)) {
+                    candidate = `${base}-${mp.parliament_member_id}`;
+                }
+                usedSlugs.add(candidate);
+                state.mpBySlug.set(candidate, mp);
+                state.slugByMpId.set(Number(mp.parliament_member_id), candidate);
+            }
+        }
+
+        function buildSubscriberRows(email, targetIds) {
+            const cleanEmail = String(email || '').trim().toLowerCase();
+            return [...targetIds]
+                .map(mpId => {
+                    const mp = state.mpById.get(Number(mpId));
+                    if (!mp) return null;
+                    const constituencyId = mp.constituency_id ?? mp.constituencies?.parliament_constituency_id ?? null;
+                    const constituencyGssCode = mp.constituencies?.gss_code ?? null;
+                    return {
+                        email: cleanEmail,
+                        parliament_member_id: Number(mp.parliament_member_id),
+                        constituency_id: constituencyId,
+                        constituency_gss_code: constituencyGssCode,
+                        is_active: true
+                    };
+                })
+                .filter(Boolean);
+        }
+
+        /* -------------------------------------------------------------
+           SHARE PAYLOADS, NATIVE SHARE SHEET & SOCIAL POPOVER HANDLERS
+        ------------------------------------------------------------- */
+        function canUseNativeShare() {
+            if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+                return false;
+            }
+            if (!window.isSecureContext) {
+                return false;
+            }
+            const isMobileViewport = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+            const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+            const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+            return Boolean(isMobileViewport || isCoarsePointer || isMobileUa);
+        }
+
+        async function tryNativeShare(payload) {
+            if (!canUseNativeShare()) return { handled: false };
+            try {
+                await navigator.share({
+                    title: 'Whip.',
+                    text: payload.text,
+                    url: payload.url
+                });
+                return { handled: true, shared: true };
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    return { handled: true, shared: false };
+                }
+                return { handled: false };
+            }
+        }
+
+        function syncNativeShareButtonsVisibility() {
+            const showNative = canUseNativeShare();
+            document.querySelectorAll('button[data-share-channel="native"]').forEach(btn => {
+                btn.classList.toggle('hidden', !showNative);
+            });
+        }
+
+        function buildShareUrl({ dateMode = state.selectedDate, voteAnchor = '' } = {}) {
+            const mp = state.currentMp;
+            const slug = mp ? state.slugByMpId.get(Number(mp.parliament_member_id)) : null;
+            const origin = window.location.origin && window.location.origin !== 'null'
+                ? window.location.origin
+                : '[https://whipdaily.uk](https://whipdaily.uk)';
+
+            const url = new URL(slug ? `/mp/${slug}/` : window.location.pathname, origin);
+            if (dateMode) {
+                url.searchParams.set('date', dateMode);
+            }
+            if (voteAnchor) {
+                url.hash = voteAnchor;
+            }
+            return url.toString();
+        }
+
+        function buildBriefingSharePayload() {
+            const mp = state.currentMp;
+            const briefing = state.currentBriefing;
+            if (!mp) {
+                return {
+                    url: window.location.href,
+                    text: 'Whip. — Plain-English daily and weekly briefings on what your MP actually did in Parliament.'
+                };
+            }
+
+            const seat = getConstituencyName(mp);
+            const url = buildShareUrl({ dateMode: state.selectedDate });
+            const isWeekly = state.selectedDate === 'WEEK' || String(state.selectedDate || '').startsWith('WEEK:');
+
+            const firstSentence = String(briefing?.summary_para_1 || '')
+                .split(/\n{2,}/)[0]
+                ?.replace(/\s+/g, ' ')
+                .trim() || '';
+
+            const cleanSnippet = firstSentence.length > 135
+                ? `${firstSentence.slice(0, 132).replace(/\s+\S*$/, '')}…`
+                : firstSentence;
+
+            const weekPhrase = state.selectedDate === 'WEEK' && state.isCurrentWeekSummary ? 'this week' : 'in Parliament';
+            const headline = isWeekly
+                ? `What ${mp.full_name} (${seat}) actually did ${weekPhrase}`
+                : `What ${mp.full_name} (${seat}) did in Parliament on ${formatShortPillDate(state.selectedDate)}`;
+
+            const text = cleanSnippet
+                ? `${headline}: "${cleanSnippet}" — Plain-English MP briefings & free Sunday updates on Whip.`
+                : `${headline} — Read the plain-English briefing & get free weekly MP updates on Whip.`;
+
+            return { url, text };
+        }
+
+        function buildVoteSharePayload(vote, idx) {
+            const mp = state.currentMp;
+            if (!mp || !vote) {
+                return buildBriefingSharePayload();
+            }
+
+            const seat = getConstituencyName(mp);
+            const anchor = vote.divisionId ? `vote-${vote.divisionId}` : `vote-idx-${idx}`;
+            const url = buildShareUrl({ dateMode: state.selectedDate, voteAnchor: anchor });
+
+            const stanceText = vote.mpVote === 'Aye'
+                ? 'voted Aye on'
+                : vote.mpVote === 'No'
+                    ? 'voted No on'
+                    : 'had no vote recorded on';
+
+            const resultBit = vote.houseResult ? ` (${vote.houseResult})` : '';
+            const text = `${mp.full_name} (${seat}) ${stanceText} ${vote.title}${resultBit}. See how your MP votes & get free weekly briefings on Whip.`;
+
+            return { url, text };
+        }
+
+        async function copyTextToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
+
+        function closeAllShareMenus(exceptMenu = null) {
+            document.querySelectorAll('[data-share-container]').forEach(container => {
+                const menu = container.querySelector('[id$="Menu"], [data-share-menu]');
+                const trigger = container.querySelector('button[aria-expanded]');
+                if (menu && menu !== exceptMenu) {
+                    menu.classList.add('hidden');
+                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+
+        async function executeShareAction(channel, payload, copyLabelEl, menuEl, triggerEl) {
+            const { url, text } = payload;
+
+            if (channel === 'native') {
+                const nativeRes = await tryNativeShare(payload);
+                if (nativeRes.handled) {
+                    closeAllShareMenus();
+                    return;
+                }
+            }
+
+            if (channel === 'whatsapp') {
+                const waUrl = `[https://api.whatsapp.com/send?text=$](https://api.whatsapp.com/send?text=$){encodeURIComponent(`${text}\n\n${url}`)}`;
+                window.open(waUrl, '_blank', 'noopener,noreferrer');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'x') {
+                const intentUrl = `[https://x.com/intent/tweet?text=$](https://x.com/intent/tweet?text=$){encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+                window.open(intentUrl, '_blank', 'noopener,noreferrer,width=600,height=480');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'bluesky') {
+                const bskyUrl = `[https://bsky.app/intent/compose?text=$](https://bsky.app/intent/compose?text=$){encodeURIComponent(`${text}\n\n${url}`)}`;
+                window.open(bskyUrl, '_blank', 'noopener,noreferrer,width=600,height=520');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'threads') {
+                const threadsUrl = `[https://www.threads.com/intent/post?text=$](https://www.threads.com/intent/post?text=$){encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+                window.open(threadsUrl, '_blank', 'noopener,noreferrer,width=600,height=540');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'facebook') {
+                const fbUrl = `[https://www.facebook.com/sharer/sharer.php?u=$](https://www.facebook.com/sharer/sharer.php?u=$){encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`;
+                window.open(fbUrl, '_blank', 'noopener,noreferrer,width=620,height=520');
+                closeAllShareMenus();
+                return;
+            }
+
+            if (channel === 'copy') {
+                try {
+                    await copyTextToClipboard(url);
+                    if (copyLabelEl) {
+                        const prev = copyLabelEl.textContent;
+                        copyLabelEl.textContent = 'Copied link!';
+                        copyLabelEl.classList.add('text-commonsGreen');
+                        setTimeout(() => {
+                            copyLabelEl.textContent = prev || 'Copy link';
+                            copyLabelEl.classList.remove('text-commonsGreen');
+                            if (menuEl) menuEl.classList.add('hidden');
+                            if (triggerEl) triggerEl.setAttribute('aria-expanded', 'false');
+                        }, 1200);
+                    }
+                } catch {
+                    window.prompt('Copy this Whip briefing link:', url);
+                }
+            }
+        }
+
+        function getMondayOfWeek(isoDate) {
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            const day = d.getUTCDay();
+            const diffToMonday = day === 0 ? -6 : 1 - day;
+            d.setUTCDate(d.getUTCDate() + diffToMonday);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function getLondonTodayIso() {
+            return new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Europe/London',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(new Date());
+        }
+
+        function getCutoffIso(daysAgo = RETENTION_DAYS) {
+            const d = new Date(`${getLondonTodayIso()}T12:00:00Z`);
+            d.setUTCDate(d.getUTCDate() - daysAgo);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function isLondonWeekend() {
+            const weekdayShort = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Europe/London',
+                weekday: 'short'
+            }).format(new Date());
+            return weekdayShort === 'Sat' || weekdayShort === 'Sun';
+        }
+
+        function selectCurrentWeekDates(activeDates, referenceTodayIso) {
+            if (!Array.isArray(activeDates) || activeDates.length === 0) return [];
+            const currentMonday = getMondayOfWeek(referenceTodayIso);
+            return activeDates.filter(d => getMondayOfWeek(d) === currentMonday);
+        }
+
+        function selectLastCompletedWeekDates(activeDates, referenceTodayIso) {
+            if (!Array.isArray(activeDates) || activeDates.length === 0) return [];
+            const currentMonday = getMondayOfWeek(referenceTodayIso);
+            const completedDates = activeDates.filter(d => getMondayOfWeek(d) < currentMonday);
+            if (completedDates.length === 0) return [];
+            const latestCompletedMonday = getMondayOfWeek(completedDates[0]);
+            return completedDates.filter(d => getMondayOfWeek(d) === latestCompletedMonday);
+        }
+
+        function buildWeekGroups(activeDates) {
+            const groups = new Map();
+            for (const d of activeDates) {
+                const monday = getMondayOfWeek(d);
+                if (!groups.has(monday)) groups.set(monday, []);
+                groups.get(monday).push(d);
+            }
+            for (const [monday, list] of groups.entries()) {
+                groups.set(monday, [...list].sort());
+            }
+            return groups;
+        }
+
+        function getDefaultSelectedDate() {
+            if (isLondonWeekend() && state.weekPillDates.length > 0) {
+                return 'WEEK';
+            }
+            if (state.activeDates.length > 0) {
+                return state.activeDates[0];
+            }
+            return state.weekPillDates.length > 0 ? 'WEEK' : null;
+        }
+
+        function formatFullDate(isoDate) {
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            return d.toLocaleDateString('en-GB', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+                timeZone: 'UTC'
+            });
+        }
+
+        function formatShortPillDate(isoDate) {
+            const d = new Date(`${isoDate}T12:00:00Z`);
+            return d.toLocaleDateString('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                timeZone: 'UTC'
+            });
+        }
+
+        function formatWeekRangeLabel(dates) {
+            if (!dates || dates.length === 0) return '';
+            const sorted = [...dates].sort();
+            const first = new Date(`${sorted[0]}T12:00:00Z`);
+            const last = new Date(`${sorted[sorted.length - 1]}T12:00:00Z`);
+            const startStr = first.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+            const endStr = last.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+            return sorted.length === 1 ? endStr : `${startStr} – ${endStr}`;
+        }
+
+        function formatCleanSubjectList(titles) {
+            const unique = [...new Set(titles.map(t =>
+                t.replace(/:\s*(Second Reading|Third Reading|Report Stage|Committee|Programme|Money).*$/i, '').trim()
+            ))].filter(Boolean);
+
+            if (unique.length === 0) return '';
+            if (unique.length === 1) return unique[0];
+            if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
+            return `${unique[0]}, ${unique[1]}, and ${unique.length - 2} other ${unique.length - 2 === 1 ? 'measure' : 'measures'}`;
+        }
+
+        function isPostcodeLike(q) {
+            return /^[a-z]{1,2}\d[a-z\d]?\s*\d?[a-z]{0,2}$/i.test(q.trim());
+        }
+
+        async function lookupPostcode(postcode) {
+            const clean = postcode.replace(/\s+/g, '').toUpperCase();
+            try {
+                const res = await fetch(`[https://api.postcodes.io/postcodes/$](https://api.postcodes.io/postcodes/$){encodeURIComponent(clean)}`);
+                if (!res.ok) return null;
+                const data = await res.json();
+                return data?.result?.parliamentary_constituency_2024 || data?.result?.parliamentary_constituency || null;
+            } catch {
+                return null;
+            }
+        }
+
+        function filterMps(query) {
+            const q = query.trim().toLowerCase();
+            if (!q) return state.mps;
+            return state.mps.filter(mp => {
+                const seat = getConstituencyName(mp).toLowerCase();
+                return (
+                    (mp.full_name || '').toLowerCase().includes(q) ||
+                    (mp.short_name || '').toLowerCase().includes(q) ||
+                    (mp.party || '').toLowerCase().includes(q) ||
+                    seat.includes(q)
+                );
+            });
+        }
+
+        function renderSearchDropdown(dropdownEl, results, closeOtherEl) {
+            if (!dropdownEl) return;
+            if (!results || results.length === 0) {
+                dropdownEl.innerHTML = `<div class="px-4 py-3.5 text-xs text-inkSecondary">No matching MP or constituency found.</div>`;
+                dropdownEl.classList.remove('hidden');
+                return;
+            }
+
+            dropdownEl.innerHTML = results.slice(0, 60).map(mp => {
+                const seat = getConstituencyName(mp);
+                const dotColor = mp.party_color || '#006548';
+                return `
+                    <button type="button" data-mp-id="${mp.parliament_member_id}" class="w-full px-4 py-3 text-left hover:bg-surfaceSubtle transition-colors flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium text-ink truncate">${escapeHtmlClient(mp.full_name)}</p>
+                            <p class="text-xs text-inkSecondary truncate">${escapeHtmlClient(seat)} &middot; ${escapeHtmlClient(mp.party)}</p>
+                        </div>
+                        <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${escapeHtmlClient(dotColor)};"></span>
+                    </button>
+                `;
+            }).join('');
+
+            dropdownEl.classList.remove('hidden');
+            if (closeOtherEl) closeOtherEl.classList.add('hidden');
+
+            dropdownEl.querySelectorAll('button[data-mp-id]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const mpId = Number(btn.getAttribute('data-mp-id'));
+                    const chosen = state.mpById.get(mpId);
+                    dropdownEl.classList.add('hidden');
+                    if (chosen) selectMp(chosen, { pushUrl: true });
+                });
+            });
+        }
+
+        async function handleSearchInput(inputEl, dropdownEl, statusEl) {
+            const raw = inputEl.value.trim();
+            if (statusEl) statusEl.classList.add('hidden');
+
+            if (!raw) {
+                dropdownEl.classList.add('hidden');
+                return;
+            }
+
+            if (isPostcodeLike(raw) && raw.replace(/\s+/g, '').length >= 5) {
+                if (statusEl) {
+                    statusEl.textContent = `Looking up postcode ${raw.toUpperCase()}...`;
+                    statusEl.classList.remove('hidden');
+                }
+                const seatName = await lookupPostcode(raw);
+                if (seatName) {
+                    const matched = state.mps.filter(mp =>
+                        getConstituencyName(mp).toLowerCase() === seatName.toLowerCase()
+                    );
+                    if (statusEl) statusEl.classList.add('hidden');
+                    if (matched.length === 1) {
+                        dropdownEl.classList.add('hidden');
+                        selectMp(matched[0], { pushUrl: true });
+                        return;
+                    }
+                    renderSearchDropdown(dropdownEl, matched);
+                    return;
+                } else if (statusEl) {
+                    statusEl.textContent = `Postcode not found — searching MPs & constituencies instead.`;
+                }
+            }
+
+            renderSearchDropdown(dropdownEl, filterMps(raw));
+        }
+
+        function renderDatePills() {
+            const pills = [];
+            if (state.weekPillDates.length > 0) {
+                const isWeek = state.selectedDate === 'WEEK';
+                pills.push(`
+                    <button type="button" data-date-pill="WEEK" class="px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${isWeek ? 'bg-ink text-canvas' : 'bg-surfaceSubtle text-inkSecondary hover:text-ink'}">
+                        ${escapeHtmlClient(state.weekPillLabel)}
+                    </button>
+                `);
+            }
+
+            const currentMonday = getMondayOfWeek(getLondonTodayIso());
+            const thisWeekSingleDays = state.activeDates.filter(d => getMondayOfWeek(d) >= currentMonday);
+
+            for (const d of thisWeekSingleDays) {
+                const isSelected = state.selectedDate === d;
+                pills.push(`
+                    <button type="button" data-date-pill="${d}" class="px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${isSelected ? 'bg-ink text-canvas' : 'bg-surfaceSubtle text-inkSecondary hover:text-ink'}">
+                        ${formatShortPillDate(d)}
+                    </button>
+                `);
+            }
+
+            els.datePillsContainer.innerHTML = pills.join('');
+            els.datePillsContainer.querySelectorAll('button[data-date-pill]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const target = btn.getAttribute('data-date-pill');
+                    if (target && target !== state.selectedDate) {
+                        state.selectedDate = target;
+                        renderDatePills();
+                        loadAndRenderBriefing();
+                    }
+                });
+            });
+
+            renderArchiveSelector();
+        }
+
+        function renderArchiveSelector() {
+            const selectEl = els.archiveDateSelect;
+            const wrapEl = els.archiveSelectWrap;
+            if (!selectEl || !wrapEl) return;
+
+            const currentMonday = getMondayOfWeek(getLondonTodayIso());
+            const earlierMondays = Array.from(state.weekGroups.keys())
+                .filter(monday => monday < currentMonday)
+                .sort()
+                .reverse();
+            const earlierDays = state.activeDates.filter(d => getMondayOfWeek(d) < currentMonday);
+
+            if (earlierMondays.length === 0 && earlierDays.length === 0) {
+                wrapEl.classList.add('hidden');
+                return;
+            }
+
+            wrapEl.classList.remove('hidden');
+
+            const weekOptions = earlierMondays.map(monday => {
+                const dates = state.weekGroups.get(monday) || [];
+                const val = `WEEK:${monday}`;
+                const label = `Wk: ${formatWeekRangeLabel(dates).replace(/\s+\d{4}$/, '')}`;
+                return `<option value="${escapeHtmlClient(val)}">${escapeHtmlClient(label)}</option>`;
+            }).join('');
+
+            const dayOptions = earlierDays.map(d => {
+                return `<option value="${escapeHtmlClient(d)}">${escapeHtmlClient(formatShortPillDate(d))}</option>`;
+            }).join('');
+
+            selectEl.innerHTML = `
+                <option value="">Archive</option>
+                ${weekOptions ? `<optgroup label="Past Weeks">${weekOptions}</optgroup>` : ''}
+                ${dayOptions ? `<optgroup label="Past Days">${dayOptions}</optgroup>` : ''}
+            `;
+
+            const matchesArchiveOption = Array.from(selectEl.options).some(
+                opt => opt.value && opt.value === state.selectedDate
+            );
+            selectEl.value = matchesArchiveOption ? state.selectedDate : '';
+            selectEl.classList.toggle('border-ink/50', Boolean(matchesArchiveOption));
+            selectEl.classList.toggle('text-ink', Boolean(matchesArchiveOption));
+        }
+
+        function compileWeeklyBriefing(mp, weekDates, rows, weekMode = 'LAST') {
+            const sortedDates = [...weekDates].sort();
+            const rowByDate = new Map((rows || []).map(r => [r.sitting_date, r]));
+            const rangeLabel = formatWeekRangeLabel(sortedDates);
+            const weekLeadPhrase = weekMode === 'CURRENT'
+                ? 'this week'
+                : weekMode === 'LAST'
+                    ? 'last week'
+                    : 'that week';
+            const dateHeading = weekMode === 'CURRENT'
+                ? `This week in Parliament (${rangeLabel})`
+                : weekMode === 'LAST'
+                    ? `Last week in Parliament (${rangeLabel})`
+                    : `Week in Parliament (${rangeLabel})`;
+
+            const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
+            const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
+            const isMinister = isGovernmentMinister(mp);
+
+            let deptInfo = null;
+            const deptUpdates = [];
+            if (isMinister) {
+                for (const r of rows || []) {
+                    if (!Array.isArray(r.glossary)) continue;
+                    const meta = r.glossary.find(g => g?._type === 'ministerial_meta');
+                    if (meta) {
+                        if (!deptInfo) deptInfo = meta;
+                        if (meta.deptDigest) deptUpdates.push(meta.deptDigest);
+                    }
+                }
+            }
+
+            const activeDayEntries = sortedDates
+                .map(d => ({ date: d, row: rowByDate.get(d) }))
+                .filter(e => e.row && e.row.activity_tag !== 'Non-Sitting Day');
+
+            const substantiveEntries = activeDayEntries.filter(e =>
+                e.row.activity_tag !== 'Constituency & Parliamentary Work' &&
+                e.row.activity_tag !== 'Ministerial & Departmental Work' &&
+                e.row.activity_tag !== 'Abstentionist MP' &&
+                e.row.activity_tag !== 'Chairing the House' &&
+                e.row.activity_tag !== 'No Vote Recorded'
+            );
+
+            const spokenOrCommitteeEntries = substantiveEntries.filter(e =>
+                !/^\d+\s+Division Votes?$/i.test(e.row.activity_tag || '') &&
+                !/^\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
+                !/^Answered\s+\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
+                !/^Written Questions/i.test(e.row.activity_tag || '')
+            );
+
+            const combinedVotes = [];
+            const combinedWqs = [];
+            const combinedCommittees = [];
+
+            for (const { date, row } of activeDayEntries) {
+                const dateLabel = formatShortPillDate(date);
+                for (const v of (Array.isArray(row.votes) ? row.votes : [])) {
+                    combinedVotes.push({ ...v, sittingDateLabel: dateLabel });
+                }
+                for (const q of (Array.isArray(row.written_questions) ? row.written_questions : [])) {
+                    combinedWqs.push({ ...q, sittingDateLabel: dateLabel });
+                }
+                for (const c of (Array.isArray(row.committee_sessions) ? row.committee_sessions : [])) {
+                    combinedCommittees.push({ ...c, sittingDateLabel: dateLabel });
+                }
+            }
+
+            const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
+
+            const spokenContexts = spokenOrCommitteeEntries
+                .map(e => (e.row.summary_para_2 || '').trim())
+                .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
+
+            const allContexts = substantiveEntries
+                .map(e => (e.row.summary_para_2 || '').trim())
+                .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
+
+            const uniqueContexts = [...new Set(spokenContexts.length > 0 ? spokenContexts : allContexts)];
+
+            let para1 = '';
+            let para2 = '';
+            let contextHeading = 'Why this matters';
+            let activityTag = 'Weekly Roundup';
+
+            if (substantiveEntries.length === 0 && combinedWqs.length === 0 && combinedCommittees.length === 0) {
+                if (isSinnFein) {
+                    activityTag = 'Abstentionist MP';
+                    contextHeading = 'Why Sinn Féin MPs do not sit at Westminster';
+                    para1 = `${mp.short_name} did not attend the Commons Chamber, sit on committees, table written questions, or vote during the week of ${rangeLabel} in line with Sinn Féin’s policy of abstentionism.\n\nInstead of taking a seat in Westminster, Sinn Féin MPs represent constituents locally in Northern Ireland.`;
+                    para2 = `Under Section 1 of the Parliamentary Oaths Act 1866, MPs must swear an oath or make a solemn affirmation of allegiance to the Crown before taking their seats in the House of Commons. Sinn Féin MPs do not take the oath, sit in Westminster, or draw an MP salary.`;
+                } else if (isSpeakerOrDeputy) {
+                    activityTag = 'Chairing the House';
+                    contextHeading = 'Role of the Speaker’s Chair';
+                    para1 = `${mp.short_name} did not speak in debates or vote in Commons divisions during the week of ${rangeLabel} due to the strict impartiality required of the Speaker’s Chair.`;
+                    para2 = `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, keep order, and select amendments—voting only to break a tied result.`;
+                } else if (isMinister) {
+                    activityTag = deptInfo?.deptName || 'Ministerial Duty';
+                    contextHeading = 'What ministers do outside the Chamber';
+                    para1 = `${mp.short_name} had no spoken Commons Chamber contributions or recorded division votes during the week of ${rangeLabel}.`;
+                    para2 = `Ministers do not table written questions or sit on select committees, focusing on running their department and speaking in the Chamber during their department's question rota or legislation.`;
+                } else {
+                    activityTag = `${activeDayEntries.length} Sitting ${activeDayEntries.length === 1 ? 'Day' : 'Days'}`;
+                    contextHeading = 'What MPs do behind the scenes';
+                    const missedLine = combinedVotes.length > 0
+                        ? `\n\nAcross ${combinedVotes.length} Commons ${combinedVotes.length === 1 ? 'vote' : 'votes'} held ${weekLeadPhrase}, no vote was recorded for ${mp.short_name}—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.`
+                        : '';
+                    para1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of ${rangeLabel}.\n\nHaving a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.${missedLine}`;
+                    para2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
+                }
+            } else if (spokenOrCommitteeEntries.length === 0) {
+                const paragraphs = [];
+                paragraphs.push(`${mp.short_name} had no spoken contributions in the Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
+
+                if (combinedCommittees.length > 0) {
+                    const labels = [...new Set(combinedCommittees.map(c => `${c.committeeName} (${c.sittingDateLabel})`))];
+                    paragraphs.push(`They took part in ${combinedCommittees.length} select committee ${combinedCommittees.length === 1 ? 'session' : 'sessions'}: ${labels.join(', ')}.`);
+                }
+                if (combinedWqs.length > 0) {
+                    const askedWqs = combinedWqs.filter(q => q.direction !== 'answered');
+                    const answeredWqs = combinedWqs.filter(q => q.direction === 'answered');
+                    if (answeredWqs.length > 0) {
+                        const depts = [...new Set(answeredWqs.map(q => q.department))];
+                        const topics = [...new Set(answeredWqs.map(q => q.heading))].slice(0, 2);
+                        paragraphs.push(`On behalf of ${depts.slice(0, 2).join(' and ')}, ${mp.short_name} answered ${answeredWqs.length} written parliamentary ${answeredWqs.length === 1 ? 'question' : 'questions'} on ${topics.join(' and ')}.`);
+                    }
+                    if (askedWqs.length > 0) {
+                        const depts = [...new Set(askedWqs.map(q => q.department))];
+                        const topics = [...new Set(askedWqs.map(q => q.heading))].slice(0, 2);
+                        paragraphs.push(`They tabled ${askedWqs.length} written parliamentary ${askedWqs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} on ${topics.join(' and ')}.`);
+                    }
+                }
+                if (activeVoteRows.length > 0) {
+                    const ayeTitles = activeVoteRows.filter(v => v.mpVote === 'Aye').map(v => v.title);
+                    const noTitles = activeVoteRows.filter(v => v.mpVote === 'No').map(v => v.title);
+                    const voteParts = [];
+                    if (ayeTitles.length > 0) voteParts.push(`voting Aye on ${formatCleanSubjectList(ayeTitles)}`);
+                    if (noTitles.length > 0) voteParts.push(`voting No on ${formatCleanSubjectList(noTitles)}`);
+
+                    paragraphs.push(`In the voting lobbies, ${mp.short_name} took part in ${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'division' : 'divisions'}, ${voteParts.join(' and ')}.`);
+                }
+                para1 = paragraphs.join('\n\n');
+                para2 = uniqueContexts[0] || `Much of an MP's parliamentary work takes place in committees, written scrutiny, and division votes outside main Chamber speeches.`;
+                activityTag = activeVoteRows.length > 0
+                    ? `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`
+                    : `${combinedWqs.length} Written ${combinedWqs.length === 1 ? 'Question' : 'Questions'}`;
+            } else {
+                const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
+                    const body = (row.summary_para_1 || '').trim();
+                    const subParas = body
+                        .split(/\n{2,}/)
+                        .map(s => s.trim())
+                        .filter(s =>
+                            s &&
+                            !/^In the voting lobbies,/i.test(s) &&
+                            !/routinely spend time handling urgent constituent casework/i.test(s)
+                        );
+                    if (subParas.length === 0) return '';
+
+                    const cleanedFirst = subParas[0]
+                        .replace(/^On\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},\s*/i, '')
+                        .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '');
+
+                    const proceeding = classifyChamberProceeding(row.activity_tag || '');
+                    subParas[0] = /^did not speak in the main Commons Chamber/i.test(cleanedFirst)
+                        ? `On ${formatShortPillDate(date)}, ${mp.short_name} spoke ${proceeding.phrase}`
+                        : `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
+                    return subParas.join('\n\n');
+                }).filter(Boolean);
+
+                if (activeVoteRows.length > 0) {
+                    dayParagraphs.push(`Across the week, ${mp.short_name} also cast ${activeVoteRows.length} recorded division ${activeVoteRows.length === 1 ? 'vote' : 'votes'}.`);
+                }
+
+                para1 = dayParagraphs.join('\n\n');
+                para2 = uniqueContexts[0] || `Proceedings in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
+                activityTag = `${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`;
+            }
+
+            const deptDigest = isMinister ? (deptUpdates[0] || null) : null;
+            return {
+                sitting_date: 'WEEK',
+                dateHeading,
+                activity_tag: activityTag,
+                contextHeading,
+                summary_para_1: para1,
+                summary_para_2: para2,
+                deptName: isMinister ? (deptInfo?.deptName || deptDigest?.deptName || null) : null,
+                deptSummary: isMinister ? (deptDigest?.summary || '') : '',
+                deptItems: isMinister && Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
+                committee_sessions: combinedCommittees,
+                written_questions: combinedWqs,
+                votes: combinedVotes
+            };
+        }
+
+        function renderDepartmentSection(deptName, deptSummary, deptItems) {
+            if (!state.currentMp || !isGovernmentMinister(state.currentMp) || !deptSummary) {
+                els.departmentActivitySection.classList.add('hidden');
+                return;
+            }
+            els.departmentActivitySection.classList.remove('hidden');
+            els.departmentNameBadge.textContent = deptName || 'GOV.UK';
+            els.departmentSummaryText.textContent = deptSummary;
+            els.departmentItemsList.innerHTML = (deptItems || []).map(item => `
+                <a href="${escapeHtmlClient(item.url || '[https://www.gov.uk/](https://www.gov.uk/)')}" target="_blank" rel="noopener noreferrer" class="py-4 flex items-center justify-between gap-4 group">
                     <div class="min-w-0">
                         <p class="text-sm font-medium text-ink group-hover:text-commonsGreen transition-colors">${escapeHtmlClient(item.title)}</p>
                         ${item.description ? `<p class="text-xs text-inkSecondary mt-1 line-clamp-2">${escapeHtmlClient(item.description)}</p>` : ''}
@@ -1844,7 +3607,6 @@
             renderNarrativeParagraphs(els.summaryNarrativeBody, briefing.summary_para_1, briefing);
             els.contextHeading.textContent = briefing.contextHeading || 'Why this matters';
             els.summaryPara2.textContent = briefing.summary_para_2 || '';
-            els.hansardRefTag.textContent = briefing.hansard_ref || '';
 
             if (els.newsletterCardHeading && mp?.short_name) {
                 els.newsletterCardHeading.textContent = `Get ${mp.short_name}’s week in your inbox`;
@@ -1853,12 +3615,10 @@
             const hansardMeta = Array.isArray(briefing.glossary)
                 ? briefing.glossary.find(g => g?._type === 'hansard_meta')
                 : null;
-            const hansardSearchUrl = `https://hansard.parliament.uk/search/MemberContributions?memberId=${encodeURIComponent(mp.parliament_member_id)}&type=Spoken`;
+            const hansardSearchUrl = `[https://hansard.parliament.uk/search/MemberContributions?memberId=$](https://hansard.parliament.uk/search/MemberContributions?memberId=$){encodeURIComponent(mp.parliament_member_id)}&type=Spoken`;
             els.hansardSourceLink.href = hansardMeta?.contributionUrl || hansardSearchUrl;
             if (els.hansardLinkLabel) {
-                els.hansardLinkLabel.textContent = hansardMeta?.contributionUrl
-                    ? 'Watch & read exact speech in Hansard'
-                    : 'Read official Hansard transcript';
+                els.hansardLinkLabel.textContent = 'Read official Hansard transcript';
             }
 
             renderDepartmentSection(
@@ -2149,14 +3909,14 @@
 
             renderProfileNewsletterCard(mp);
 
-            els.mpProfileAvatar.src = `https://members-api.parliament.uk/api/Members/${id}/Portrait?cropType=OneOne&webVersion=true`;
+            els.mpProfileAvatar.src = `[https://members-api.parliament.uk/api/Members/$](https://members-api.parliament.uk/api/Members/$){id}/Portrait?cropType=OneOne&webVersion=true`;
             els.mpProfileAvatar.alt = mp.full_name || 'MP Portrait';
             els.mpProfileAvatar.onerror = () => { els.mpProfileAvatar.classList.add('hidden'); };
 
-            document.getElementById('profileContactLink').href = `https://members.parliament.uk/member/${id}/contact`;
-            document.getElementById('profileVotingLink').href = `https://members.parliament.uk/member/${id}/voting`;
-            document.getElementById('profileSpokenLink').href = `https://members.parliament.uk/member/${id}/contributions`;
-            document.getElementById('profileInterestsLink').href = `https://members.parliament.uk/member/${id}/registeredinterests`;
+            document.getElementById('profileContactLink').href = `[https://members.parliament.uk/member/$](https://members.parliament.uk/member/$){id}/contact`;
+            document.getElementById('profileVotingLink').href = `[https://members.parliament.uk/member/$](https://members.parliament.uk/member/$){id}/voting`;
+            document.getElementById('profileSpokenLink').href = `[https://members.parliament.uk/member/$](https://members.parliament.uk/member/$){id}/contributions`;
+            document.getElementById('profileInterestsLink').href = `[https://members.parliament.uk/member/$](https://members.parliament.uk/member/$){id}/registeredinterests`;
 
             const serviceDurationEl = document.getElementById('profileServiceDuration');
             const serviceSubtitleEl = document.getElementById('profileServiceSubtitle');
@@ -2176,11 +3936,11 @@
             if (!extra) {
                 try {
                     const [bioRes, latestRes, interestsRes] = await Promise.all([
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/Biography`).catch(() => null),
+                        fetch(`[https://members-api.parliament.uk/api/Members/$](https://members-api.parliament.uk/api/Members/$){id}/Biography`).catch(() => null),
                         cachedWins.length === 0
-                            ? fetch(`https://members-api.parliament.uk/api/Members/${id}/LatestElectionResult`).catch(() => null)
+                            ? fetch(`[https://members-api.parliament.uk/api/Members/$](https://members-api.parliament.uk/api/Members/$){id}/LatestElectionResult`).catch(() => null)
                             : Promise.resolve(null),
-                        fetch(`https://members-api.parliament.uk/api/Members/${id}/RegisteredInterests`).catch(() => null)
+                        fetch(`[https://members-api.parliament.uk/api/Members/$](https://members-api.parliament.uk/api/Members/$){id}/RegisteredInterests`).catch(() => null)
                     ]);
 
                     const bioJson = bioRes && bioRes.ok ? await bioRes.json() : null;

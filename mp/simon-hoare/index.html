@@ -309,7 +309,7 @@
                         <div id="summaryNarrativeBody" class="space-y-4">
                             <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Simon Hoare did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of 23 Nov – 26 Nov 2026.</p>
                         <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Having a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.</p>
-                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across 3 Commons votes held last week, no vote was recorded for Simon Hoare—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.</p>
+                        <p class="text-[17px] sm:text-[19px] leading-[1.75] text-ink font-normal tracking-[-0.01em]">Across 1 Commons vote held last week, no vote was recorded for Simon Hoare—which can happen when an MP is away on parliamentary business, paired with an opposing MP, or carrying out constituency duties.</p>
                         </div>
 
                         <!-- Why this matters -->
@@ -665,6 +665,56 @@
                 .replace(/&gt;/gi, '>')
                 .replace(/\s+/g, ' ')
                 .trim();
+        }
+
+        function isGovernmentMinister(mp) {
+            const role = String(mp?.role_title || '').trim();
+            if (!role || !role.includes('• MP for ')) return false;
+            const prefix = role.split('• MP for ')[0].trim();
+            if (/\b(spokesperson|shadow|opposition|liberal democrat|scottish national party|snp|green party|reform uk|plaid cymru|democratic unionist|dup)\b/i.test(prefix)) {
+                return false;
+            }
+            return /\b(prime minister|chancellor of the exchequer|secretary of state|minister of state|parliamentary under-secretary|minister for|minister of|paymaster general|attorney general|solicitor general|advocate general|lord chancellor|lord president|lord privy seal|leader of the house of commons|chief secretary|financial secretary|economic secretary)\b/i.test(prefix);
+        }
+
+        function classifyChamberSection(title = '') {
+            const t = String(title || '').trim();
+            if (/^points? of order$/i.test(t)) {
+                return { kind: 'point_of_order', label: 'a point of order' };
+            }
+            if (/^(business of the house|business questions|weekly business|forthcoming business)$/i.test(t)) {
+                return { kind: 'business_questions', label: 'Business Questions' };
+            }
+            if (/urgent question/i.test(t)) {
+                return { kind: 'urgent_question', label: 'an Urgent Question' };
+            }
+            if (/ministerial statement|statement/i.test(t)) {
+                return { kind: 'statement', label: 'a ministerial statement' };
+            }
+            if (/oral answers|questions to |prime minister/i.test(t)) {
+                return { kind: 'oral_questions', label: 'Oral Questions' };
+            }
+            return { kind: 'debate', label: t || 'Commons business' };
+        }
+
+        function rowHasChamberContribution(row) {
+            if (!row) return false;
+            const tag = String(row.activity_tag || '').trim();
+            if (
+                tag === 'Non-Sitting Day' ||
+                tag === 'Constituency & Parliamentary Work' ||
+                tag === 'Ministerial & Departmental Work' ||
+                tag === 'Abstentionist MP' ||
+                tag === 'Chairing the House' ||
+                tag === 'No Vote Recorded' ||
+                /^\d+\s+Division Votes?$/i.test(tag) ||
+                /^\d+\s+Written Questions?$/i.test(tag) ||
+                /^Answered\s+\d+\s+Written Questions?$/i.test(tag) ||
+                /^Written Questions/i.test(tag)
+            ) {
+                return false;
+            }
+            return Boolean(String(row.summary_para_1 || '').trim());
         }
 
         function resolveWrittenQuestionAttribution(quoteText, briefing) {
@@ -1321,16 +1371,18 @@
 
             const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
             const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
-            const isMinister = Boolean(mp.role_title && mp.role_title.includes('• MP for '));
+            const isMinister = isGovernmentMinister(mp);
 
             let deptInfo = null;
             const deptUpdates = [];
-            for (const r of rows || []) {
-                if (!Array.isArray(r.glossary)) continue;
-                const meta = r.glossary.find(g => g?._type === 'ministerial_meta');
-                if (meta) {
-                    if (!deptInfo) deptInfo = meta;
-                    if (meta.deptDigest) deptUpdates.push(meta.deptDigest);
+            if (isMinister) {
+                for (const r of rows || []) {
+                    if (!Array.isArray(r.glossary)) continue;
+                    const meta = r.glossary.find(g => g?._type === 'ministerial_meta');
+                    if (meta) {
+                        if (!deptInfo) deptInfo = meta;
+                        if (meta.deptDigest) deptUpdates.push(meta.deptDigest);
+                    }
                 }
             }
 
@@ -1338,19 +1390,14 @@
                 .map(d => ({ date: d, row: rowByDate.get(d) }))
                 .filter(e => e.row && e.row.activity_tag !== 'Non-Sitting Day');
 
+            const chamberSpokeEntries = activeDayEntries.filter(e => rowHasChamberContribution(e.row));
+
             const substantiveEntries = activeDayEntries.filter(e =>
                 e.row.activity_tag !== 'Constituency & Parliamentary Work' &&
                 e.row.activity_tag !== 'Ministerial & Departmental Work' &&
                 e.row.activity_tag !== 'Abstentionist MP' &&
                 e.row.activity_tag !== 'Chairing the House' &&
                 e.row.activity_tag !== 'No Vote Recorded'
-            );
-
-            const spokenOrCommitteeEntries = substantiveEntries.filter(e =>
-                !/^\d+\s+Division Votes?$/i.test(e.row.activity_tag || '') &&
-                !/^\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
-                !/^Answered\s+\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
-                !/^Written Questions/i.test(e.row.activity_tag || '')
             );
 
             const combinedVotes = [];
@@ -1372,7 +1419,7 @@
 
             const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
 
-            const spokenContexts = spokenOrCommitteeEntries
+            const spokenContexts = chamberSpokeEntries
                 .map(e => (e.row.summary_para_2 || '').trim())
                 .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
 
@@ -1412,9 +1459,9 @@
                     para1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of ${rangeLabel}.\n\nHaving a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.${missedLine}`;
                     para2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
                 }
-            } else if (spokenOrCommitteeEntries.length === 0) {
+            } else if (chamberSpokeEntries.length === 0) {
                 const paragraphs = [];
-                paragraphs.push(`${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
+                paragraphs.push(`${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
 
                 if (combinedCommittees.length > 0) {
                     const labels = [...new Set(combinedCommittees.map(c => `${c.committeeName} (${c.sittingDateLabel})`))];
@@ -1449,7 +1496,7 @@
                     ? `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`
                     : `${combinedWqs.length} Written ${combinedWqs.length === 1 ? 'Question' : 'Questions'}`;
             } else {
-                const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
+                const dayParagraphs = chamberSpokeEntries.map(({ date, row }) => {
                     const body = (row.summary_para_1 || '').trim();
                     const subParas = body
                         .split(/\n{2,}/)
@@ -1461,9 +1508,11 @@
                         );
                     if (subParas.length === 0) return '';
 
+                    const sec = classifyChamberSection(row.activity_tag);
                     const cleanedFirst = subParas[0]
                         .replace(/^On\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},\s*/i, '')
-                        .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '');
+                        .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '')
+                        .replace(/\bdid not speak in the (?:main )?Commons Chamber\b/i, `spoke in the Commons Chamber during ${sec.label}`);
 
                     subParas[0] = `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
                     return subParas.join('\n\n');
@@ -1474,11 +1523,11 @@
                 }
 
                 para1 = dayParagraphs.join('\n\n');
-                para2 = uniqueContexts[0] || `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
-                activityTag = `${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`;
+                para2 = uniqueContexts[0] || `Contributions in the House of Commons Chamber—including debates, Business Questions, Oral Questions, statements, and points of order—place scrutiny and parliamentary business on the official record.`;
+                activityTag = `${chamberSpokeEntries.length} Active ${chamberSpokeEntries.length === 1 ? 'Day' : 'Days'}`;
             }
 
-            const deptDigest = deptUpdates[0] || null;
+            const deptDigest = isMinister ? (deptUpdates[0] || null) : null;
             return {
                 sitting_date: 'WEEK',
                 dateHeading,
@@ -1487,9 +1536,9 @@
                 summary_para_1: para1,
                 summary_para_2: para2,
                 hansard_ref: `Week of ${rangeLabel}`,
-                deptName: deptInfo?.deptName || deptDigest?.deptName || null,
-                deptSummary: deptDigest?.summary || '',
-                deptItems: Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
+                deptName: isMinister ? (deptInfo?.deptName || deptDigest?.deptName || null) : null,
+                deptSummary: isMinister ? (deptDigest?.summary || '') : '',
+                deptItems: isMinister && Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
                 committee_sessions: combinedCommittees,
                 written_questions: combinedWqs,
                 votes: combinedVotes
@@ -1497,7 +1546,7 @@
         }
 
         function renderDepartmentSection(deptName, deptSummary, deptItems) {
-            if (!deptSummary) {
+            if (!state.currentMp || !isGovernmentMinister(state.currentMp) || !deptSummary) {
                 els.departmentActivitySection.classList.add('hidden');
                 return;
             }
@@ -1714,7 +1763,6 @@
 
             syncNativeShareButtonsVisibility();
 
-            // Expand / collapse explainer panel
             els.votingRecordsList.querySelectorAll('button[data-vote-toggle]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const idx = btn.getAttribute('data-vote-toggle');
@@ -1731,7 +1779,6 @@
                 });
             });
 
-            // Per-vote Share menu toggle
             els.votingRecordsList.querySelectorAll('button[data-vote-share-toggle]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -1745,7 +1792,6 @@
                 });
             });
 
-            // Per-vote Share channel actions
             els.votingRecordsList.querySelectorAll('button[data-vote-share-action]').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     e.stopPropagation();
@@ -2053,7 +2099,7 @@
                 } else if (failedCount === 0 && targetIds.size > 1) {
                     if (newlyAdded > 0) emailInput.value = '';
                     statusEl.classList.add('text-commonsGreen');
-                    els.mpNewsletterStatus.textContent = newlyAdded > 0
+                    statusEl.textContent = newlyAdded > 0
                         ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
                         : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
                 } else {
@@ -2296,17 +2342,18 @@
 
             if (!row) return;
 
+            const isMinister = isGovernmentMinister(mp);
             let deptMeta = null;
-            if (Array.isArray(row.glossary)) {
+            if (isMinister && Array.isArray(row.glossary)) {
                 deptMeta = row.glossary.find(g => g?._type === 'ministerial_meta') || null;
             }
 
             renderBriefingView(mp, {
                 ...row,
                 dateHeading: formatFullDate(row.sitting_date),
-                deptName: deptMeta?.deptName || null,
-                deptSummary: deptMeta?.deptDigest?.summary || '',
-                deptItems: deptMeta?.deptDigest?.items || []
+                deptName: isMinister ? (deptMeta?.deptName || null) : null,
+                deptSummary: isMinister ? (deptMeta?.deptDigest?.summary || '') : '',
+                deptItems: isMinister ? (deptMeta?.deptDigest?.items || []) : []
             });
         }
 
@@ -2567,7 +2614,6 @@
                 }
             });
 
-            // Top Briefing Share Menu Toggle & Actions
             els.briefingShareBtn?.addEventListener('click', (e) => {
                 e.stopPropagation();
                 syncNativeShareButtonsVisibility();
@@ -2675,7 +2721,7 @@
                         els.mpNewsletterEmail.value = '';
                     }
                     els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                    statusEl.textContent = newlyAdded > 0
+                    els.mpNewsletterStatus.textContent = newlyAdded > 0
                         ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
                         : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
                 } else {

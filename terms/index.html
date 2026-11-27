@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service — Whip.</title>
+    <meta name="description" content="Terms of service and public information disclaimer for Whip.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Ctext x='9' y='45' font-family='Georgia,serif' font-weight='700' font-size='36' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='42' r='4.5' fill='%23006548'/%3E%3C/svg%3E">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        editorial: ['Newsreader', 'Georgia', 'serif'],
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                    },
+                    colors: {
+                        canvas: '#FFFFFF',
+                        surfaceSubtle: '#FAFAFA',
+                        ink: '#111827',
+                        inkSecondary: '#4B5563',
+                        inkTertiary: '#9CA3AF',
+                        hairline: '#E5E7EB',
+                        commonsGreen: '#006548',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #FFFFFF;
+            color: #111827;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-commonsGreen/10 selection:text-commonsGreen">
+
+    <header class="w-full border-b border-hairline/70 bg-canvas/95 backdrop-blur-sm sticky top-0 z-30">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4">
+            <a href="/" aria-label="Whip. Home" class="inline-flex items-center h-12 overflow-hidden shrink-0">
+                <img
+                    src="/assets/Whip-logo.svg"
+                    alt="Whip."
+                    class="h-10 sm:h-11 w-auto object-contain select-none"
+                    onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'font-editorial text-2xl font-bold tracking-tight text-ink', innerHTML: 'Whip<span class=&quot;text-commonsGreen&quot;>.</span>' }))"
+                />
+            </a>
+            <a href="/" class="text-xs font-medium text-inkSecondary hover:text-ink transition-colors">
+                &larr; Back to briefings
+            </a>
+        </div>
+    </header>
+
+    <main class="flex-1 w-full max-w-3xl mx-auto px-5 sm:px-8 py-10 sm:py-14">
+        <article class="space-y-8">
+            <header class="pb-7 border-b border-hairline">
+                <p class="font-editorial text-xs sm:text-sm text-commonsGreen mb-2">Legal &amp; Data</p>
+                <h1 class="font-editorial text-3xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.1]">
+                    Terms of Service
+                </h1>
+                <p class="mt-3 text-xs sm:text-sm text-inkTertiary">
+                    Last updated: November 2026
+                </p>
+            </header>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">1. Informational Purpose Only</h2>
+                <p>
+                    Whip. is an independent informational service summarising public parliamentary proceedings, votes, written questions, and ministerial announcements. Summaries and explainers are provided for general information and convenience—always consult official House of Commons and Hansard records for authoritative legal or parliamentary texts.
+                </p>
+            </section>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">2. Official Parliamentary Data &amp; Licensing</h2>
+                <p>
+                    Parliamentary information is sourced from public UK Parliament and GOV.UK services and is licensed under the <strong class="font-medium text-ink">Open Parliament Licence v3.0</strong>, subject to applicable Crown copyright and database rights. Whip. is not affiliated with or endorsed by the House of Commons, the House of Lords, or any political party.
+                </p>
+            </section>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">3. Acceptable Use &amp; Availability</h2>
+                <p>
+                    You agree to use Whip. lawfully and not to disrupt, scrape abusively, or interfere with the service or its underlying infrastructure. Sitting schedules, external APIs, and automated updates can occasionally experience delays or revisions; briefings are provided on an "as is" and "as available" basis without warranties of uninterrupted availability.
+                </p>
+            </section>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">4. Changes to These Terms</h2>
+                <p>
+                    We may update these terms from time to time as Whip. evolves. Continued use of the site after changes are published constitutes acceptance of the updated terms.
+                </p>
+            </section>
+        </article>
+    </main>
+
+    <footer class="w-full border-t border-hairline/70 py-8 mt-12">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-inkTertiary">
+            <p>
+                <span class="font-editorial font-semibold text-ink">Whip.</span> - Public parliamentary record simplified.
+            </p>
+            <div class="flex flex-wrap items-center justify-center sm:justify-end gap-x-4 gap-y-1">
+                <a href="/privacy/" class="hover:text-ink transition-colors">Privacy Policy</a>
+                <span>&middot;</span>
+                <a href="/terms/" class="text-ink font-medium">Terms of Service</a>
+                <span>&middot;</span>
+                <span>Open Parliament Licence v3.0</span>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>

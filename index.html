@@ -163,16 +163,17 @@
                 <div id="heroWatchlistList" class="flex flex-wrap items-center justify-center gap-2"></div>
             </div>
 
-            <!-- Official Data Sources Strip -->
-            <div class="w-full max-w-xl mt-10 pt-6 border-t border-hairline/70">
-                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-2">
+           <!-- Official Data Sources Strip -->
+            <div class="w-full max-w-3xl mx-auto mt-10 pt-6 border-t border-hairline/70 text-center">
+                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-3">
                     Compiled directly from official public records
                 </p>
-                <div class="flex justify-center">
+                <div class="w-full flex justify-center overflow-hidden">
                     <img
                         src="/assets/sources.svg"
                         alt="UK Parliament, Hansard, and GOV.UK"
-                        class="w-full max-w-lg h-16 sm:h-20 object-contain opacity-80 hover:opacity-100 transition-opacity select-none"
+                        class="w-full max-w-2xl sm:max-w-3xl h-auto mx-auto opacity-85 hover:opacity-100 transition-opacity select-none"
+                        onerror="this.replaceWith(Object.assign(document.createElement('p'), { className: 'text-xs font-medium text-inkTertiary tracking-wide', textContent: 'UK Parliament · Hansard · GOV.UK' }))"
                     />
                 </div>
             </div>

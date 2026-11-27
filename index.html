@@ -2756,7 +2756,7 @@
                         els.mpNewsletterEmail.value = '';
                     }
                     els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                    statusEl.textContent = newlyAdded > 0
+                    els.mpNewsletterStatus.textContent = newlyAdded > 0
                         ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
                         : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
                 } else {

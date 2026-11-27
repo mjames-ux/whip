@@ -126,7 +126,6 @@ function resolveGovernmentRole(mp) {
     const postTitle = role.split('• MP for ')[0].trim();
     if (!postTitle) return null;
 
-    // Exclude opposition, shadow, or party spokespeople (e.g. Lib Dem / SNP / Green spokespeople)
     if (/\b(spokesperson|shadow|opposition|liberal democrat|scottish national party|snp|green party|reform uk|plaid cymru|democratic unionist|dup)\b/i.test(postTitle)) {
         return null;
     }
@@ -145,6 +144,58 @@ function resolveGovernmentRole(mp) {
         deptSlug: dept?.slug || null,
         deptName: dept?.name || null,
         isWhip
+    };
+}
+
+function classifyChamberProceeding(debateTitle = '') {
+    const title = String(debateTitle || '').trim();
+    if (/^points? of order$/i.test(title)) {
+        return {
+            kind: 'point_of_order',
+            label: 'Point of Order',
+            inClause: 'during a point of order in the Commons Chamber',
+            contextPrefix: 'Raising a point of order in the Commons Chamber, they said:'
+        };
+    }
+    if (/^(business of the house|business questions|weekly business|forthcoming business)$/i.test(title)) {
+        return {
+            kind: 'business_questions',
+            label: 'Business Questions',
+            inClause: 'during Business Questions in the Commons Chamber',
+            contextPrefix: 'Speaking during Business Questions in the Commons Chamber, they said:'
+        };
+    }
+    if (/urgent question/i.test(title)) {
+        return {
+            kind: 'urgent_question',
+            label: 'Urgent Question',
+            inClause: 'during an Urgent Question in the Commons Chamber',
+            contextPrefix: 'Speaking during an Urgent Question in the Commons Chamber, they said:'
+        };
+    }
+    if (/ministerial statement|statement/i.test(title)) {
+        return {
+            kind: 'statement',
+            label: 'Ministerial Statement',
+            inClause: `during a ministerial statement on ${title.replace(/^ministerial statement[:\s-]*/i, '').trim() || 'government policy'}`,
+            contextPrefix: 'Speaking during a ministerial statement in the Commons Chamber, they said:'
+        };
+    }
+    if (/oral answers|questions to |prime minister/i.test(title)) {
+        return {
+            kind: 'oral_questions',
+            label: 'Oral Questions',
+            inClause: `during Oral Questions (${title})`,
+            contextPrefix: `Speaking during Oral Questions (${title}), they said:`
+        };
+    }
+    return {
+        kind: 'debate',
+        label: title || 'Commons Chamber',
+        inClause: title ? `during proceedings on ${title}` : 'in the Commons Chamber',
+        contextPrefix: title
+            ? `Speaking during proceedings on ${title}, they said:`
+            : 'Addressing the House, they said:'
     };
 }
 
@@ -363,10 +414,8 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallba
     const cleanNarrative = String(narrative || '').trim();
 
     if (speeches && speeches.length > 0) {
-        const debateName = fallbackDebateTitle || speeches[0]?.debateTitle || '';
-        const fallbackContextLine = debateName
-            ? `Speaking during proceedings on ${debateName}, they said:`
-            : `Addressing the House, they said:`;
+        const proceeding = classifyChamberProceeding(fallbackDebateTitle || speeches[0]?.debateTitle || '');
+        const fallbackContextLine = proceeding.contextPrefix;
 
         const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
         const quoteMatches = extractBalancedDoubleQuotes(cleanNarrative);
@@ -558,7 +607,7 @@ async function fetchHansardContributionsForDate(dateStr) {
         for (const item of results) {
             const memberId = Number(item?.MemberId ?? item?.AttributedToMemberId);
             const memberName = stripHtml(item?.MemberName || item?.AttributedTo || '');
-            const debateTitle = stripHtml(item?.DebateSection || item?.Title || 'Commons Debate');
+            const debateTitle = stripHtml(item?.DebateSection || item?.Title || 'Commons Chamber');
             const text = stripHtml(item?.Value || item?.ContributionText || '');
             const hrsRef = item?.HRSReference || item?.ExternalId || '';
 
@@ -1025,7 +1074,6 @@ async function fetchCommitteeSessionsForDate(dateStr) {
             const fallbackData = await fetchJsonWithTimeout(eventsUrl.toString(), 20000);
             const rawEvents = Array.isArray(fallbackData) ? fallbackData : (fallbackData?.items || fallbackData?.value || []);
 
-            // Hydrate each event individually so attendees & witnesses are included
             for (const ev of rawEvents.slice(0, 25)) {
                 const evObj = ev?.value || ev;
                 const evId = evObj?.id || evObj?.eventId;
@@ -1163,7 +1211,10 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
 
     const speechDigest = rankedSpeeches
         .slice(0, 6)
-        .map((s, idx) => `- Contribution ${idx + 1} (Debate: "${s.debateTitle}"): "${s.text.slice(0, 850)}"`)
+        .map((s, idx) => {
+            const proc = classifyChamberProceeding(s.debateTitle);
+            return `- Contribution ${idx + 1} [${proc.label} — "${s.debateTitle}"]: "${s.text.slice(0, 850)}"`;
+        })
         .join('\n');
 
     const committeeDigest = committees
@@ -1186,15 +1237,16 @@ Rules:
 - Plain English for all readers. Short paragraphs (2-3 sentences each), separated by \\n\\n.
 - Strictly neutral, non-partisan tone. Never praise, criticise, or speculate about motives.
 - Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
+- Chamber Contributions Rule: Any entry in "Chamber Contributions" means ${mp.short_name} spoke in the House of Commons Chamber. Note that Chamber contributions include formal debates as well as Business Questions, Oral Questions, Urgent Questions, Ministerial Statements, or Points of Order—never call a non-debate item a "debate" unless it is a debate, and never say ${mp.short_name} did not speak in the Chamber when Chamber Contributions exist.
 - Quote Selection & Context Rule (CRITICAL):
-  1. If Chamber Speeches exist: pick the SINGLE most substantive, reader-interesting complete sentence from Speeches that captures ${mp.short_name}'s main policy argument, specific concern, or real-world impact. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries. First write a short, strictly factual paragraph introducing the specific debate or bill ${mp.short_name} was addressing, then place that ONE exact verbatim sentence in its OWN separate paragraph enclosed in double quotes ("...").
-  2. If NO Chamber Speeches exist and Written Questions exist: you may optionally include ONE exact verbatim sentence from a Written Question in its OWN separate paragraph enclosed in double quotes ("..."), followed immediately by a separate paragraph formatted exactly as [WQ_ATTR: Written question tabled to <Minister/Department>].
+  1. If Chamber Contributions exist: pick the SINGLE most substantive, reader-interesting complete sentence from Chamber Contributions that captures ${mp.short_name}'s main point, business/question exchange, or real-world impact. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries. First write a short, strictly factual paragraph stating that ${mp.short_name} spoke in the Commons Chamber and naming the specific proceeding (such as Business Questions, Oral Questions, a statement, or debate), then place that ONE exact verbatim sentence in its OWN separate paragraph enclosed in double quotes ("...").
+  2. If NO Chamber Contributions exist and Written Questions exist: you may optionally include ONE exact verbatim sentence from a Written Question in its OWN separate paragraph enclosed in double quotes ("..."), followed immediately by a separate paragraph formatted exactly as [WQ_ATTR: Written question tabled to <Minister/Department>].
   3. Never alter, paraphrase, or cut off words inside quotes.
 - Return 2-4 short paragraphs in "summary_para_1" (with the verbatim quote as its own standalone paragraph), 1 short 2-3 sentence "Why this matters" paragraph in "summary_para_2", and 0-2 entries in "glossary".
 
 Context:
 ${govRole ? `Role: ${govRole.postTitle}` : ''}
-${speechDigest ? `Speeches:\n${speechDigest}` : ''}
+${speechDigest ? `Chamber Contributions:\n${speechDigest}` : ''}
 ${committeeDigest ? `Committees:\n${committeeDigest}` : ''}
 ${wqDigest ? `Written Questions:\n${wqDigest}` : ''}
 ${voteDigest ? `Votes:\n${voteDigest}` : ''}`;
@@ -1548,13 +1600,16 @@ export async function generateBriefings() {
                         : '';
 
                     if (speeches.length > 0) {
-                        const topics = [...new Set(speeches.map(s => s.debateTitle))].slice(0, 2);
-                        activityTag = topics[0].slice(0, 42);
+                        const classifiedList = speeches.map(s => classifyChamberProceeding(s.debateTitle));
+                        const uniqueLabels = [...new Set(classifiedList.map(c => c.label))];
+                        activityTag = uniqueLabels[0].slice(0, 42);
+                        const firstClause = classifiedList[0].inClause;
+                        const extraClause = uniqueLabels.length > 1 ? ` and ${uniqueLabels.slice(1, 2).join(', ')}` : '';
                         const quotePara = verbatimExcerpt
                             ? `\n\n“${verbatimExcerpt}”`
                             : '';
-                        summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber during proceedings on ${topics.join(' and ')}.${quotePara}${votePara}`;
-                        summaryPara2 = `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
+                        summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber ${firstClause}${extraClause}.${quotePara}${votePara}`;
+                        summaryPara2 = `Contributions in the House of Commons Chamber—whether during debates, Business Questions, Oral Questions, statements, or points of order—place scrutiny and parliamentary business on the official record.`;
                     } else if (committees.length > 0) {
                         const commName = committees[0].committeeName;
                         activityTag = commName.slice(0, 42);

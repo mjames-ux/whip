@@ -1529,7 +1529,10 @@
                         .replace(/^On\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},\s*/i, '')
                         .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '');
 
-                    subParas[0] = `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
+                    const proceeding = classifyChamberProceeding(row.activity_tag || '');
+                    subParas[0] = /^did not speak in the main Commons Chamber/i.test(cleanedFirst)
+                        ? `On ${formatShortPillDate(date)}, ${mp.short_name} spoke ${proceeding.phrase}`
+                        : `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
                     return subParas.join('\n\n');
                 }).filter(Boolean);
 
@@ -1847,8 +1850,16 @@
                 els.newsletterCardHeading.textContent = `Get ${mp.short_name}’s week in your inbox`;
             }
 
+            const hansardMeta = Array.isArray(briefing.glossary)
+                ? briefing.glossary.find(g => g?._type === 'hansard_meta')
+                : null;
             const hansardSearchUrl = `https://hansard.parliament.uk/search/MemberContributions?memberId=${encodeURIComponent(mp.parliament_member_id)}&type=Spoken`;
-            els.hansardSourceLink.href = hansardSearchUrl;
+            els.hansardSourceLink.href = hansardMeta?.contributionUrl || hansardSearchUrl;
+            if (els.hansardLinkLabel) {
+                els.hansardLinkLabel.textContent = hansardMeta?.contributionUrl
+                    ? 'Watch & read exact speech in Hansard'
+                    : 'Read official Hansard transcript';
+            }
 
             renderDepartmentSection(
                 canShowDept ? briefing.deptName : null,
@@ -2745,7 +2756,7 @@
                         els.mpNewsletterEmail.value = '';
                     }
                     els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                    els.mpNewsletterStatus.textContent = newlyAdded > 0
+                    statusEl.textContent = newlyAdded > 0
                         ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
                         : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
                 } else {

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — Whip.</title>
+    <meta name="description" content="How Whip. handles your data, local storage, watchlist preferences, and Sunday email briefings.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Ctext x='9' y='45' font-family='Georgia,serif' font-weight='700' font-size='36' fill='%23FFFFFF'%3EW%3C/text%3E%3Ccircle cx='50' cy='42' r='4.5' fill='%23006548'/%3E%3C/svg%3E">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        editorial: ['Newsreader', 'Georgia', 'serif'],
+                        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                    },
+                    colors: {
+                        canvas: '#FFFFFF',
+                        surfaceSubtle: '#FAFAFA',
+                        ink: '#111827',
+                        inkSecondary: '#4B5563',
+                        inkTertiary: '#9CA3AF',
+                        hairline: '#E5E7EB',
+                        commonsGreen: '#006548',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #FFFFFF;
+            color: #111827;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-commonsGreen/10 selection:text-commonsGreen">
+
+    <header class="w-full border-b border-hairline/70 bg-canvas/95 backdrop-blur-sm sticky top-0 z-30">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4">
+            <a href="/" aria-label="Whip. Home" class="inline-flex items-center h-12 overflow-hidden shrink-0">
+                <img
+                    src="/assets/Whip-logo.svg"
+                    alt="Whip."
+                    class="h-10 sm:h-11 w-auto object-contain select-none"
+                    onerror="this.replaceWith(Object.assign(document.createElement('span'), { className: 'font-editorial text-2xl font-bold tracking-tight text-ink', innerHTML: 'Whip<span class=&quot;text-commonsGreen&quot;>.</span>' }))"
+                />
+            </a>
+            <a href="/" class="text-xs font-medium text-inkSecondary hover:text-ink transition-colors">
+                &larr; Back to briefings
+            </a>
+        </div>
+    </header>
+
+    <main class="flex-1 w-full max-w-3xl mx-auto px-5 sm:px-8 py-10 sm:py-14">
+        <article class="space-y-8">
+            <header class="pb-7 border-b border-hairline">
+                <p class="font-editorial text-xs sm:text-sm text-commonsGreen mb-2">Legal &amp; Data</p>
+                <h1 class="font-editorial text-3xl sm:text-5xl font-bold text-ink tracking-[-0.025em] leading-[1.1]">
+                    Privacy Policy
+                </h1>
+                <p class="mt-3 text-xs sm:text-sm text-inkTertiary">
+                    Last updated: November 2026
+                </p>
+            </header>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">1. What Whip. Does</h2>
+                <p>
+                    Whip. provides plain-English daily and weekly summaries of House of Commons activity compiled from official public parliamentary records (including Hansard, Commons Votes, Written Questions, and GOV.UK). You can browse MP briefings and profiles without creating an account.
+                </p>
+            </section>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">2. Information We Collect &amp; Store</h2>
+                <ul class="list-disc pl-5 space-y-2">
+                    <li><strong class="font-medium text-ink">Sunday Briefing Subscriptions:</strong> If you sign up for weekly email updates, we store your email address and the MP(s) or constituency you selected so we can send your briefing and process one-click unsubscribes. We never sell or rent subscriber emails.</li>
+                    <li><strong class="font-medium text-ink">Postcode Lookups:</strong> When you enter a UK postcode to find your MP, your postcode is sent to the public postcodes.io service to resolve the parliamentary constituency. We do not attach postcodes to personal profiles.</li>
+                    <li><strong class="font-medium text-ink">Watchlist &amp; Browser Storage:</strong> Saved MPs on your Watchlist are stored locally in your browser via <code class="text-xs bg-surfaceSubtle px-1.5 py-0.5 rounded border border-hairline">localStorage</code> rather than on a user account server.</li>
+                </ul>
+            </section>
+
+            <section id="cookies" class="p-5 sm:p-6 rounded-2xl border border-hairline bg-surfaceSubtle/70 space-y-4">
+                <div class="space-y-1">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-commonsGreen">Cookies &amp; Local Storage</p>
+                    <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">
+                        Manage Storage &amp; Non-Essential Preferences
+                    </h2>
+                    <p class="text-xs sm:text-sm text-inkSecondary leading-relaxed">
+                        Whip. does not use third-party advertising cookies. Essential browser storage is used only when needed for core site navigation; optional watchlist persistence in <code class="text-xs bg-canvas px-1.5 py-0.5 rounded border border-hairline">localStorage</code> can be opted out below at any time.
+                    </p>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3 pt-1">
+                    <button
+                        id="cookieOptOutBtn"
+                        type="button"
+                        class="px-4 py-2 rounded-full text-xs font-medium bg-ink text-canvas hover:bg-commonsGreen transition-colors cursor-pointer"
+                    >
+                        Opt out of non-essential storage &amp; clear watchlist
+                    </button>
+                    <button
+                        id="cookieOptInBtn"
+                        type="button"
+                        class="px-4 py-2 rounded-full text-xs font-medium border border-hairline bg-canvas text-inkSecondary hover:text-ink hover:border-ink/40 transition-colors cursor-pointer"
+                    >
+                        Allow watchlist storage
+                    </button>
+                </div>
+
+                <p id="cookieStatusMsg" role="status" class="text-xs font-medium text-inkSecondary"></p>
+            </section>
+
+            <section class="space-y-3 text-sm sm:text-base text-inkSecondary leading-relaxed">
+                <h2 class="font-editorial text-xl sm:text-2xl font-bold text-ink tracking-tight">3. Your Rights &amp; Contact</h2>
+                <p>
+                    Under UK data protection law (UK GDPR), you can request access to, correction of, or deletion of your subscription record, or unsubscribe immediately using the link included in every Sunday email.
+                </p>
+            </section>
+        </article>
+    </main>
+
+    <footer class="w-full border-t border-hairline/70 py-8 mt-12">
+        <div class="max-w-3xl mx-auto px-5 sm:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-inkTertiary">
+            <p>
+                <span class="font-editorial font-semibold text-ink">Whip.</span> - Public parliamentary record simplified.
+            </p>
+            <div class="flex flex-wrap items-center justify-center sm:justify-end gap-x-4 gap-y-1">
+                <a href="/privacy/" class="text-ink font-medium">Privacy Policy</a>
+                <span>&middot;</span>
+                <a href="/terms/" class="hover:text-ink transition-colors">Terms of Service</a>
+                <span>&middot;</span>
+                <span>Open Parliament Licence v3.0</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const STORAGE_OPT_OUT_KEY = 'whip_storage_opt_out';
+        const WATCHLIST_KEY = 'whip_watchlist';
+
+        const optOutBtn = document.getElementById('cookieOptOutBtn');
+        const optInBtn = document.getElementById('cookieOptInBtn');
+        const statusMsg = document.getElementById('cookieStatusMsg');
+
+        function refreshCookieStatus() {
+            const optedOut = localStorage.getItem(STORAGE_OPT_OUT_KEY) === 'true';
+            if (optedOut) {
+                statusMsg.className = 'text-xs font-medium text-commonsGreen';
+                statusMsg.textContent = 'Opted out: non-essential watchlist storage is disabled and any saved watchlist has been cleared.';
+            } else {
+                statusMsg.className = 'text-xs font-medium text-inkSecondary';
+                statusMsg.textContent = 'Current preference: Watchlist storage in your browser is enabled.';
+            }
+        }
+
+        optOutBtn?.addEventListener('click', () => {
+            try {
+                localStorage.removeItem(WATCHLIST_KEY);
+                localStorage.setItem(STORAGE_OPT_OUT_KEY, 'true');
+            } catch {}
+            refreshCookieStatus();
+        });
+
+        optInBtn?.addEventListener('click', () => {
+            try {
+                localStorage.removeItem(STORAGE_OPT_OUT_KEY);
+                if (!localStorage.getItem(WATCHLIST_KEY)) {
+                    localStorage.setItem(WATCHLIST_KEY, '[]');
+                }
+            } catch {}
+            refreshCookieStatus();
+        });
+
+        refreshCookieStatus();
+    </script>
+</body>
+</html>

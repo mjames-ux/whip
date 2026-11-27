@@ -1,12 +1,13 @@
 /**
  * Whip - Sunday Morning Weekly MP Briefing Newsletter Sender (`send_weekly_digest.js`)
  *
- * Queries active subscribers in `newsletter_subscribers`, compiles the completed
- * parliamentary week (Monday-Friday) for each subscribed MP from `daily_briefings`,
- * renders an editorial plain-English HTML + plain-text email with static vote
- * explainers and one-click unsubscribe links, and sends via Resend.
+ * Queries active subscribers in `newsletter_subscribers`, resolves each subscriber's
+ * current sitting MP via `constituency_id` (with `parliament_member_id` fallback),
+ * compiles the completed parliamentary week (Monday-Friday) for each subscribed MP
+ * from `daily_briefings`, renders an editorial plain-English HTML + plain-text email
+ * with static vote explainers and one-click unsubscribe links, and sends via Resend.
  *
- * Preview / test modes (do not update subscriber `last_sent_week`):
+ * Preview / test modes (do not update subscriber `last_sent_week` or `mp_changed_at`):
  * - `node send_weekly_digest.js --preview` (or `PREVIEW_FILE=preview_email.html`):
  *   Writes HTML preview to disk and prints a summary without sending emails.
  * - `PREVIEW_EMAIL=you@example.com`:
@@ -181,6 +182,54 @@ function formatCleanSubjectList(titles) {
     if (unique.length === 1) return unique[0];
     if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
     return `${unique[0]}, ${unique[1]}, and ${unique.length - 2} other ${unique.length - 2 === 1 ? 'measure' : 'measures'}`;
+}
+
+function resolveDueSubscribers(subscribers, currentMps, weekKey) {
+    const currentMpByConstituency = new Map();
+    const currentMpById = new Map();
+
+    for (const mp of currentMps || []) {
+        currentMpById.set(Number(mp.parliament_member_id), mp);
+        if (mp.constituency_id != null) {
+            currentMpByConstituency.set(Number(mp.constituency_id), mp);
+        }
+    }
+
+    const readyToSend = [];
+    const vacantSeats = [];
+
+    for (const sub of subscribers || []) {
+        if (sub.last_sent_week === weekKey) continue;
+
+        const seatId = sub.constituency_id != null ? Number(sub.constituency_id) : null;
+        const resolvedMp = seatId != null
+            ? currentMpByConstituency.get(seatId)
+            : currentMpById.get(Number(sub.parliament_member_id));
+
+        const seatName = resolvedMp?.constituencies?.name || sub.constituencies?.name || 'your constituency';
+
+        if (!resolvedMp) {
+            vacantSeats.push({ subscriber: sub, seatName });
+            continue;
+        }
+
+        const isNewMpHandover = Boolean(sub.mp_changed_at);
+        const handoverNotice = isNewMpHandover
+            ? `Representative update: ${resolvedMp.full_name} (${resolvedMp.party}) now represents ${seatName}. Your Sunday briefing has been updated automatically.`
+            : null;
+
+        readyToSend.push({
+            subscriberId: sub.id,
+            email: sub.email,
+            unsubscribeToken: sub.unsubscribe_token,
+            seatName,
+            mp: resolvedMp,
+            isNewMpHandover,
+            handoverNotice
+        });
+    }
+
+    return { readyToSend, vacantSeats };
 }
 
 function compileWeeklyBriefing(mp, weekDates, rows) {
@@ -561,13 +610,21 @@ function renderEmailCommitteesHtml(committees) {
     `;
 }
 
-function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
-    const seat = getConstituencyName(mp);
+function buildNewsletterEmail({ mp, seatName, mpSlug, briefing, unsubscribeToken, handoverNotice = '' }) {
+    const seat = seatName || getConstituencyName(mp);
     const mpPageUrl = `${siteBaseUrl}/mp/${mpSlug}/`;
     const unsubscribeUrl = `${siteBaseUrl}/?unsubscribe=${encodeURIComponent(unsubscribeToken || 'preview-token')}`;
     const dotColor = mp.party_color || '#006548';
 
     const subject = `${mp.short_name} in Parliament: ${briefing.rangeLabel}`;
+
+    const handoverHtml = handoverNotice
+        ? `
+            <div style="margin-bottom: 20px; padding: 12px 14px; background-color: #E6F0ED; border-left: 3px solid #006548; border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.5; color: #111827;">
+                ${escapeHtml(handoverNotice)}
+            </div>
+        `
+        : '';
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -618,6 +675,7 @@ function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
                     <!-- Main Narrative -->
                     <tr>
                         <td style="padding: 28px;">
+                            ${handoverHtml}
                             ${renderEmailNarrativeHtml(briefing.summaryPara1, briefing.writtenQuestions)}
 
                             <!-- Why This Matters Callout -->
@@ -654,7 +712,7 @@ function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
                     <tr>
                         <td style="padding: 20px 28px; background-color: #FAFAFA; border-top: 1px solid #E5E7EB; font-size: 12px; color: #9CA3AF; line-height: 1.6;">
                             <p style="margin: 0 0 6px 0;">
-                                You are receiving this Sunday briefing because you subscribed to updates on <strong style="color: #4B5563;">${escapeHtml(mp.full_name)}</strong>.
+                                You are receiving this Sunday briefing because you follow <strong style="color: #4B5563;">${escapeHtml(seat)}</strong> (<strong style="color: #4B5563;">${escapeHtml(mp.full_name)}</strong>).
                             </p>
                             <p style="margin: 0;">
                                 <a href="${escapeHtml(unsubscribeUrl)}" style="color: #006548; text-decoration: underline;">Unsubscribe with one click</a>
@@ -674,6 +732,7 @@ function buildNewsletterEmail({ mp, mpSlug, briefing, unsubscribeToken }) {
         `WHIP - Sunday Briefing (${briefing.rangeLabel})`,
         `${mp.full_name} (${mp.party} - ${seat})`,
         `${mp.role_title || `MP for ${seat}`} - ${briefing.activityTag}`,
+        ...(handoverNotice ? [``, handoverNotice] : []),
         ``,
         briefing.summaryPara1,
         ``,
@@ -743,14 +802,13 @@ export async function sendWeeklyNewsletters() {
 
     const { data: mps, error: mpErr } = await supabase
         .from('mps')
-        .select('parliament_member_id, full_name, short_name, party, party_color, role_title, constituencies(name)')
+        .select('parliament_member_id, full_name, short_name, party, party_color, role_title, constituency_id, constituencies(parliament_constituency_id, name, gss_code)')
         .eq('is_current_member', true);
 
     if (mpErr || !mps?.length) {
         throw new Error(`Failed loading MPs: ${mpErr?.message || '0 rows'}`);
     }
 
-    const mpById = new Map(mps.map(m => [Number(m.parliament_member_id), m]));
     const slugById = buildMpSlugMap(mps);
 
     if (previewFilePath || previewEmail) {
@@ -770,6 +828,7 @@ export async function sendWeeklyNewsletters() {
         const mpSlug = slugById.get(mpId) || '';
         const { subject, html, text } = buildNewsletterEmail({
             mp: previewMp,
+            seatName: getConstituencyName(previewMp),
             mpSlug,
             briefing,
             unsubscribeToken: 'preview-unsubscribe-token'
@@ -791,7 +850,7 @@ export async function sendWeeklyNewsletters() {
 
     const { data: subscribers, error: subErr } = await supabase
         .from('newsletter_subscribers')
-        .select('id, email, parliament_member_id, unsubscribe_token, last_sent_week')
+        .select('id, email, constituency_id, constituency_gss_code, parliament_member_id, unsubscribe_token, last_sent_week, mp_changed_at, constituencies(parliament_constituency_id, name, gss_code)')
         .eq('is_active', true);
 
     if (subErr) {
@@ -803,21 +862,26 @@ export async function sendWeeklyNewsletters() {
         return;
     }
 
-    const dueSubscribers = subscribers.filter(s => s.last_sent_week !== weekKey);
-    if (dueSubscribers.length === 0) {
-        console.log(`All ${subscribers.length} active subscribers have already been sent the ${weekKey} edition.`);
+    const { readyToSend, vacantSeats } = resolveDueSubscribers(subscribers, mps, weekKey);
+
+    if (vacantSeats.length > 0) {
+        console.log(`Skipping ${vacantSeats.length} subscriber(s) with currently vacant seats.`);
+    }
+
+    if (readyToSend.length === 0) {
+        console.log(`No due active subscribers with sitting MPs for the ${weekKey} edition.`);
         return;
     }
 
     const subscribedMpIds = [...new Set(
-        dueSubscribers
-            .map(s => Number(s.parliament_member_id))
-            .filter(id => mpById.has(id))
+        readyToSend.map(item => Number(item.mp.parliament_member_id))
     )];
 
     const briefingByMpId = new Map();
     for (const mpId of subscribedMpIds) {
-        const mp = mpById.get(mpId);
+        const mp = mps.find(m => Number(m.parliament_member_id) === mpId);
+        if (!mp) continue;
+
         const { data: rows, error: rowErr } = await supabase
             .from('daily_briefings')
             .select('*')
@@ -835,36 +899,45 @@ export async function sendWeeklyNewsletters() {
     let sentCount = 0;
     let failCount = 0;
 
-    for (const sub of dueSubscribers) {
-        const mpId = Number(sub.parliament_member_id);
-        const mp = mpById.get(mpId);
+    for (const item of readyToSend) {
+        const mpId = Number(item.mp.parliament_member_id);
         const briefing = briefingByMpId.get(mpId);
-        if (!mp || !briefing) continue;
+        if (!briefing) continue;
 
         const mpSlug = slugById.get(mpId) || '';
         const { subject, html, text } = buildNewsletterEmail({
-            mp,
+            mp: item.mp,
+            seatName: item.seatName,
             mpSlug,
             briefing,
-            unsubscribeToken: sub.unsubscribe_token
+            unsubscribeToken: item.unsubscribeToken,
+            handoverNotice: item.handoverNotice
         });
 
         if (dryRun) {
-            console.log(`[DRY RUN] Would send "${subject}" to ${sub.email}`);
+            console.log(`[DRY RUN] Would send "${subject}" to ${item.email} (${item.seatName})`);
             sentCount += 1;
             continue;
         }
 
         try {
-            await sendViaResend({ to: sub.email, subject, html, text });
+            await sendViaResend({ to: item.email, subject, html, text });
+            const updatePayload = {
+                last_sent_week: weekKey,
+                last_sent_at: new Date().toISOString(),
+                parliament_member_id: mpId
+            };
+            if (item.isNewMpHandover) {
+                updatePayload.mp_changed_at = null;
+            }
             await supabase
                 .from('newsletter_subscribers')
-                .update({ last_sent_week: weekKey, last_sent_at: new Date().toISOString() })
-                .eq('id', sub.id);
+                .update(updatePayload)
+                .eq('id', item.subscriberId);
             sentCount += 1;
         } catch (err) {
             failCount += 1;
-            console.warn(`Failed sending to ${sub.email}: ${err.message}`);
+            console.warn(`Failed sending to ${item.email}: ${err.message}`);
         }
     }
 

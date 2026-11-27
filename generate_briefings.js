@@ -5,8 +5,9 @@
  * (both tabled by MPs and answered by Ministers), Commons Division votes (with rich
  * proposer-attributed explainers for Bills, Motions, and Amendments), and GOV.UK
  * departmental announcements for a target sitting date, generates accessible multi-paragraph
- * plain-English briefings with verified verbatim quotes via Gemini, upserts them into
- * Supabase (`daily_briefings`), and prunes records older than 8 weeks (56 days).
+ * plain-English briefings with verified verbatim quotes and direct Hansard contribution/video
+ * deep-links via Gemini, upserts them into Supabase (`daily_briefings`), and prunes records
+ * older than 8 weeks (56 days).
  */
 
 import 'dotenv/config';
@@ -172,6 +173,18 @@ function classifyChamberProceeding(title = '') {
     };
 }
 
+function buildHansardContributionUrl(dateStr, debateExtId, debateTitle, contributionExtId) {
+    if (!dateStr || !debateExtId || !contributionExtId) return '';
+    const slug = String(debateTitle || 'debate')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'debate';
+
+    return `https://hansard.parliament.uk/Commons/${dateStr}/debates/${encodeURIComponent(debateExtId)}/${slug}#contribution-${encodeURIComponent(contributionExtId)}`;
+}
+
 function getTargetDate() {
     const override = cleanEnvValue(process.env.TARGET_DATE, 'TARGET_DATE');
     if (/^\d{4}-\d{2}-\d{2}$/.test(override)) {
@@ -306,17 +319,33 @@ function extractCompleteVerbatimSentences(text, maxChars = 360, allowProceduralF
     return selected;
 }
 
-function extractBestVerbatimQuote(speeches, maxChars = 360) {
+function extractBestVerbatimQuote(speeches, maxChars = 360, dateStr = '') {
     if (!Array.isArray(speeches) || speeches.length === 0) {
-        return { quote: '', hrsRef: '', debateTitle: '' };
+        return { quote: '', hrsRef: '', debateTitle: '', contributionUrl: '' };
     }
 
+    const firstSpeech = speeches[0];
+    const defaultUrl = buildHansardContributionUrl(
+        dateStr,
+        firstSpeech?.debateExtId,
+        firstSpeech?.debateTitle,
+        firstSpeech?.contributionExtId
+    );
+
     let bestQuote = '';
-    let bestHrsRef = speeches[0]?.hrsRef || '';
-    let bestDebateTitle = speeches[0]?.debateTitle || '';
+    let bestHrsRef = firstSpeech?.hrsRef || '';
+    let bestDebateTitle = firstSpeech?.debateTitle || '';
+    let bestContributionUrl = defaultUrl;
     let bestScore = -99;
 
     for (const sp of speeches) {
+        const spUrl = buildHansardContributionUrl(
+            dateStr,
+            sp?.debateExtId,
+            sp?.debateTitle,
+            sp?.contributionExtId
+        ) || defaultUrl;
+
         const sentences = splitCompleteSentences(sp.text);
         for (let i = 0; i < sentences.length; i++) {
             const s = sentences[i];
@@ -327,20 +356,34 @@ function extractBestVerbatimQuote(speeches, maxChars = 360) {
                 bestQuote = s;
                 bestHrsRef = sp.hrsRef || bestHrsRef;
                 bestDebateTitle = sp.debateTitle || bestDebateTitle;
+                bestContributionUrl = spUrl || bestContributionUrl;
             }
         }
     }
 
     if (bestQuote && bestScore > -50) {
-        return { quote: bestQuote, hrsRef: bestHrsRef, debateTitle: bestDebateTitle };
+        return {
+            quote: bestQuote,
+            hrsRef: bestHrsRef,
+            debateTitle: bestDebateTitle,
+            contributionUrl: bestContributionUrl
+        };
     }
 
     const ranked = [...speeches].sort((a, b) => b.text.length - a.text.length);
     const fallbackQuote = extractCompleteVerbatimSentences(ranked[0].text, maxChars, true);
+    const fallbackUrl = buildHansardContributionUrl(
+        dateStr,
+        ranked[0]?.debateExtId,
+        ranked[0]?.debateTitle,
+        ranked[0]?.contributionExtId
+    ) || defaultUrl;
+
     return {
         quote: fallbackQuote,
         hrsRef: ranked[0].hrsRef || '',
-        debateTitle: ranked[0].debateTitle || ''
+        debateTitle: ranked[0].debateTitle || '',
+        contributionUrl: fallbackUrl
     };
 }
 
@@ -497,21 +540,29 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallba
     return cleanNarrative;
 }
 
-function attachMinisterialMeta(glossary, govRole, deptDigestCache) {
+function attachBriefingMeta(glossary, govRole, deptDigestCache, contributionUrl = '') {
     const list = (Array.isArray(glossary) ? glossary : []).filter(
-        g => g?._type !== 'ministerial_meta'
+        g => g?._type !== 'ministerial_meta' && g?._type !== 'hansard_meta'
     );
-    if (!govRole) return list;
 
-    const meta = {
-        _type: 'ministerial_meta',
-        postTitle: govRole.postTitle,
-        deptSlug: govRole.deptSlug,
-        deptName: govRole.deptName,
-        isWhip: govRole.isWhip,
-        deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
-    };
-    list.unshift(meta);
+    if (contributionUrl) {
+        list.unshift({
+            _type: 'hansard_meta',
+            contributionUrl
+        });
+    }
+
+    if (govRole) {
+        list.unshift({
+            _type: 'ministerial_meta',
+            postTitle: govRole.postTitle,
+            deptSlug: govRole.deptSlug,
+            deptName: govRole.deptName,
+            isWhip: govRole.isWhip,
+            deptDigest: govRole.deptSlug ? (deptDigestCache.get(govRole.deptSlug) || null) : null
+        });
+    }
+
     return list;
 }
 
@@ -593,6 +644,8 @@ async function fetchHansardContributionsForDate(dateStr, mps = []) {
             const debateTitle = stripHtml(item?.DebateSection || item?.Title || 'Commons Chamber');
             const text = stripHtml(item?.Value || item?.ContributionText || '');
             const hrsRef = item?.HRSReference || item?.ExternalId || '';
+            const contributionExtId = item?.ContributionExtId || item?.ExternalId || '';
+            const debateExtId = item?.DebateSectionExtId || '';
 
             if (!text) continue;
 
@@ -601,7 +654,9 @@ async function fetchHansardContributionsForDate(dateStr, mps = []) {
                 memberName: rawMemberName,
                 debateTitle,
                 text,
-                hrsRef
+                hrsRef,
+                contributionExtId,
+                debateExtId
             });
 
             if (memberId) {
@@ -611,7 +666,9 @@ async function fetchHansardContributionsForDate(dateStr, mps = []) {
                 byMember.get(memberId).push({
                     debateTitle,
                     text,
-                    hrsRef
+                    hrsRef,
+                    contributionExtId,
+                    debateExtId
                 });
             }
         }
@@ -1420,7 +1477,7 @@ export async function generateBriefings() {
                             plain: 'The legal oath or affirmation of allegiance to the monarch required under the Parliamentary Oaths Act 1866 before an elected MP can sit or vote in the Commons.'
                         }
                     ]
-                    : attachMinisterialMeta([], govRole, deptDigestCache),
+                    : attachBriefingMeta([], govRole, deptDigestCache, ''),
                 votes: [],
                 written_questions: [],
                 committee_sessions: []
@@ -1478,7 +1535,7 @@ export async function generateBriefings() {
                 summary_para_1: summaryPara1,
                 summary_para_2: summaryPara2,
                 verbatim_excerpt: null,
-                glossary: attachMinisterialMeta(glossary, govRole, deptDigestCache),
+                glossary: attachBriefingMeta(glossary, govRole, deptDigestCache, ''),
                 votes: mpVotes,
                 written_questions: writtenQuestions,
                 committee_sessions: committees
@@ -1501,7 +1558,7 @@ export async function generateBriefings() {
                 summary_para_1: summaryPara1,
                 summary_para_2: summaryPara2,
                 verbatim_excerpt: null,
-                glossary: attachMinisterialMeta([], govRole, deptDigestCache),
+                glossary: attachBriefingMeta([], govRole, deptDigestCache, ''),
                 votes: mpVotes,
                 written_questions: writtenQuestions,
                 committee_sessions: committees
@@ -1512,7 +1569,7 @@ export async function generateBriefings() {
         const existingRow = existingByMpId.get(memberId);
         if (existingRow && !forceRegen) {
             reusedCount += 1;
-            const { hrsRef } = extractBestVerbatimQuote(speeches, 360);
+            const { hrsRef, contributionUrl } = extractBestVerbatimQuote(speeches, 360, targetDate);
             const hansardRef = hrsRef ? `HC Deb ${shortRefDate} • ${hrsRef}` : `HC Deb ${shortRefDate}`;
 
             rowsToUpsert.push({
@@ -1523,7 +1580,7 @@ export async function generateBriefings() {
                 summary_para_1: existingRow.summary_para_1,
                 summary_para_2: existingRow.summary_para_2 || '',
                 verbatim_excerpt: existingRow.verbatim_excerpt || null,
-                glossary: attachMinisterialMeta(existingRow.glossary, govRole, deptDigestCache),
+                glossary: attachBriefingMeta(existingRow.glossary, govRole, deptDigestCache, contributionUrl),
                 votes: mpVotes,
                 written_questions: writtenQuestions,
                 committee_sessions: committees
@@ -1550,7 +1607,7 @@ export async function generateBriefings() {
         const batchResults = await Promise.all(
             batch.map(async (task) => {
                 const { mp, memberId, govRole, speeches, committees, writtenQuestions, mpVotes, activeVotes } = task;
-                const { quote, hrsRef, debateTitle } = extractBestVerbatimQuote(speeches, 360);
+                const { quote, hrsRef, debateTitle, contributionUrl } = extractBestVerbatimQuote(speeches, 360, targetDate);
                 const verbatimExcerpt = quote || null;
                 const hansardRef = hrsRef ? `HC Deb ${shortRefDate} • ${hrsRef}` : `HC Deb ${shortRefDate}`;
 
@@ -1621,7 +1678,7 @@ export async function generateBriefings() {
                     summary_para_1: summaryPara1,
                     summary_para_2: summaryPara2,
                     verbatim_excerpt: verbatimExcerpt,
-                    glossary: attachMinisterialMeta(glossary, govRole, deptDigestCache),
+                    glossary: attachBriefingMeta(glossary, govRole, deptDigestCache, contributionUrl),
                     votes: mpVotes,
                     written_questions: writtenQuestions,
                     committee_sessions: committees

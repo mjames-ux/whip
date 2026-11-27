@@ -163,9 +163,9 @@
                 <div id="heroWatchlistList" class="flex flex-wrap items-center justify-center gap-2"></div>
             </div>
 
-           <!-- Official Data Sources Strip -->
+            <!-- Official Data Sources Strip -->
             <div class="w-full max-w-3xl mx-auto mt-10 pt-6 border-t border-hairline/70 text-center">
-                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-3">
+                <p class="font-editorial text-xs sm:text-sm text-inkSecondary tracking-normal mb-3">
                     Compiled directly from official public records
                 </p>
                 <div class="w-full flex justify-center overflow-hidden">
@@ -535,9 +535,13 @@
             <p>
                 <span class="font-editorial font-semibold text-ink">Whip.</span> - Public parliamentary record simplified.
             </p>
-            <p>
-                Contains Parliamentary information licensed under the Open Parliament Licence v3.0.
-            </p>
+            <div class="flex flex-wrap items-center justify-center sm:justify-end gap-x-4 gap-y-1">
+                <a href="/privacy/" class="hover:text-ink transition-colors">Privacy Policy</a>
+                <span>&middot;</span>
+                <a href="/terms/" class="hover:text-ink transition-colors">Terms of Service</a>
+                <span>&middot;</span>
+                <span>Open Parliament Licence v3.0</span>
+            </div>
         </div>
     </footer>
 
@@ -548,6 +552,25 @@
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const RETENTION_DAYS = 56; // 8 weeks
+        const STORAGE_OPT_OUT_KEY = 'whip_storage_opt_out';
+        const WATCHLIST_KEY = 'whip_watchlist';
+
+        function isStorageOptedOut() {
+            try {
+                return localStorage.getItem(STORAGE_OPT_OUT_KEY) === 'true';
+            } catch {
+                return true;
+            }
+        }
+
+        function loadInitialWatchlist() {
+            if (isStorageOptedOut()) return [];
+            try {
+                return JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
+            } catch {
+                return [];
+            }
+        }
 
         const state = {
             mps: [],
@@ -564,7 +587,7 @@
             isCurrentWeekSummary: false,
             selectedDate: null,
             currentTab: 'briefing',
-            watchlist: JSON.parse(localStorage.getItem('whip_watchlist') || '[]'),
+            watchlist: loadInitialWatchlist(),
             profileCache: new Map()
         };
 
@@ -2660,7 +2683,11 @@
                 } else {
                     state.watchlist = [...state.watchlist, id];
                 }
-                localStorage.setItem('whip_watchlist', JSON.stringify(state.watchlist));
+                if (!isStorageOptedOut()) {
+                    try {
+                        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(state.watchlist));
+                    } catch {}
+                }
                 updateWatchlistUi();
             });
 

@@ -81,6 +81,56 @@ function getConstituencyName(mp) {
     return 'UK Constituency';
 }
 
+function isGovernmentMinister(mp) {
+    const role = String(mp?.role_title || '').trim();
+    if (!role || !role.includes('• MP for ')) return false;
+    const prefix = role.split('• MP for ')[0].trim();
+    if (/\b(spokesperson|shadow|opposition|liberal democrat|scottish national party|snp|green party|reform uk|plaid cymru|democratic unionist|dup)\b/i.test(prefix)) {
+        return false;
+    }
+    return /\b(prime minister|chancellor of the exchequer|secretary of state|minister of state|parliamentary under-secretary|minister for|minister of|paymaster general|attorney general|solicitor general|advocate general|lord chancellor|lord president|lord privy seal|leader of the house of commons|chief secretary|financial secretary|economic secretary)\b/i.test(prefix);
+}
+
+function classifyChamberSection(title = '') {
+    const t = String(title || '').trim();
+    if (/^points? of order$/i.test(t)) {
+        return { kind: 'point_of_order', label: 'a point of order' };
+    }
+    if (/^(business of the house|business questions|weekly business|forthcoming business)$/i.test(t)) {
+        return { kind: 'business_questions', label: 'Business Questions' };
+    }
+    if (/urgent question/i.test(t)) {
+        return { kind: 'urgent_question', label: 'an Urgent Question' };
+    }
+    if (/ministerial statement|statement/i.test(t)) {
+        return { kind: 'statement', label: 'a ministerial statement' };
+    }
+    if (/oral answers|questions to |prime minister/i.test(t)) {
+        return { kind: 'oral_questions', label: 'Oral Questions' };
+    }
+    return { kind: 'debate', label: t || 'Commons business' };
+}
+
+function rowHasChamberContribution(row) {
+    if (!row) return false;
+    const tag = String(row.activity_tag || '').trim();
+    if (
+        tag === 'Non-Sitting Day' ||
+        tag === 'Constituency & Parliamentary Work' ||
+        tag === 'Ministerial & Departmental Work' ||
+        tag === 'Abstentionist MP' ||
+        tag === 'Chairing the House' ||
+        tag === 'No Vote Recorded' ||
+        /^\d+\s+Division Votes?$/i.test(tag) ||
+        /^\d+\s+Written Questions?$/i.test(tag) ||
+        /^Answered\s+\d+\s+Written Questions?$/i.test(tag) ||
+        /^Written Questions/i.test(tag)
+    ) {
+        return false;
+    }
+    return Boolean(String(row.summary_para_1 || '').trim());
+}
+
 function buildMpSlugMap(mps) {
     const usedSlugs = new Set();
     const slugById = new Map();
@@ -247,18 +297,22 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
 
     const isSinnFein = /^sinn\s*f[eé]in$/i.test(String(mp?.party || '').trim());
     const isSpeakerOrDeputy = /\b(speaker|chairman of ways and means|deputy chairman of ways and means)\b/i.test(String(mp?.role_title || ''));
-    const isMinister = Boolean(mp.role_title && mp.role_title.includes('• MP for '));
+    const isMinister = isGovernmentMinister(mp);
 
     let deptInfo = null;
     const deptUpdates = [];
-    for (const r of rows || []) {
-        if (!Array.isArray(r.glossary)) continue;
-        const meta = r.glossary.find(g => g?._type === 'ministerial_meta');
-        if (meta) {
-            if (!deptInfo) deptInfo = meta;
-            if (meta.deptDigest) deptUpdates.push(meta.deptDigest);
+    if (isMinister) {
+        for (const r of rows || []) {
+            if (!Array.isArray(r.glossary)) continue;
+            const meta = r.glossary.find(g => g?._type === 'ministerial_meta');
+            if (meta) {
+                if (!deptInfo) deptInfo = meta;
+                if (meta.deptDigest) deptUpdates.push(meta.deptDigest);
+            }
         }
     }
+
+    const chamberSpokeEntries = activeDayEntries.filter(e => rowHasChamberContribution(e.row));
 
     const substantiveEntries = activeDayEntries.filter(e =>
         e.row.activity_tag !== 'Constituency & Parliamentary Work' &&
@@ -266,13 +320,6 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
         e.row.activity_tag !== 'Abstentionist MP' &&
         e.row.activity_tag !== 'Chairing the House' &&
         e.row.activity_tag !== 'No Vote Recorded'
-    );
-
-    const spokenOrCommitteeEntries = substantiveEntries.filter(e =>
-        !/^\d+\s+Division Votes?$/i.test(e.row.activity_tag || '') &&
-        !/^\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
-        !/^Answered\s+\d+\s+Written Questions?$/i.test(e.row.activity_tag || '') &&
-        !/^Written Questions/i.test(e.row.activity_tag || '')
     );
 
     const combinedVotes = [];
@@ -294,7 +341,7 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
 
     const activeVoteRows = combinedVotes.filter(v => v.mpVote === 'Aye' || v.mpVote === 'No');
 
-    const spokenContexts = spokenOrCommitteeEntries
+    const spokenContexts = chamberSpokeEntries
         .map(e => (e.row.summary_para_2 || '').trim())
         .filter(txt => txt && !/^Full verbatim contributions are recorded in Hansard/i.test(txt));
 
@@ -339,9 +386,9 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
             para1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote during the week of ${rangeLabel}.\n\nHaving a quiet week on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.${missedLine}`;
             para2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
         }
-    } else if (spokenOrCommitteeEntries.length === 0) {
+    } else if (chamberSpokeEntries.length === 0) {
         const paragraphs = [];
-        paragraphs.push(`${mp.short_name} did not speak in the main Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
+        paragraphs.push(`${mp.short_name} did not speak in the Commons Chamber during the week of ${rangeLabel}, focusing on other parliamentary duties.`);
 
         if (combinedCommittees.length > 0) {
             const labels = [...new Set(combinedCommittees.map(c => `${c.committeeName} (${c.sittingDateLabel})`))];
@@ -376,7 +423,7 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
             ? `${activeVoteRows.length} ${activeVoteRows.length === 1 ? 'Vote' : 'Votes'}`
             : `${combinedWqs.length} Written ${combinedWqs.length === 1 ? 'Question' : 'Questions'}`;
     } else {
-        const dayParagraphs = spokenOrCommitteeEntries.map(({ date, row }) => {
+        const dayParagraphs = chamberSpokeEntries.map(({ date, row }) => {
             const body = (row.summary_para_1 || '').trim();
             const subParas = body
                 .split(/\n{2,}/)
@@ -388,9 +435,11 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
                 );
             if (subParas.length === 0) return '';
 
+            const sec = classifyChamberSection(row.activity_tag);
             const cleanedFirst = subParas[0]
                 .replace(/^On\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},\s*/i, '')
-                .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '');
+                .replace(/\s+on\s+[A-Za-z]+,\s+\d{1,2}\s+[A-Za-z]+\s+\d{4}(?=\s+(?:during|in|at)\b)/i, '')
+                .replace(/\bdid not speak in the (?:main )?Commons Chamber\b/i, `spoke in the Commons Chamber during ${sec.label}`);
 
             subParas[0] = `On ${formatShortPillDate(date)}, ${cleanedFirst}`;
             return subParas.join('\n\n');
@@ -401,20 +450,20 @@ function compileWeeklyBriefing(mp, weekDates, rows) {
         }
 
         para1 = dayParagraphs.join('\n\n');
-        para2 = uniqueContexts[0] || `Debates in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
-        activityTag = `${spokenOrCommitteeEntries.length} Active ${spokenOrCommitteeEntries.length === 1 ? 'Day' : 'Days'}`;
+        para2 = uniqueContexts[0] || `Contributions in the House of Commons Chamber—including debates, Business Questions, Oral Questions, statements, and points of order—place scrutiny and parliamentary business on the official record.`;
+        activityTag = `${chamberSpokeEntries.length} Active ${chamberSpokeEntries.length === 1 ? 'Day' : 'Days'}`;
     }
 
-    const deptDigest = deptUpdates[0] || null;
+    const deptDigest = isMinister ? (deptUpdates[0] || null) : null;
     return {
         rangeLabel,
         activityTag,
         contextHeading,
         summaryPara1: para1,
         summaryPara2: para2,
-        deptName: deptInfo?.deptName || deptDigest?.deptName || null,
-        deptSummary: deptDigest?.summary || '',
-        deptItems: Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
+        deptName: isMinister ? (deptInfo?.deptName || deptDigest?.deptName || null) : null,
+        deptSummary: isMinister ? (deptDigest?.summary || '') : '',
+        deptItems: isMinister && Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
         committees: combinedCommittees,
         writtenQuestions: combinedWqs,
         votes: combinedVotes
@@ -564,389 +613,3 @@ function renderEmailWrittenQuestionsHtml(questions) {
                 <td style="padding: 14px 0; border-bottom: 1px solid #E5E7EB;">
                     <p style="margin: 0 0 4px 0; font-size: 11px; font-weight: 600; color: #006548;">${badge}</p>
                     <p style="margin: 0 0 6px 0; font-size: 14px; font-weight: 600; color: #111827;">${escapeHtml(q.heading)}</p>
-                    <p style="margin: 0 0 6px 0; font-size: 13px; line-height: 1.55; color: #4B5563;">${escapeHtml(q.answerText || q.questionText || '')}</p>
-                    ${q.url ? `<a href="${escapeHtml(q.url)}" style="font-size: 12px; font-weight: 500; color: #006548; text-decoration: none;">View on Parliament.uk &rarr;</a>` : ''}
-                </td>
-            </tr>
-        `;
-    }).join('');
-
-    return `
-        <div style="margin-top: 32px;">
-            <h2 style="margin: 0 0 12px 0; font-family: Georgia, 'Times New Roman', serif; font-size: 20px; font-weight: 700; color: #111827;">
-                Written Parliamentary Questions (${questions.length})
-            </h2>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top: 1px solid #E5E7EB;">
-                ${rowsHtml}
-            </table>
-        </div>
-    `;
-}
-
-function renderEmailCommitteesHtml(committees) {
-    if (!committees || committees.length === 0) return '';
-
-    const rowsHtml = committees.map(c => `
-        <tr>
-            <td style="padding: 14px 0; border-bottom: 1px solid #E5E7EB;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; font-weight: 600; color: #006548;">
-                    ${escapeHtml(c.committeeName)}${c.sittingDateLabel ? ` &middot; ${escapeHtml(c.sittingDateLabel)}` : ''}
-                </p>
-                <p style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #111827;">${escapeHtml(c.title || c.committeeName)}</p>
-                <p style="margin: 0; font-size: 12px; color: #4B5563;">${escapeHtml(c.role || 'Committee Member')}</p>
-            </td>
-        </tr>
-    `).join('');
-
-    return `
-        <div style="margin-top: 32px;">
-            <h2 style="margin: 0 0 12px 0; font-family: Georgia, 'Times New Roman', serif; font-size: 20px; font-weight: 700; color: #111827;">
-                Select Committee Work (${committees.length})
-            </h2>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top: 1px solid #E5E7EB;">
-                ${rowsHtml}
-            </table>
-        </div>
-    `;
-}
-
-function buildNewsletterEmail({ mp, seatName, mpSlug, briefing, unsubscribeToken, handoverNotice = '' }) {
-    const seat = seatName || getConstituencyName(mp);
-    const mpPageUrl = `${siteBaseUrl}/mp/${mpSlug}/`;
-    const unsubscribeUrl = `${siteBaseUrl}/?unsubscribe=${encodeURIComponent(unsubscribeToken || 'preview-token')}`;
-    const dotColor = mp.party_color || '#006548';
-
-    const subject = `${mp.short_name} in Parliament: ${briefing.rangeLabel}`;
-
-    const handoverHtml = handoverNotice
-        ? `
-            <div style="margin-bottom: 20px; padding: 12px 14px; background-color: #E6F0ED; border-left: 3px solid #006548; border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.5; color: #111827;">
-                ${escapeHtml(handoverNotice)}
-            </div>
-        `
-        : '';
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapeHtml(subject)}</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #FAFAFA; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #111827;">
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #FAFAFA; padding: 24px 12px;">
-        <tr>
-            <td align="center">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 620px; background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 16px; overflow: hidden;">
-                    <!-- Top Masthead -->
-                    <tr>
-                        <td style="padding: 22px 28px; border-bottom: 1px solid #E5E7EB;">
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                                <tr>
-                                    <td style="font-family: Georgia, 'Times New Roman', serif; font-size: 24px; font-weight: 700; color: #111827;">
-                                        Whip<span style="color: #006548;">.</span>
-                                    </td>
-                                    <td align="right" style="font-size: 12px; color: #9CA3AF;">
-                                        Sunday Briefing &middot; ${escapeHtml(briefing.rangeLabel)}
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-
-                    <!-- MP Identity Header -->
-                    <tr>
-                        <td style="padding: 28px 28px 22px 28px; border-bottom: 1px solid #E5E7EB;">
-                            <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 500; color: #4B5563;">
-                                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 999px; background-color: ${escapeHtml(dotColor)}; margin-right: 6px; vertical-align: middle;"></span>
-                                <strong style="color: #111827;">${escapeHtml(mp.party || 'Independent')}</strong>
-                                <span style="color: #9CA3AF;"> / </span>
-                                ${escapeHtml(seat)}
-                            </p>
-                            <h1 style="margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 32px; font-weight: 700; color: #111827; line-height: 1.15;">
-                                ${escapeHtml(mp.full_name)}
-                            </h1>
-                            <p style="margin: 8px 0 0 0; font-size: 13px; color: #4B5563;">
-                                ${escapeHtml(mp.role_title || `MP for ${seat}`)} &middot; <span style="color: #9CA3AF;">${escapeHtml(briefing.activityTag)}</span>
-                            </p>
-                        </td>
-                    </tr>
-
-                    <!-- Main Narrative -->
-                    <tr>
-                        <td style="padding: 28px;">
-                            ${handoverHtml}
-                            ${renderEmailNarrativeHtml(briefing.summaryPara1, briefing.writtenQuestions)}
-
-                            <!-- Why This Matters Callout -->
-                            <div style="margin-top: 20px; padding: 14px 16px; border-left: 3px solid #006548; background-color: #FAFAFA; border-radius: 0 10px 10px 0;">
-                                <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #006548;">
-                                    ${escapeHtml(briefing.contextHeading)}
-                                </p>
-                                <p style="margin: 0; font-size: 14px; line-height: 1.65; color: #4B5563;">
-                                    ${escapeHtml(briefing.summaryPara2)}
-                                </p>
-                            </div>
-
-                            ${renderEmailCommitteesHtml(briefing.committees)}
-                            ${renderEmailWrittenQuestionsHtml(briefing.writtenQuestions)}
-
-                            <!-- Voting Record with Static Explainers -->
-                            <div style="margin-top: 32px;">
-                                <h2 style="margin: 0 0 12px 0; font-family: Georgia, 'Times New Roman', serif; font-size: 20px; font-weight: 700; color: #111827;">
-                                    Voting Record (${briefing.votes.length})
-                                </h2>
-                                ${renderEmailVotesSection(briefing.votes)}
-                            </div>
-
-                            <!-- CTA Button -->
-                            <div style="margin-top: 32px; text-align: center;">
-                                <a href="${escapeHtml(mpPageUrl)}" style="display: inline-block; padding: 12px 22px; background-color: #111827; color: #FFFFFF; font-size: 13px; font-weight: 600; text-decoration: none; border-radius: 10px;">
-                                    View full record &amp; profile on Whip &rarr;
-                                </a>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <!-- Footer & One-Click Unsubscribe -->
-                    <tr>
-                        <td style="padding: 20px 28px; background-color: #FAFAFA; border-top: 1px solid #E5E7EB; font-size: 12px; color: #9CA3AF; line-height: 1.6;">
-                            <p style="margin: 0 0 6px 0;">
-                                You are receiving this Sunday briefing because you follow <strong style="color: #4B5563;">${escapeHtml(seat)}</strong> (<strong style="color: #4B5563;">${escapeHtml(mp.full_name)}</strong>).
-                            </p>
-                            <p style="margin: 0;">
-                                <a href="${escapeHtml(unsubscribeUrl)}" style="color: #006548; text-decoration: underline;">Unsubscribe with one click</a>
-                                &nbsp;&middot;&nbsp;
-                                Contains Parliamentary information licensed under the Open Parliament Licence v3.0.
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>`;
-
-    const text = [
-        `WHIP - Sunday Briefing (${briefing.rangeLabel})`,
-        `${mp.full_name} (${mp.party} - ${seat})`,
-        `${mp.role_title || `MP for ${seat}`} - ${briefing.activityTag}`,
-        ...(handoverNotice ? [``, handoverNotice] : []),
-        ``,
-        briefing.summaryPara1,
-        ``,
-        `${briefing.contextHeading.toUpperCase()}:`,
-        briefing.summaryPara2,
-        ``,
-        briefing.votes.length > 0
-            ? `VOTING RECORD:\n` + briefing.votes.map(v => {
-                const exp = v.explainer || {};
-                const meaning = exp.stageAndMeaning || (v.mpVote === 'Aye' ? exp.whatAyeMeans : v.mpVote === 'No' ? exp.whatNoMeans : '');
-                return `- ${v.title} [${v.mpVote === 'Abstained' ? 'No vote recorded' : `Voted ${v.mpVote}`}]\n  ${exp.proposerView || exp.whatItDoes || ''}${meaning ? `\n  Stage & meaning: ${meaning}` : ''}`;
-            }).join('\n')
-            : `VOTING RECORD:\nNo House of Commons division votes were held last week.`,
-        ``,
-        `Full record: ${mpPageUrl}`,
-        `Unsubscribe: ${unsubscribeUrl}`
-    ].join('\n');
-
-    return { subject, html, text };
-}
-
-async function sendViaResend({ to, subject, html, text }) {
-    const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            from: fromEmail,
-            to: [to],
-            subject,
-            html,
-            text
-        }),
-        signal: AbortSignal.timeout(15000)
-    });
-
-    if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`Resend HTTP ${res.status}: ${errBody.slice(0, 220)}`);
-    }
-
-    return res.json();
-}
-
-function pickPreviewMp(mps, slugById) {
-    if (!previewMpQuery) return mps[0];
-    const q = previewMpQuery.toLowerCase();
-    return (
-        mps.find(m => String(m.parliament_member_id) === q) ||
-        mps.find(m => slugById.get(Number(m.parliament_member_id)) === q) ||
-        mps.find(m => String(m.full_name || '').toLowerCase().includes(q)) ||
-        mps.find(m => String(m.short_name || '').toLowerCase().includes(q)) ||
-        mps[0]
-    );
-}
-
-export async function sendWeeklyNewsletters() {
-    const weekDates = getTargetWeekDates();
-    const weekKey = weekDates[0];
-
-    console.log(
-        `[${new Date().toISOString()}] Running Whip Sunday Newsletter for week ${weekDates[0]}..${weekDates[weekDates.length - 1]} ` +
-        `(DRY_RUN: ${dryRun}, PREVIEW_FILE: ${previewFilePath || 'none'}, PREVIEW_EMAIL: ${previewEmail ? 'set' : 'none'})`
-    );
-
-    const { data: mps, error: mpErr } = await supabase
-        .from('mps')
-        .select('parliament_member_id, full_name, short_name, party, party_color, role_title, constituency_id, constituencies(parliament_constituency_id, name, gss_code)')
-        .eq('is_current_member', true);
-
-    if (mpErr || !mps?.length) {
-        throw new Error(`Failed loading MPs: ${mpErr?.message || '0 rows'}`);
-    }
-
-    const slugById = buildMpSlugMap(mps);
-
-    if (previewFilePath || previewEmail) {
-        const previewMp = pickPreviewMp(mps, slugById);
-        const mpId = Number(previewMp.parliament_member_id);
-        const { data: rows, error: rowErr } = await supabase
-            .from('daily_briefings')
-            .select('*')
-            .eq('parliament_member_id', mpId)
-            .in('sitting_date', weekDates);
-
-        if (rowErr) {
-            throw new Error(`Failed fetching briefings for preview MP ${mpId}: ${rowErr.message}`);
-        }
-
-        const briefing = compileWeeklyBriefing(previewMp, weekDates, rows || []);
-        const mpSlug = slugById.get(mpId) || '';
-        const { subject, html, text } = buildNewsletterEmail({
-            mp: previewMp,
-            seatName: getConstituencyName(previewMp),
-            mpSlug,
-            briefing,
-            unsubscribeToken: 'preview-unsubscribe-token'
-        });
-
-        if (previewFilePath) {
-            const resolvedPath = path.resolve(process.cwd(), previewFilePath);
-            await fs.writeFile(resolvedPath, html, 'utf8');
-            console.log(`Wrote HTML email preview for ${previewMp.full_name} to: ${resolvedPath}`);
-            console.log(`Subject: "${subject}"`);
-        }
-
-        if (previewEmail) {
-            await sendViaResend({ to: previewEmail, subject, html, text });
-            console.log(`Sent preview email for ${previewMp.full_name} to ${previewEmail}.`);
-        }
-        return;
-    }
-
-    const { data: subscribers, error: subErr } = await supabase
-        .from('newsletter_subscribers')
-        .select('id, email, constituency_id, constituency_gss_code, parliament_member_id, unsubscribe_token, last_sent_week, mp_changed_at, constituencies(parliament_constituency_id, name, gss_code)')
-        .eq('is_active', true);
-
-    if (subErr) {
-        throw new Error(`Failed loading newsletter_subscribers: ${subErr.message}`);
-    }
-
-    if (!subscribers || subscribers.length === 0) {
-        console.log('No active newsletter subscribers found. Exiting.');
-        return;
-    }
-
-    const { readyToSend, vacantSeats } = resolveDueSubscribers(subscribers, mps, weekKey);
-
-    if (vacantSeats.length > 0) {
-        console.log(`Skipping ${vacantSeats.length} subscriber(s) with currently vacant seats.`);
-    }
-
-    if (readyToSend.length === 0) {
-        console.log(`No due active subscribers with sitting MPs for the ${weekKey} edition.`);
-        return;
-    }
-
-    const subscribedMpIds = [...new Set(
-        readyToSend.map(item => Number(item.mp.parliament_member_id))
-    )];
-
-    const briefingByMpId = new Map();
-    for (const mpId of subscribedMpIds) {
-        const mp = mps.find(m => Number(m.parliament_member_id) === mpId);
-        if (!mp) continue;
-
-        const { data: rows, error: rowErr } = await supabase
-            .from('daily_briefings')
-            .select('*')
-            .eq('parliament_member_id', mpId)
-            .in('sitting_date', weekDates);
-
-        if (rowErr) {
-            console.warn(`Warning fetching briefings for MP ${mpId}: ${rowErr.message}`);
-            continue;
-        }
-
-        briefingByMpId.set(mpId, compileWeeklyBriefing(mp, weekDates, rows || []));
-    }
-
-    let sentCount = 0;
-    let failCount = 0;
-
-    for (const item of readyToSend) {
-        const mpId = Number(item.mp.parliament_member_id);
-        const briefing = briefingByMpId.get(mpId);
-        if (!briefing) continue;
-
-        const mpSlug = slugById.get(mpId) || '';
-        const { subject, html, text } = buildNewsletterEmail({
-            mp: item.mp,
-            seatName: item.seatName,
-            mpSlug,
-            briefing,
-            unsubscribeToken: item.unsubscribeToken,
-            handoverNotice: item.handoverNotice
-        });
-
-        if (dryRun) {
-            console.log(`[DRY RUN] Would send "${subject}" to ${item.email} (${item.seatName})`);
-            sentCount += 1;
-            continue;
-        }
-
-        try {
-            await sendViaResend({ to: item.email, subject, html, text });
-            const updatePayload = {
-                last_sent_week: weekKey,
-                last_sent_at: new Date().toISOString(),
-                parliament_member_id: mpId
-            };
-            if (item.isNewMpHandover) {
-                updatePayload.mp_changed_at = null;
-            }
-            await supabase
-                .from('newsletter_subscribers')
-                .update(updatePayload)
-                .eq('id', item.subscriberId);
-            sentCount += 1;
-        } catch (err) {
-            failCount += 1;
-            console.warn(`Failed sending to ${item.email}: ${err.message}`);
-        }
-    }
-
-    console.log(
-        `[${new Date().toISOString()}] Finished Sunday newsletter run: ${sentCount} sent, ${failCount} failed.`
-    );
-}
-
-sendWeeklyNewsletters().catch((err) => {
-    console.error('Fatal error in sendWeeklyNewsletters:', err);
-    process.exitCode = 1;
-});

@@ -176,44 +176,15 @@
 
             <!-- Official Data Sources Strip -->
             <div class="w-full max-w-xl mt-10 pt-6 border-t border-hairline/70">
-                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-4">
+                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-2">
                     Compiled directly from official public records
                 </p>
-                <div class="flex flex-wrap items-center justify-center gap-x-7 gap-y-3 text-inkTertiary select-none">
-                    <!-- UK Parliament (Crowned Portcullis) -->
-                    <span class="inline-flex items-center gap-2 hover:text-inkSecondary transition-colors">
-                        <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                            <path d="M8 6l2-2 2 2 2-2 2 2H8z"></path>
-                            <rect x="6" y="8" width="12" height="11" rx="1"></rect>
-                            <line x1="10" y1="8" x2="10" y2="19"></line>
-                            <line x1="14" y1="8" x2="14" y2="19"></line>
-                            <line x1="6" y1="12" x2="18" y2="12"></line>
-                            <line x1="6" y1="15.5" x2="18" y2="15.5"></line>
-                        </svg>
-                        <span class="font-editorial font-semibold text-sm tracking-tight">UK Parliament</span>
-                    </span>
-
-                    <!-- Hansard -->
-                    <span class="inline-flex items-center gap-1.5 hover:text-inkSecondary transition-colors">
-                        <span class="font-editorial font-bold text-sm tracking-[0.12em] uppercase">Hansard</span>
-                    </span>
-
-                    <!-- Commons Votes -->
-                    <span class="inline-flex items-center gap-1.5 hover:text-inkSecondary transition-colors">
-                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path d="M9 11l3 3L22 4"></path>
-                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-                        </svg>
-                        <span class="font-sans font-semibold text-xs tracking-wide uppercase">Commons Votes</span>
-                    </span>
-
-                    <!-- GOV.UK -->
-                    <span class="inline-flex items-center gap-1 hover:text-inkSecondary transition-colors">
-                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                            <path d="M5 16L3 7l5.5 4L12 5l3.5 6L21 7l-2 9H5zm0 2h14v2H5v-2z"></path>
-                        </svg>
-                        <span class="font-sans font-bold text-xs tracking-wider uppercase">GOV.UK</span>
-                    </span>
+                <div class="flex justify-center">
+                    <img
+                        src="/assets/sources.svg"
+                        alt="UK Parliament, Hansard, and GOV.UK"
+                        class="w-full max-w-lg h-16 sm:h-20 object-contain opacity-80 hover:opacity-100 transition-opacity select-none"
+                    />
                 </div>
             </div>
         </section>
@@ -381,7 +352,7 @@
                                             id="mpNewsletterEmail"
                                             type="email"
                                             required
-                                            placeholder="you@example.com"
+                                            placeholder="Enter your email address..."
                                             autocomplete="email"
                                             class="px-3.5 py-2.5 text-sm bg-canvas border border-hairline rounded-xl text-ink placeholder:text-inkTertiary focus:outline-none focus:border-commonsGreen min-w-[220px]"
                                         />
@@ -412,9 +383,6 @@
                                 <span id="hansardLinkLabel">Read official Hansard transcript</span>
                                 <span aria-hidden="true">&rarr;</span>
                             </a>
-                            <span id="hansardRefTag" class="text-xs text-inkTertiary font-mono">
-                                Week of 23 Nov – 26 Nov 2026
-                            </span>
                         </div>
                     </div>
                 </section>
@@ -668,7 +636,6 @@
             mpNewsletterStatus: document.getElementById('mpNewsletterStatus'),
             hansardSourceLink: document.getElementById('hansardSourceLink'),
             hansardLinkLabel: document.getElementById('hansardLinkLabel'),
-            hansardRefTag: document.getElementById('hansardRefTag'),
             departmentActivitySection: document.getElementById('departmentActivitySection'),
             departmentNameBadge: document.getElementById('departmentNameBadge'),
             departmentSummaryText: document.getElementById('departmentSummaryText'),
@@ -1567,7 +1534,6 @@
                 contextHeading,
                 summary_para_1: para1,
                 summary_para_2: para2,
-                hansard_ref: `Week of ${rangeLabel}`,
                 deptName: isMinister ? (deptInfo?.deptName || deptDigest?.deptName || null) : null,
                 deptSummary: isMinister ? (deptDigest?.summary || '') : '',
                 deptItems: isMinister && Array.isArray(deptDigest?.items) ? deptDigest.items.slice(0, 4) : [],
@@ -1858,7 +1824,6 @@
             renderNarrativeParagraphs(els.summaryNarrativeBody, briefing.summary_para_1, briefing);
             els.contextHeading.textContent = briefing.contextHeading || 'Why this matters';
             els.summaryPara2.textContent = briefing.summary_para_2 || '';
-            els.hansardRefTag.textContent = briefing.hansard_ref || '';
 
             if (els.newsletterCardHeading && mp?.short_name) {
                 els.newsletterCardHeading.textContent = `Get ${mp.short_name}’s week in your inbox`;
@@ -1870,9 +1835,7 @@
             const hansardSearchUrl = `https://hansard.parliament.uk/search/MemberContributions?memberId=${encodeURIComponent(mp.parliament_member_id)}&type=Spoken`;
             els.hansardSourceLink.href = hansardMeta?.contributionUrl || hansardSearchUrl;
             if (els.hansardLinkLabel) {
-                els.hansardLinkLabel.textContent = hansardMeta?.contributionUrl
-                    ? 'Watch & read exact speech in Hansard'
-                    : 'Read official Hansard transcript';
+                els.hansardLinkLabel.textContent = 'Read official Hansard transcript';
             }
 
             renderDepartmentSection(
@@ -2070,7 +2033,7 @@
                                     id="profileNewsletterEmail"
                                     type="email"
                                     required
-                                    placeholder="you@example.com"
+                                    placeholder="Enter your email address..."
                                     autocomplete="email"
                                     class="px-3.5 py-2.5 text-sm bg-canvas border border-hairline rounded-xl text-ink placeholder:text-inkTertiary focus:outline-none focus:border-commonsGreen min-w-[220px]"
                                 />

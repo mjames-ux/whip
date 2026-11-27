@@ -1,7 +1,7 @@
 /**
  * Whip - Step 2: Daily Parliamentary Briefing Generator (`generate_briefings.js`)
  *
- * Fetches Hansard debates, Select Committee sessions, Written Parliamentary Questions
+ * Fetches Hansard spoken contributions, Select Committee sessions, Written Parliamentary Questions
  * (both tabled by MPs and answered by Ministers), Commons Division votes (with rich
  * proposer-attributed explainers for Bills, Motions, and Amendments), and GOV.UK
  * departmental announcements for a target sitting date, generates accessible multi-paragraph
@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 
-const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search.json';
+const HANSARD_SEARCH_API = 'https://hansard-api.parliament.uk/search/contributions/Spoken.json';
 const COMMONS_VOTES_API = 'https://commonsvotes-api.parliament.uk/data/divisions.json/search';
 const COMMONS_DIVISION_DETAIL_API = 'https://commonsvotes-api.parliament.uk/data/division';
 const BILLS_SEARCH_API = 'https://bills-api.parliament.uk/api/v1/Bills';
@@ -126,6 +126,7 @@ function resolveGovernmentRole(mp) {
     const postTitle = role.split('• MP for ')[0].trim();
     if (!postTitle) return null;
 
+    // Exclude opposition, shadow, or party spokespeople (e.g. Lib Dem / SNP / Green spokespeople)
     if (/\b(spokesperson|shadow|opposition|liberal democrat|scottish national party|snp|green party|reform uk|plaid cymru|democratic unionist|dup)\b/i.test(postTitle)) {
         return null;
     }
@@ -147,55 +148,27 @@ function resolveGovernmentRole(mp) {
     };
 }
 
-function classifyChamberProceeding(debateTitle = '') {
-    const title = String(debateTitle || '').trim();
-    if (/^points? of order$/i.test(title)) {
-        return {
-            kind: 'point_of_order',
-            label: 'Point of Order',
-            inClause: 'during a point of order in the Commons Chamber',
-            contextPrefix: 'Raising a point of order in the Commons Chamber, they said:'
-        };
+function classifyChamberProceeding(title = '') {
+    const clean = String(title || '').trim();
+    if (/^points? of order$/i.test(clean)) {
+        return { kind: 'point_of_order', label: 'Point of Order', phrase: 'during a point of order in the Commons Chamber' };
     }
-    if (/^(business of the house|business questions|weekly business|forthcoming business)$/i.test(title)) {
-        return {
-            kind: 'business_questions',
-            label: 'Business Questions',
-            inClause: 'during Business Questions in the Commons Chamber',
-            contextPrefix: 'Speaking during Business Questions in the Commons Chamber, they said:'
-        };
+    if (/^(business of the house|business questions|weekly business)$/i.test(clean)) {
+        return { kind: 'business_questions', label: 'Business Questions', phrase: 'during Business Questions in the Commons Chamber' };
     }
-    if (/urgent question/i.test(title)) {
-        return {
-            kind: 'urgent_question',
-            label: 'Urgent Question',
-            inClause: 'during an Urgent Question in the Commons Chamber',
-            contextPrefix: 'Speaking during an Urgent Question in the Commons Chamber, they said:'
-        };
+    if (/urgent question/i.test(clean)) {
+        return { kind: 'urgent_question', label: 'Urgent Question', phrase: 'during an Urgent Question in the Commons Chamber' };
     }
-    if (/ministerial statement|statement/i.test(title)) {
-        return {
-            kind: 'statement',
-            label: 'Ministerial Statement',
-            inClause: `during a ministerial statement on ${title.replace(/^ministerial statement[:\s-]*/i, '').trim() || 'government policy'}`,
-            contextPrefix: 'Speaking during a ministerial statement in the Commons Chamber, they said:'
-        };
+    if (/ministerial statement|statement/i.test(clean)) {
+        return { kind: 'statement', label: 'Ministerial Statement', phrase: 'during a ministerial statement in the Commons Chamber' };
     }
-    if (/oral answers|questions to |prime minister/i.test(title)) {
-        return {
-            kind: 'oral_questions',
-            label: 'Oral Questions',
-            inClause: `during Oral Questions (${title})`,
-            contextPrefix: `Speaking during Oral Questions (${title}), they said:`
-        };
+    if (/oral answers|questions to |prime minister/i.test(clean)) {
+        return { kind: 'oral_questions', label: 'Oral Questions', phrase: 'during Oral Questions in the Commons Chamber' };
     }
     return {
         kind: 'debate',
-        label: title || 'Commons Chamber',
-        inClause: title ? `during proceedings on ${title}` : 'in the Commons Chamber',
-        contextPrefix: title
-            ? `Speaking during proceedings on ${title}, they said:`
-            : 'Addressing the House, they said:'
+        label: clean || 'Commons Chamber',
+        phrase: clean ? `in the Commons Chamber during ${clean}` : 'in the Commons Chamber'
     };
 }
 
@@ -414,8 +387,9 @@ function ensureVerbatimQuoteIntegrity(narrative, speeches, fallbackQuote, fallba
     const cleanNarrative = String(narrative || '').trim();
 
     if (speeches && speeches.length > 0) {
-        const proceeding = classifyChamberProceeding(fallbackDebateTitle || speeches[0]?.debateTitle || '');
-        const fallbackContextLine = proceeding.contextPrefix;
+        const debateName = fallbackDebateTitle || speeches[0]?.debateTitle || '';
+        const proceeding = classifyChamberProceeding(debateName);
+        const fallbackContextLine = `Speaking ${proceeding.phrase}, they said:`;
 
         const fullTranscriptNorm = normalizeForQuoteMatch(speeches.map(s => s.text).join(' '));
         const quoteMatches = extractBalancedDoubleQuotes(cleanNarrative);
@@ -579,11 +553,19 @@ async function fetchExistingBriefingsForDate(sittingDate, mpIds) {
     return existingByMpId;
 }
 
-async function fetchHansardContributionsForDate(dateStr) {
+async function fetchHansardContributionsForDate(dateStr, mps = []) {
     const byMember = new Map();
     const allContributions = [];
     let skip = 0;
     const take = 100;
+
+    const mpIdByName = new Map();
+    for (const mp of mps) {
+        const id = Number(mp.parliament_member_id);
+        if (!id) continue;
+        if (mp.short_name) mpIdByName.set(mp.short_name.toLowerCase().trim(), id);
+        if (mp.full_name) mpIdByName.set(mp.full_name.toLowerCase().trim(), id);
+    }
 
     while (true) {
         const url = new URL(HANSARD_SEARCH_API);
@@ -605,8 +587,9 @@ async function fetchHansardContributionsForDate(dateStr) {
         if (results.length === 0) break;
 
         for (const item of results) {
-            const memberId = Number(item?.MemberId ?? item?.AttributedToMemberId);
-            const memberName = stripHtml(item?.MemberName || item?.AttributedTo || '');
+            const rawMemberName = stripHtml(item?.MemberName || item?.AttributedTo || '');
+            const cleanNameKey = rawMemberName.replace(/\s*\([^)]*\)\s*/g, '').toLowerCase().trim();
+            const memberId = Number(item?.MemberId ?? item?.AttributedToMemberId) || mpIdByName.get(cleanNameKey) || null;
             const debateTitle = stripHtml(item?.DebateSection || item?.Title || 'Commons Chamber');
             const text = stripHtml(item?.Value || item?.ContributionText || '');
             const hrsRef = item?.HRSReference || item?.ExternalId || '';
@@ -614,8 +597,8 @@ async function fetchHansardContributionsForDate(dateStr) {
             if (!text) continue;
 
             allContributions.push({
-                memberId: memberId || null,
-                memberName,
+                memberId,
+                memberName: rawMemberName,
                 debateTitle,
                 text,
                 hrsRef
@@ -635,7 +618,8 @@ async function fetchHansardContributionsForDate(dateStr) {
 
         skip += results.length;
         const total = data?.TotalContributions ?? data?.TotalResults ?? 0;
-        if (skip >= total) break;
+        if (total > 0 && skip >= total) break;
+        if (results.length < take) break;
     }
 
     return { byMember, allContributions };
@@ -1074,6 +1058,7 @@ async function fetchCommitteeSessionsForDate(dateStr) {
             const fallbackData = await fetchJsonWithTimeout(eventsUrl.toString(), 20000);
             const rawEvents = Array.isArray(fallbackData) ? fallbackData : (fallbackData?.items || fallbackData?.value || []);
 
+            // Hydrate each event individually so attendees & witnesses are included
             for (const ev of rawEvents.slice(0, 25)) {
                 const evObj = ev?.value || ev;
                 const evId = evObj?.id || evObj?.eventId;
@@ -1213,7 +1198,7 @@ async function summarizeWithGemini({ mp, readableDate, speeches, committees, wri
         .slice(0, 6)
         .map((s, idx) => {
             const proc = classifyChamberProceeding(s.debateTitle);
-            return `- Contribution ${idx + 1} [${proc.label} — "${s.debateTitle}"]: "${s.text.slice(0, 850)}"`;
+            return `- Contribution ${idx + 1} (${proc.label} — "${s.debateTitle}"): "${s.text.slice(0, 850)}"`;
         })
         .join('\n');
 
@@ -1237,9 +1222,9 @@ Rules:
 - Plain English for all readers. Short paragraphs (2-3 sentences each), separated by \\n\\n.
 - Strictly neutral, non-partisan tone. Never praise, criticise, or speculate about motives.
 - Refer to the MP as "${mp.short_name}". If mentioning constituent work, say only "handling urgent constituent casework".
-- Chamber Contributions Rule: Any entry in "Chamber Contributions" means ${mp.short_name} spoke in the House of Commons Chamber. Note that Chamber contributions include formal debates as well as Business Questions, Oral Questions, Urgent Questions, Ministerial Statements, or Points of Order—never call a non-debate item a "debate" unless it is a debate, and never say ${mp.short_name} did not speak in the Chamber when Chamber Contributions exist.
+- When an MP speaks in the Commons Chamber outside a standard debate (such as Oral Questions, Urgent Questions, Business Questions, Ministerial Statements, or Points of Order), accurately describe that proceeding rather than calling it a general policy debate.
 - Quote Selection & Context Rule (CRITICAL):
-  1. If Chamber Contributions exist: pick the SINGLE most substantive, reader-interesting complete sentence from Chamber Contributions that captures ${mp.short_name}'s main point, business/question exchange, or real-world impact. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries. First write a short, strictly factual paragraph stating that ${mp.short_name} spoke in the Commons Chamber and naming the specific proceeding (such as Business Questions, Oral Questions, a statement, or debate), then place that ONE exact verbatim sentence in its OWN separate paragraph enclosed in double quotes ("...").
+  1. If Chamber Contributions exist: pick the SINGLE most substantive, reader-interesting complete sentence from Contributions that captures ${mp.short_name}'s main policy point, specific concern, or real-world impact. NEVER quote points of order, requests to give way ("Will the Minister give way?"), or opening pleasantries. First write a short, strictly factual paragraph introducing the specific Chamber proceeding or bill ${mp.short_name} was taking part in, then place that ONE exact verbatim sentence in its OWN separate paragraph enclosed in double quotes ("...").
   2. If NO Chamber Contributions exist and Written Questions exist: you may optionally include ONE exact verbatim sentence from a Written Question in its OWN separate paragraph enclosed in double quotes ("..."), followed immediately by a separate paragraph formatted exactly as [WQ_ATTR: Written question tabled to <Minister/Department>].
   3. Never alter, paraphrase, or cut off words inside quotes.
 - Return 2-4 short paragraphs in "summary_para_1" (with the verbatim quote as its own standalone paragraph), 1 short 2-3 sentence "Why this matters" paragraph in "summary_para_2", and 0-2 entries in "glossary".
@@ -1342,7 +1327,7 @@ export async function generateBriefings() {
     const existingByMpId = forceRegen ? new Map() : await fetchExistingBriefingsForDate(targetDate, mpIds);
 
     const [hansardResult, writtenQuestionsByMember, committeesByMember] = await Promise.all([
-        fetchHansardContributionsForDate(targetDate),
+        fetchHansardContributionsForDate(targetDate, mps),
         fetchWrittenQuestionsForDate(targetDate),
         fetchCommitteeSessionsForDate(targetDate)
     ]);
@@ -1477,11 +1462,11 @@ export async function generateBriefings() {
                 summaryPara2 = `By constitutional convention, the Speaker and Deputy Speakers preside over House of Commons debates, keep order, and select amendments—voting only to break a tied result.`;
             } else if (govRole) {
                 activityTag = 'Ministerial & Departmental Work';
-                summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber or cast recorded division votes on ${readableDate}, carrying out ${govRole.postTitle} duties.`;
+                summaryPara1 = `${mp.short_name} had no spoken contributions in the Commons Chamber and cast no recorded division votes on ${readableDate}, carrying out ${govRole.postTitle} duties.`;
                 summaryPara2 = `Government ministers divide their week between running their department, preparing legislation, answering official correspondence, and speaking in the Chamber during their department's question rota.`;
             } else {
                 activityTag = 'Constituency & Parliamentary Work';
-                summaryPara1 = `${mp.short_name} did not speak in the Commons Chamber, attend a public select committee session, or cast a recorded vote on ${readableDate}.\n\nHaving a quiet day on the Chamber floor is common for backbench MPs, particularly when Parliament is debating bills handled by specialist committees.`;
+                summaryPara1 = `${mp.short_name} had no spoken contributions in the Commons Chamber, did not attend a public select committee session, and cast no recorded vote on ${readableDate}.\n\nHaving a day without Chamber contributions is common for MPs, particularly when Parliament is debating bills handled by specialist committees.`;
                 summaryPara2 = `Much of an MP's working week takes place away from the main Chamber—handling urgent constituent casework, meeting local residents, and writing to government ministers on behalf of constituents.`;
             }
 
@@ -1505,7 +1490,7 @@ export async function generateBriefings() {
             voteOnlyDeterministicCount += 1;
             const firstVote = activeVotes[0];
             const activityTag = activeVotes.length === 1 ? '1 Division Vote' : `${activeVotes.length} Division Votes`;
-            const summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
+            const summaryPara1 = `${mp.short_name} had no spoken contributions in the Commons Chamber on ${readableDate}, but took part in ${activeVotes.length} Commons ${activeVotes.length === 1 ? 'vote' : 'votes'}, including voting ${firstVote.mpVote} on ${firstVote.title}.`;
             const summaryPara2 = firstVote.explainer?.underlyingSubject || firstVote.explainer?.billSummary || firstVote.explainer?.stageAndMeaning || `Voting in Commons divisions is how MPs formally approve or reject bills, amendments, and government motions.`;
 
             rowsToUpsert.push({
@@ -1600,32 +1585,30 @@ export async function generateBriefings() {
                         : '';
 
                     if (speeches.length > 0) {
-                        const classifiedList = speeches.map(s => classifyChamberProceeding(s.debateTitle));
-                        const uniqueLabels = [...new Set(classifiedList.map(c => c.label))];
-                        activityTag = uniqueLabels[0].slice(0, 42);
-                        const firstClause = classifiedList[0].inClause;
-                        const extraClause = uniqueLabels.length > 1 ? ` and ${uniqueLabels.slice(1, 2).join(', ')}` : '';
+                        const firstProc = classifyChamberProceeding(speeches[0].debateTitle);
+                        const topics = [...new Set(speeches.map(s => s.debateTitle))].slice(0, 2);
+                        activityTag = firstProc.label.slice(0, 42);
                         const quotePara = verbatimExcerpt
                             ? `\n\n“${verbatimExcerpt}”`
                             : '';
-                        summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke in the Commons Chamber ${firstClause}${extraClause}.${quotePara}${votePara}`;
-                        summaryPara2 = `Contributions in the House of Commons Chamber—whether during debates, Business Questions, Oral Questions, statements, or points of order—place scrutiny and parliamentary business on the official record.`;
+                        summaryPara1 = `On ${readableDate}, ${mp.short_name} spoke ${firstProc.phrase}${firstProc.kind === 'debate' && topics.length > 1 ? ` and ${topics[1]}` : ''}.${quotePara}${votePara}`;
+                        summaryPara2 = `Proceedings in the House of Commons allow MPs to question ministers, put local concerns on the official record, and scrutinise proposals before laws are passed.`;
                     } else if (committees.length > 0) {
                         const commName = committees[0].committeeName;
                         activityTag = commName.slice(0, 42);
-                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, instead taking part in ${committees.length} select committee ${committees.length === 1 ? 'session' : 'sessions'} with the ${commName}.${votePara}`;
+                        summaryPara1 = `${mp.short_name} had no spoken contributions in the Commons Chamber on ${readableDate}, instead taking part in ${committees.length} select committee ${committees.length === 1 ? 'session' : 'sessions'} with the ${commName}.${votePara}`;
                         summaryPara2 = `Select committees are cross-party groups of MPs that investigate government departments and public bodies, questioning ministers and expert witnesses on the public record.`;
                     } else if (answeredQs.length > 0) {
                         const dept = answeredQs[0].department;
                         const topics = [...new Set(answeredQs.map(q => q.heading))].slice(0, 3);
                         activityTag = answeredQs.length === 1 ? 'Answered 1 Written Question' : `Answered ${answeredQs.length} Written Questions`;
-                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}.${votePara}`;
+                        summaryPara1 = `${mp.short_name} had no spoken contributions in the Commons Chamber on ${readableDate}, but answered ${answeredQs.length} written parliamentary ${answeredQs.length === 1 ? 'question' : 'questions'} on behalf of ${dept} regarding ${topics.join(', ')}.${votePara}`;
                         summaryPara2 = `Ministers provide formal written replies to MPs' parliamentary questions on behalf of their department, placing policy details and official figures on the public record.`;
                     } else {
                         const depts = [...new Set(askedQs.map(q => q.department))];
                         const topics = [...new Set(askedQs.map(q => q.heading))].slice(0, 3);
                         activityTag = askedQs.length === 1 ? '1 Written Question' : `${askedQs.length} Written Questions`;
-                        summaryPara1 = `${mp.short_name} did not speak in the main Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}.${votePara}`;
+                        summaryPara1 = `${mp.short_name} had no spoken contributions in the Commons Chamber on ${readableDate}, but tabled ${askedQs.length} written ${askedQs.length === 1 ? 'question' : 'questions'} to ${depts.slice(0, 2).join(' and ')} regarding ${topics.join(', ')}.${votePara}`;
                         summaryPara2 = `Written Parliamentary Questions require government departments to publish formal, on-the-record answers within a set timeframe.`;
                     }
                 }

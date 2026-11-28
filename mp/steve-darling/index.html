@@ -144,7 +144,7 @@
             </p>
 
             <!-- Primary Postcode / MP / Constituency Search -->
-            <div class="w-full max-w-lg relative text-left">
+            <div class="w-full max-w-xl relative text-left">
                 <div class="flex items-center w-full border border-hairline rounded-2xl bg-canvas px-4 py-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.03)] focus-within:border-ink transition-all">
                     <svg class="w-4 h-4 text-inkTertiary mr-3 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -153,7 +153,7 @@
                         id="heroSearchInput"
                         type="text"
                         autocomplete="off"
-                        placeholder="Enter UK postcode (e.g. SW1A 0AA) or MP name..."
+                        placeholder="Enter UK postcode (e.g. SW1A 0AA), constituency, or MP name..."
                         class="w-full bg-transparent text-sm sm:text-base text-ink placeholder-inkTertiary focus:outline-none"
                     >
                     <button id="heroDropdownToggle" type="button" aria-label="Browse all MPs" class="ml-2 p-1.5 text-inkTertiary hover:text-ink transition-colors">
@@ -175,15 +175,16 @@
             </div>
 
             <!-- Official Data Sources Strip -->
-            <div class="w-full max-w-xl mt-10 pt-6 border-t border-hairline/70">
-                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-inkTertiary mb-2">
+            <div class="w-full max-w-3xl mx-auto mt-10 pt-6 border-t border-hairline/70 text-center">
+                <p class="font-editorial text-xs sm:text-sm text-inkSecondary tracking-normal mb-3">
                     Compiled directly from official public records
                 </p>
-                <div class="flex justify-center">
+                <div class="w-full flex justify-center overflow-hidden">
                     <img
                         src="/assets/sources.svg"
                         alt="UK Parliament, Hansard, and GOV.UK"
-                        class="w-full max-w-lg h-16 sm:h-20 object-contain opacity-80 hover:opacity-100 transition-opacity select-none"
+                        class="w-full max-w-2xl sm:max-w-3xl h-auto mx-auto opacity-85 hover:opacity-100 transition-opacity select-none"
+                        onerror="this.replaceWith(Object.assign(document.createElement('p'), { className: 'text-xs font-medium text-inkTertiary tracking-wide', textContent: 'UK Parliament · Hansard · GOV.UK' }))"
                     />
                 </div>
             </div>
@@ -549,9 +550,13 @@
             <p>
                 <span class="font-editorial font-semibold text-ink">Whip.</span> - Public parliamentary record simplified.
             </p>
-            <p>
-                Contains Parliamentary information licensed under the Open Parliament Licence v3.0.
-            </p>
+            <div class="flex flex-wrap items-center justify-center sm:justify-end gap-x-4 gap-y-1">
+                <a href="/privacy/" class="hover:text-ink transition-colors">Privacy Policy</a>
+                <span>&middot;</span>
+                <a href="/terms/" class="hover:text-ink transition-colors">Terms of Service</a>
+                <span>&middot;</span>
+                <span>Open Parliament Licence v3.0</span>
+            </div>
         </div>
     </footer>
 
@@ -562,6 +567,25 @@
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const RETENTION_DAYS = 56; // 8 weeks
+        const STORAGE_OPT_OUT_KEY = 'whip_storage_opt_out';
+        const WATCHLIST_KEY = 'whip_watchlist';
+
+        function isStorageOptedOut() {
+            try {
+                return localStorage.getItem(STORAGE_OPT_OUT_KEY) === 'true';
+            } catch {
+                return true;
+            }
+        }
+
+        function loadInitialWatchlist() {
+            if (isStorageOptedOut()) return [];
+            try {
+                return JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
+            } catch {
+                return [];
+            }
+        }
 
         const state = {
             mps: [],
@@ -578,7 +602,7 @@
             isCurrentWeekSummary: false,
             selectedDate: null,
             currentTab: 'briefing',
-            watchlist: JSON.parse(localStorage.getItem('whip_watchlist') || '[]'),
+            watchlist: loadInitialWatchlist(),
             profileCache: new Map()
         };
 
@@ -829,23 +853,13 @@
             }
         }
 
-        function buildSubscriberRows(email, targetIds) {
+        async function subscribeEmailToMps(email, targetIds) {
             const cleanEmail = String(email || '').trim().toLowerCase();
-            return [...targetIds]
-                .map(mpId => {
-                    const mp = state.mpById.get(Number(mpId));
-                    if (!mp) return null;
-                    const constituencyId = mp.constituency_id ?? mp.constituencies?.parliament_constituency_id ?? null;
-                    const constituencyGssCode = mp.constituencies?.gss_code ?? null;
-                    return {
-                        email: cleanEmail,
-                        parliament_member_id: Number(mp.parliament_member_id),
-                        constituency_id: constituencyId,
-                        constituency_gss_code: constituencyGssCode,
-                        is_active: true
-                    };
-                })
-                .filter(Boolean);
+            const mpIds = [...targetIds].map(Number).filter(Boolean);
+            return sb.rpc('subscribe_newsletter_mps', {
+                p_email: cleanEmail,
+                p_mp_ids: mpIds
+            });
         }
 
         /* -------------------------------------------------------------
@@ -2011,6 +2025,21 @@
             return flat;
         }
 
+        function formatSubscriptionConfirmation(mpShortName, targetIds, subResult) {
+            const totalActive = Number(subResult?.total_active_mps || targetIds.size || 1);
+            const newlyAdded = Number(subResult?.newly_added || 0);
+
+            if (totalActive > 1) {
+                return newlyAdded > 0
+                    ? `Subscribed — your Sunday briefing now covers ${totalActive} MPs in one email.`
+                    : `You’re already subscribed — your Sunday briefing covers ${totalActive} MPs in one email.`;
+            }
+
+            return newlyAdded > 0
+                ? `Subscribed — you’ll receive ${mpShortName}’s parliamentary roundup every Sunday morning.`
+                : `You’re already subscribed to ${mpShortName}’s Sunday briefing.`;
+        }
+
         function renderProfileNewsletterCard(mp) {
             const slot = els.profileNewsletterSlot;
             if (!slot || !mp) return;
@@ -2085,35 +2114,16 @@
                 submitBtn.disabled = true;
                 submitBtn.textContent = 'Saving...';
 
-                let newlyAdded = 0;
-                let failedCount = 0;
-
-                const rowsToInsert = buildSubscriberRows(email, targetIds);
-                for (const row of rowsToInsert) {
-                    const { error } = await sb
-                        .from('newsletter_subscribers')
-                        .insert(row);
-
-                    if (!error) newlyAdded += 1;
-                    else if (error.code !== '23505') failedCount += 1;
-                }
+                const { data: subResult, error: subError } = await subscribeEmailToMps(email, targetIds);
 
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Send Sundays';
                 statusEl.className = 'mt-3 text-xs font-medium';
 
-                if (failedCount === 0 && targetIds.size === 1) {
-                    if (newlyAdded === 1) emailInput.value = '';
+                if (!subError && subResult) {
+                    if (Number(subResult.newly_added || 0) > 0) emailInput.value = '';
                     statusEl.classList.add('text-commonsGreen');
-                    statusEl.textContent = newlyAdded === 1
-                        ? `Subscribed — you’ll receive ${state.currentMp.short_name}’s parliamentary roundup every Sunday morning.`
-                        : `You’re already subscribed to ${state.currentMp.short_name}’s Sunday briefing.`;
-                } else if (failedCount === 0 && targetIds.size > 1) {
-                    if (newlyAdded > 0) emailInput.value = '';
-                    statusEl.classList.add('text-commonsGreen');
-                    statusEl.textContent = newlyAdded > 0
-                        ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
-                        : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
+                    statusEl.textContent = formatSubscriptionConfirmation(state.currentMp.short_name, targetIds, subResult);
                 } else {
                     statusEl.classList.add('text-red-600');
                     statusEl.textContent = 'Could not save your subscription right now. Please check your email and try again.';
@@ -2532,18 +2542,28 @@
 
         async function handleNewsletterUnsubscribe() {
             const params = new URLSearchParams(window.location.search);
-            const token = params.get('unsubscribe');
-            if (!token) return;
+            const singleToken = params.get('unsubscribe');
+            const allToken = params.get('unsubscribe_all');
+            if (!singleToken && !allToken) return;
 
-            const { data, error } = await sb.rpc('unsubscribe_newsletter', { p_token: token });
+            const isUnsubscribeAll = Boolean(allToken);
+            const { data, error } = isUnsubscribeAll
+                ? await sb.rpc('unsubscribe_all_newsletter', { p_token: allToken })
+                : await sb.rpc('unsubscribe_newsletter', { p_token: singleToken });
+
             const banner = document.createElement('div');
             banner.className = 'max-w-3xl mx-auto mt-4 px-4 py-3 rounded-xl border border-hairline bg-surfaceSubtle text-xs sm:text-sm text-ink flex items-center justify-between gap-4';
-            banner.innerHTML = error || !data
-                ? '<span>This unsubscribe link has already been used or is invalid.</span>'
-                : '<span>You have been unsubscribed from this MP’s Sunday briefing.</span>';
+            if (error || !data) {
+                banner.innerHTML = '<span>This unsubscribe link has already been used or is invalid.</span>';
+            } else if (isUnsubscribeAll) {
+                banner.innerHTML = '<span>You have been unsubscribed from all Whip. Sunday briefings.</span>';
+            } else {
+                banner.innerHTML = '<span>You have been unsubscribed from this MP’s Sunday briefing.</span>';
+            }
             document.body.prepend(banner);
 
             params.delete('unsubscribe');
+            params.delete('unsubscribe_all');
             const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
             window.history.replaceState({}, '', cleanUrl);
         }
@@ -2674,7 +2694,11 @@
                 } else {
                     state.watchlist = [...state.watchlist, id];
                 }
-                localStorage.setItem('whip_watchlist', JSON.stringify(state.watchlist));
+                if (!isStorageOptedOut()) {
+                    try {
+                        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(state.watchlist));
+                    } catch {}
+                }
                 updateWatchlistUi();
             });
 
@@ -2700,43 +2724,18 @@
                 els.mpNewsletterSubmit.disabled = true;
                 els.mpNewsletterSubmit.textContent = 'Saving...';
 
-                let newlyAdded = 0;
-                let failedCount = 0;
-
-                const rowsToInsert = buildSubscriberRows(email, targetIds);
-                for (const row of rowsToInsert) {
-                    const { error } = await sb
-                        .from('newsletter_subscribers')
-                        .insert(row);
-
-                    if (!error) {
-                        newlyAdded += 1;
-                    } else if (error.code !== '23505') {
-                        failedCount += 1;
-                    }
-                }
+                const { data: subResult, error: subError } = await subscribeEmailToMps(email, targetIds);
 
                 els.mpNewsletterSubmit.disabled = false;
                 els.mpNewsletterSubmit.textContent = 'Send Sundays';
                 els.mpNewsletterStatus.classList.remove('hidden', 'text-commonsGreen', 'text-red-600');
 
-                if (failedCount === 0 && targetIds.size === 1) {
-                    if (newlyAdded === 1) {
-                        els.mpNewsletterEmail.value = '';
-                        els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                        els.mpNewsletterStatus.textContent = `Subscribed — you’ll receive ${state.currentMp.short_name}’s parliamentary roundup every Sunday morning.`;
-                    } else {
-                        els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                        els.mpNewsletterStatus.textContent = `You’re already subscribed to ${state.currentMp.short_name}’s Sunday briefing.`;
-                    }
-                } else if (failedCount === 0 && targetIds.size > 1) {
-                    if (newlyAdded > 0) {
+                if (!subError && subResult) {
+                    if (Number(subResult.newly_added || 0) > 0) {
                         els.mpNewsletterEmail.value = '';
                     }
                     els.mpNewsletterStatus.classList.add('text-commonsGreen');
-                    els.mpNewsletterStatus.textContent = newlyAdded > 0
-                        ? `Subscribed to ${targetIds.size} MPs (${state.currentMp.short_name} + your Watchlist) — you’ll receive their roundups every Sunday morning.`
-                        : `You’re already subscribed to all ${targetIds.size} MPs on your list.`;
+                    els.mpNewsletterStatus.textContent = formatSubscriptionConfirmation(state.currentMp.short_name, targetIds, subResult);
                 } else {
                     els.mpNewsletterStatus.classList.add('text-red-600');
                     els.mpNewsletterStatus.textContent = 'Could not save your subscription right now. Please check your email and try again.';
